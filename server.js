@@ -3,9 +3,12 @@
 const http = require('http');
 const fs   = require('fs');
 const path = require('path');
+const { buildXlsx } = require('./xlsx-lite');
+const { renderOpenPage, objectsToRows } = require('./open-page');
 
 const PORT    = process.env.PORT || 3000;
 const DB_FILE = path.join(__dirname, 'database.json');
+const DL_DIR  = path.join(__dirname, 'user-downloads');
 
 // ─── DB helpers ──────────────────────────────────────────────────────────────
 
@@ -36,6 +39,8 @@ function initDb() {
             },
             studentReportDetails: {},
             parentContacts:       {},
+            attendanceMarks:      {},
+            attendanceSettings:   { defaultDays: {}, studentDays: {}, studentPresentOverride: {} },
             auditLogs:            []
         };
         fs.writeFileSync(DB_FILE, JSON.stringify(initialData, null, 2), 'utf8');
@@ -58,7 +63,8 @@ function initBlankDb() {
         students: [], teachers: [], classes: [], subjects: [],
         academicYears: [], terms: [], results: [], reports: [], users: [],
         gradingScales: [], schoolSettings: {}, scores: {}, schoolInfo: {},
-        studentReportDetails: {}, parentContacts: {}, auditLogs: []
+        studentReportDetails: {}, parentContacts: {},
+        attendanceMarks: {}, attendanceSettings: {}, auditLogs: []
     };
 }
 
@@ -74,6 +80,189 @@ function writeDb(data) {
 
 function genId() {
     return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+}
+
+function ensureDlDir() {
+    if (!fs.existsSync(DL_DIR)) fs.mkdirSync(DL_DIR, { recursive: true });
+}
+
+function safeFilePart(name) {
+    return String(name || 'file').replace(/[^\w.\-]+/g, '_').slice(0, 140);
+}
+
+function sendAttachment(res, buffer, filename, mime) {
+    const name = safeFilePart(filename);
+    const buf = Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer);
+    const type = mime || 'application/octet-stream';
+    const inline = /csv|json|text\/|html/.test(type);
+    res.writeHead(200, {
+        'Content-Type': type,
+        'Content-Disposition': `${inline ? 'inline' : 'attachment'}; filename="${name}"; filename*=UTF-8''${encodeURIComponent(name)}`,
+        'Content-Length': buf.length,
+        'Cache-Control': 'no-store, no-cache, must-revalidate',
+        'X-Content-Type-Options': 'nosniff'
+    });
+    res.end(buf);
+}
+
+function sendExcel(res, rows, filename, sheetName) {
+    const buf = buildXlsx(rows, sheetName || 'Sheet1');
+    sendAttachment(res, buf, String(filename).endsWith('.xlsx') ? filename : filename + '.xlsx');
+}
+
+const IMPORT_TEMPLATES = {
+    students: {
+        headers: ['admissionNo', 'name', 'gender', 'dob', 'class', 'parentName', 'parentPhone'],
+        sample: [
+            ['TLS/2026/001', 'Ama Mensah (SAMPLE)', 'Female', '2014-03-12', 'Class 6', 'Akosua Mensah', '0241234567'],
+            ['TLS/2026/002', 'Kofi Asante (SAMPLE)', 'Male', '2013-11-08', 'Class 6', 'Yaw Asante', '0209876543'],
+            ['TLS/2026/003', 'Type student name here', 'Female', 'YYYY-MM-DD', 'Class 5', 'Type parent name', '0240000000']
+        ]
+    },
+    teachers: {
+        headers: ['name', 'email', 'phone', 'role', 'assignedClasses', 'assignedSubjects'],
+        sample: [
+            ['Abena Owusu (SAMPLE)', 'abena.owusu@school.com', '0241112233', 'Teacher', 'Class 6', 'Mathematics, Science'],
+            ['Kwame Boateng (SAMPLE)', 'kwame.boateng@school.com', '0205556677', 'Class Teacher', 'Class 5', 'English Language'],
+            ['Type teacher name here', 'teacher@school.com', '0240000000', 'Teacher', 'Class 4', 'Type subjects']
+        ]
+    },
+    classes: {
+        headers: ['name', 'level', 'classTeacherName'],
+        sample: [
+            ['Class 6', 'Primary', 'Abena Owusu (SAMPLE)'],
+            ['Class 5', 'Primary', 'Kwame Boateng (SAMPLE)'],
+            ['Class 1', 'Primary', 'Type class teacher name']
+        ]
+    },
+    subjects: {
+        headers: ['code', 'name', 'classNames'],
+        sample: [
+            ['MATH', 'Mathematics', 'Class 6, Class 5'],
+            ['ENG', 'English Language', 'Class 6, Class 5'],
+            ['SCI', 'Science', 'Class 6, Class 5'],
+            ['CODE', 'Type subject name', 'Class 1, Class 2']
+        ]
+    },
+    results: {
+        headers: ['studentId', 'studentName', 'classId', 'subjectId', 'classScore', 'examScore'],
+        sample: [
+            ['TLS/2026/001', 'Ama Mensah (SAMPLE)', 'Class 6', 'Mathematics', 80, 90],
+            ['TLS/2026/002', 'Kofi Asante (SAMPLE)', 'Class 6', 'Mathematics', 76, 88],
+            ['TLS/2026/003', 'Type student name', 'Class 6', 'English Language', 0, 0]
+        ]
+    }
+};
+
+function templateRows(type) {
+    const spec = IMPORT_TEMPLATES[type];
+    if (!spec) return null;
+    return [spec.headers, ...spec.sample];
+}
+
+function marksTable(cls, subject) {
+    const db = readDb();
+    let list = db.students || [];
+    if (cls) list = list.filter(s => s.class === cls || s.classId === cls);
+    if (!list.length) {
+        list = [
+            { name: 'Ama Mensah (SAMPLE)', class: cls || 'Class 6' },
+            { name: 'Kofi Asante (SAMPLE)', class: cls || 'Class 6' },
+            { name: 'Type student name here', class: cls || 'Class 6' }
+        ];
+    }
+    const headers = ['Student Name', 'Class', 'Subject', 'Class Score (out of 100)', 'Exam Score (out of 100)'];
+    return [headers, ...list.map((s, i) => [
+        s.name || '',
+        s.class || cls || '',
+        subject || 'Mathematics',
+        i === list.length - 1 && String(s.name || '').startsWith('Type') ? '' : 80,
+        i === list.length - 1 && String(s.name || '').startsWith('Type') ? '' : 90
+    ])];
+}
+
+function collectionTable(col) {
+    const db = readDb();
+    const data = db[col];
+    if (data === undefined) return null;
+    const rows = Array.isArray(data) ? data : [data];
+    return objectsToRows(rows.length ? rows : [{ '(empty)': '' }]);
+}
+
+function resolveExportTable(src, extra) {
+    const raw = String(src || extra.get('src') || '/api/templates/students.xlsx');
+    let url;
+    try { url = new URL(raw, 'http://local'); } catch (e) { url = new URL('/api/templates/students.xlsx', 'http://local'); }
+    extra.forEach((v, k) => { if (k !== 'src' && !url.searchParams.get(k)) url.searchParams.set(k, v); });
+    const p = url.pathname;
+    const q = url.searchParams;
+
+    if (p.includes('/templates/marks')) {
+        const cls = q.get('class') || '';
+        const subject = q.get('subject') || 'Mathematics';
+        return { title: 'Marks template', filename: 'marks_template.xlsx', rows: marksTable(cls, subject) };
+    }
+    const tmpl = p.match(/\/templates\/([a-z]+)/);
+    if (tmpl) {
+        const rows = templateRows(tmpl[1]);
+        return { title: tmpl[1] + ' template', filename: tmpl[1] + '_import_template.xlsx', rows: rows || [['Unknown template']] };
+    }
+    if (p.includes('/export/backup')) {
+        const db = readDb();
+        return { title: 'School backup', filename: 'school_backup.json', rows: [['Key', 'Count'], ...Object.keys(db).map(k => [k, Array.isArray(db[k]) ? db[k].length : (db[k] && typeof db[k] === 'object' ? Object.keys(db[k]).length : 1)])] };
+    }
+    if (p.includes('/export/student')) {
+        const adm = q.get('admission') || q.get('id') || '';
+        const db = readDb();
+        const student = (db.students || []).find(s => String(s.admissionNo || '').toLowerCase() === adm.toLowerCase() || String(s.id) === String(adm));
+        const scores = db.scores || {};
+        const rows = [['Subject', 'Class Score', 'Exam Score', 'Total', 'Grade', 'Remark']];
+        if (student) {
+            Object.keys(scores).forEach(sub => {
+                const bag = scores[sub] || {};
+                const e = bag[student.id] || bag[String(student.id)];
+                if (e) rows.push([sub, e.classScore ?? '', e.examScore ?? '', e.totalScore ?? '', e.grade || '', e.remark || '']);
+            });
+            if (rows.length === 1) rows.push(['No published results', '', '', '', '', '']);
+        } else rows.push(['Student not found', '', '', '', '', '']);
+        return { title: ((student && student.name) || adm || 'Student') + ' results', filename: 'student_results.xlsx', rows };
+    }
+    if (p.includes('/export/attendance')) {
+        return { title: 'Attendance', filename: 'attendance.xlsx', rows: collectionTable('attendanceMarks') || [['No attendance yet']] };
+    }
+    const col = (p.match(/\/export\/([a-zA-Z]+)/) || [])[1];
+    if (col) {
+        const rows = collectionTable(col);
+        return { title: col, filename: col + '.xlsx', rows: rows || [['No data']] };
+    }
+    return { title: 'Export', filename: 'export.xlsx', rows: [['Choose a template from Admin → Data Management']] };
+}
+
+function csvEscape(value) {
+    return `"${String(value == null ? '' : value).replace(/"/g, '""')}"`;
+}
+
+function rowsToCsv(rows, headers) {
+    const cols = headers || (rows[0] ? Object.keys(rows[0]) : []);
+    const lines = [cols.map(csvEscape).join(',')];
+    rows.forEach(r => {
+        lines.push(cols.map(h => csvEscape(r[h])).join(','));
+    });
+    return '\uFEFF' + lines.join('\n');
+}
+
+function pruneOldDownloads() {
+    try {
+        ensureDlDir();
+        const now = Date.now();
+        fs.readdirSync(DL_DIR).forEach(name => {
+            const full = path.join(DL_DIR, name);
+            try {
+                const st = fs.statSync(full);
+                if (now - st.mtimeMs > 2 * 24 * 60 * 60 * 1000) fs.unlinkSync(full);
+            } catch (e) {}
+        });
+    } catch (e) {}
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -114,7 +303,10 @@ const MIME_TYPES = {
     '.woff': 'font/woff',
     '.woff2':'font/woff2',
     '.ttf':  'font/ttf',
-    '.pdf':  'application/pdf'
+    '.pdf':  'application/pdf',
+    '.csv':  'text/csv; charset=UTF-8',
+    '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    '.xls':  'application/vnd.ms-excel'
 };
 
 // ─── Generic collection CRUD ──────────────────────────────────────────────────
@@ -174,7 +366,7 @@ const server = http.createServer(async (req, res) => {
 
     const parsedUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
     const pathname  = parsedUrl.pathname;
-    const method    = req.method.toUpperCase();
+    const method    = req.method.toUpperCase() === 'HEAD' ? 'GET' : req.method.toUpperCase();
 
     // ── API Routes ──────────────────────────────────────────────────────────
 
@@ -213,7 +405,7 @@ const server = http.createServer(async (req, res) => {
             try {
                 const payload = await readBody(req);
                 const db = readDb();
-                const allowed = ['students','scores','schoolInfo','studentReportDetails','parentContacts'];
+                const allowed = ['students','scores','schoolInfo','studentReportDetails','parentContacts','attendanceMarks','attendanceSettings','reports','classes','teachers','schoolSettings'];
                 allowed.forEach(k => { if (payload[k] !== undefined) db[k] = payload[k]; });
                 writeDb(db);
                 sendJson(res, 200, { success: true, timestamp: new Date().toISOString() });
@@ -521,14 +713,41 @@ const server = http.createServer(async (req, res) => {
             return;
         }
 
-        // ── AUDIT LOGS ───────────────────────────────────────────────────────
+        if (pathname === '/api/attendance-marks' && method === 'GET') {
+            sendJson(res, 200, readDb().attendanceMarks || {});
+            return;
+        }
+        if (pathname === '/api/attendance-marks' && method === 'POST') {
+            try {
+                const payload = await readBody(req);
+                const db = readDb();
+                db.attendanceMarks = payload;
+                writeDb(db);
+                sendJson(res, 200, { success: true });
+            } catch (e) { sendJson(res, 400, { error: e.message }); }
+            return;
+        }
+        if (pathname === '/api/attendance-settings' && method === 'GET') {
+            sendJson(res, 200, readDb().attendanceSettings || {});
+            return;
+        }
+        if (pathname === '/api/attendance-settings' && method === 'POST') {
+            try {
+                const payload = await readBody(req);
+                const db = readDb();
+                db.attendanceSettings = payload;
+                writeDb(db);
+                sendJson(res, 200, { success: true });
+            } catch (e) { sendJson(res, 400, { error: e.message }); }
+            return;
+        }
+
         if (pathname === '/api/audit-logs' && method === 'GET') {
             const db   = readDb();
             const limit = parseInt(parsedUrl.searchParams.get('limit') || '200');
             sendJson(res, 200, (db.auditLogs || []).slice(0, limit));
             return;
         }
-
         if (pathname === '/api/audit-logs' && method === 'POST') {
             try {
                 const logEntry = await readBody(req);
@@ -541,7 +760,6 @@ const server = http.createServer(async (req, res) => {
             } catch (e) { sendJson(res, 400, { error: e.message }); }
             return;
         }
-
         if (pathname === '/api/audit-logs' && method === 'DELETE') {
             const db = readDb();
             db.auditLogs = [];
@@ -550,73 +768,234 @@ const server = http.createServer(async (req, res) => {
             return;
         }
 
-        // ── DATA EXPORT ───────────────────────────────────────────────────────
-        // GET /api/export/backup — full JSON backup
         if (pathname === '/api/export/backup' && method === 'GET') {
             const db = readDb();
             const body = JSON.stringify({ exportedAt: new Date().toISOString(), ...db }, null, 2);
-            res.writeHead(200, {
-                'Content-Type': 'application/json; charset=UTF-8',
-                'Content-Disposition': `attachment; filename="school_backup_${new Date().toISOString().split('T')[0]}.json"`
-            });
-            res.end(body);
+            sendAttachment(res, body, `school_backup_${new Date().toISOString().split('T')[0]}.json`, 'application/json; charset=UTF-8');
             return;
         }
 
-        // GET /api/export/students.csv
-        if (pathname === '/api/export/students.csv' && method === 'GET') {
+        if ((pathname === '/api/export/students.csv' || pathname === '/api/export/students.xlsx') && method === 'GET') {
             const db = readDb();
             const rows = db.students || [];
-            if (!rows.length) { sendJson(res, 200, []); return; }
             const headers = ['id','admissionNo','name','gender','dob','class','classId','status','parentName','parentPhone'];
-            const csv = [
-                headers.join(','),
-                ...rows.map(r => headers.map(h => `"${(r[h] ?? '').toString().replace(/"/g, '""')}"`).join(','))
-            ].join('\n');
-            res.writeHead(200, {
-                'Content-Type': 'text/csv; charset=UTF-8',
-                'Content-Disposition': 'attachment; filename="students.csv"'
-            });
-            res.end(csv);
+            const table = rows.length
+                ? [headers, ...rows.map(r => headers.map(h => r[h] ?? ''))]
+                : templateRows('students');
+            if (pathname.endsWith('.xlsx')) { sendExcel(res, table, 'students.xlsx', 'Students'); return; }
+            sendAttachment(res, rowsToCsv(table.slice(1).map(r => {
+                const obj = {};
+                table[0].forEach((h, i) => { obj[h] = r[i]; });
+                return obj;
+            }), table[0]), 'students.csv', 'text/csv; charset=UTF-8');
             return;
         }
 
-        // GET /api/export/results.csv
-        if (pathname === '/api/export/results.csv' && method === 'GET') {
+        if ((pathname === '/api/export/results.csv' || pathname === '/api/export/results.xlsx') && method === 'GET') {
             const db = readDb();
             const rows = db.results || [];
-            if (!rows.length) { res.writeHead(200, { 'Content-Type': 'text/csv' }); res.end(''); return; }
             const headers = ['id','studentId','studentName','classId','subjectId','classScore','examScore','totalScore','grade','remark','status','locked'];
-            const csv = [
-                headers.join(','),
-                ...rows.map(r => headers.map(h => `"${(r[h] ?? '').toString().replace(/"/g, '""')}"`).join(','))
-            ].join('\n');
-            res.writeHead(200, {
-                'Content-Type': 'text/csv; charset=UTF-8',
-                'Content-Disposition': 'attachment; filename="results.csv"'
-            });
-            res.end(csv);
+            const table = [headers, ...rows.map(r => headers.map(h => r[h] ?? ''))];
+            if (pathname.endsWith('.xlsx')) { sendExcel(res, table, 'results.xlsx', 'Results'); return; }
+            sendAttachment(res, rowsToCsv(rows.length ? rows : [{}], headers), 'results.csv', 'text/csv; charset=UTF-8');
             return;
         }
 
-        // GET /api/templates/:type — Download standard import template CSV
-        const templateMatch = pathname.match(/^\/api\/templates\/([a-z]+)$/);
-        if (templateMatch && method === 'GET') {
+        // GET /api/templates/marks.csv|.xlsx
+        if ((pathname === '/api/templates/marks.csv' || pathname === '/api/templates/marks.xlsx' || pathname === '/api/templates/marks') && method === 'GET') {
+            const cls = parsedUrl.searchParams.get('class') || '';
+            const subject = parsedUrl.searchParams.get('subject') || 'Mathematics';
+            const table = marksTable(cls, subject);
+            const headers = table[0];
+            const safeClass = (cls || 'class').replace(/[^\w]+/g, '_');
+            const safeSub = String(subject).replace(/[^\w]+/g, '_');
+            if (pathname.endsWith('.xlsx')) {
+                sendExcel(res, table, `${safeClass}_${safeSub}_marks_template.xlsx`, 'Marks');
+                return;
+            }
+            sendAttachment(res, rowsToCsv(table.slice(1).map(r => ({
+                'Student Name': r[0], Class: r[1], Subject: r[2],
+                'Class Score (out of 100)': r[3], 'Exam Score (out of 100)': r[4]
+            })), headers), `${safeClass}_${safeSub}_marks_template.csv`, 'text/csv; charset=UTF-8');
+            return;
+        }
+
+        // GET /api/templates/:type[.csv|.xlsx]
+        const templateMatch = pathname.match(/^\/api\/templates\/([a-z]+)(?:\.(csv|xlsx))?$/);
+        if (templateMatch && method === 'GET' && templateMatch[1] !== 'marks') {
             const type = templateMatch[1];
-            const templates = {
-                students: 'admissionNo,name,gender,dob,class,parentName,parentPhone\nTLS/2026/001,John Doe,Male,2014-05-12,Class 6,Robert Doe,0201234567\nTLS/2026/002,Jane Smith,Female,2014-08-20,Class 6,Mary Smith,0249876543',
-                teachers: 'name,email,phone,role,assignedClasses,assignedSubjects\nKwame Mensah,teacher@school.com,0201234567,Teacher,"Class 6","Mathematics, Science"',
-                classes:  'name,level,classTeacherName\nClass 6,Upper Primary,Kwame Mensah',
-                subjects: 'code,name,classNames\nMATH,Mathematics,"Class 6, Class 5"\nENG,English Language,"Class 6, Class 5"',
-                results:  'studentId,studentName,classId,subjectId,classScore,examScore\nTLS/2026/001,John Doe,Class 6,Mathematics,42,48\nTLS/2026/002,Jane Smith,Class 6,Mathematics,38,44'
-            };
-            const content = templates[type];
-            if (!content) { sendJson(res, 404, { error: 'Template type not found' }); return; }
-            res.writeHead(200, {
-                'Content-Type': 'text/csv; charset=UTF-8',
-                'Content-Disposition': `attachment; filename="${type}_import_template.csv"`
+            const fmt = templateMatch[2] || 'xlsx';
+            const table = templateRows(type);
+            if (!table) { sendJson(res, 404, { error: 'Template type not found' }); return; }
+            if (fmt === 'xlsx') {
+                sendExcel(res, table, `${type}_import_template.xlsx`, type);
+                return;
+            }
+            sendAttachment(res, rowsToCsv(table.slice(1).map(r => {
+                const obj = {};
+                table[0].forEach((h, i) => { obj[h] = r[i]; });
+                return obj;
+            }), table[0]), `${type}_import_template.csv`, 'text/csv; charset=UTF-8');
+            return;
+        }
+
+        // GET /api/export/attendance.csv
+        // GET /api/export/attendance.csv
+        if ((pathname === '/api/export/attendance.csv' || pathname === '/api/export/attendance.xlsx') && method === 'GET') {
+            const db = readDb();
+            const marks = db.attendanceMarks || {};
+            const rows = [];
+            Object.keys(marks).forEach(sid => {
+                const days = marks[sid] || {};
+                Object.keys(days).forEach(date => {
+                    const m = days[date] || {};
+                    const student = (db.students || []).find(s => String(s.id) === String(sid));
+                    rows.push({
+                        studentId: sid,
+                        studentName: student?.name || '',
+                        class: student?.class || m.className || '',
+                        date,
+                        status: m.status || '',
+                        markedBy: m.by || ''
+                    });
+                });
             });
-            res.end(content);
+            const attHeaders = ['studentId','studentName','class','date','status','markedBy'];
+            if (pathname.endsWith('.xlsx')) {
+                sendExcel(res, [attHeaders, ...rows.map(r => attHeaders.map(h => r[h] ?? ''))], 'attendance.xlsx', 'Attendance');
+                return;
+            }
+            sendAttachment(res, rowsToCsv(rows, attHeaders), 'attendance.csv', 'text/csv; charset=UTF-8');
+            return;
+        }
+
+        // GET /api/export/broadsheet.csv?class=
+        if ((pathname === '/api/export/broadsheet.csv' || pathname === '/api/export/broadsheet.xlsx') && method === 'GET') {
+            const cls = parsedUrl.searchParams.get('class') || '';
+            const db = readDb();
+            let list = db.students || [];
+            if (cls) list = list.filter(s => s.class === cls || s.classId === cls);
+            const subjects = ['English Language','Mathematics','Science','RME','History','Creative Arts','Computing','French','Asante Twi','Career Technology'];
+            const scores = db.scores || {};
+            const rows = list.map(s => {
+                const row = { Student: s.name, Class: s.class || cls };
+                let sum = 0, n = 0;
+                subjects.forEach(sub => {
+                    const bag = scores[sub] || {};
+                    const e = bag[s.id] || bag[String(s.id)] || {};
+                    const tot = e.totalScore === '' || e.totalScore == null ? '' : e.totalScore;
+                    row[sub] = tot;
+                    if (tot !== '') { sum += Number(tot) || 0; n++; }
+                });
+                row.Total = n ? sum : '';
+                row.Average = n ? Math.round((sum / n) * 10) / 10 : '';
+                return row;
+            });
+            if (pathname.endsWith('.xlsx')) {
+                sendExcel(res, rows, `${safeFilePart(cls || 'class')}_broadsheet.xlsx`, 'Broadsheet');
+                return;
+            }
+            sendAttachment(res, rowsToCsv(rows), `${safeFilePart(cls || 'class')}_broadsheet.csv`, 'text/csv; charset=UTF-8');
+            return;
+        }
+
+        if ((pathname === '/api/export/performance.csv' || pathname === '/api/export/performance.xlsx') && method === 'GET') {
+            const cls = parsedUrl.searchParams.get('class') || '';
+            const db = readDb();
+            let list = db.students || [];
+            if (cls) list = list.filter(s => s.class === cls || s.classId === cls);
+            const subjects = ['English Language','Mathematics','Science','RME','History','Creative Arts','Computing','French','Asante Twi','Career Technology'];
+            const scores = db.scores || {};
+            const rows = list.map(s => {
+                let sum = 0, n = 0;
+                subjects.forEach(sub => {
+                    const bag = scores[sub] || {};
+                    const e = bag[s.id] || bag[String(s.id)] || {};
+                    const tot = e.totalScore === '' || e.totalScore == null ? '' : Number(e.totalScore);
+                    if (tot !== '') { sum += tot || 0; n++; }
+                });
+                return { Student: s.name, Class: s.class || cls, Average: n ? Math.round((sum / n) * 10) / 10 : '', Subjects: n };
+            });
+            if (pathname.endsWith('.xlsx')) { sendExcel(res, rows, `${safeFilePart(cls || 'class')}_performance.xlsx`, 'Performance'); return; }
+            sendAttachment(res, rowsToCsv(rows), `${safeFilePart(cls || 'class')}_performance.csv`, 'text/csv; charset=UTF-8');
+            return;
+        }
+
+
+        if ((pathname === '/api/export/student.xlsx' || pathname === '/api/export/student.csv') && method === 'GET') {
+            const adm = parsedUrl.searchParams.get('admission') || parsedUrl.searchParams.get('id') || '';
+            const db = readDb();
+            const student = (db.students || []).find(s => String(s.admissionNo || '').toLowerCase() === adm.toLowerCase() || String(s.id) === String(adm));
+            const scores = db.scores || {};
+            const rows = [['Subject', 'Class Score', 'Exam Score', 'Total', 'Grade', 'Remark']];
+            if (student) {
+                Object.keys(scores).forEach(sub => {
+                    const bag = scores[sub] || {};
+                    const e = bag[student.id] || bag[String(student.id)];
+                    if (!e) return;
+                    rows.push([sub, e.classScore ?? '', e.examScore ?? '', e.totalScore ?? '', e.grade || '', e.remark || '']);
+                });
+                if (rows.length === 1) rows.push(['No published results', '', '', '', '', '']);
+            } else {
+                rows.push(['Student not found', '', '', '', '', '']);
+            }
+            const name = ((student && student.name) || adm || 'student').replace(/[^\w]+/g, '_') + '_results';
+            if (pathname.endsWith('.xlsx')) { sendExcel(res, rows, name + '.xlsx', 'Results'); return; }
+            sendAttachment(res, rowsToCsv(rows.slice(1).map(r => ({Subject:r[0],'Class Score':r[1],'Exam Score':r[2],Total:r[3],Grade:r[4],Remark:r[5]})), rows[0]), name + '.csv', 'text/csv; charset=UTF-8');
+            return;
+        }
+
+        // GET /api/export/:collection.(csv|json)
+        const colExport = pathname.match(/^\/api\/export\/([a-zA-Z]+)(?:\.(csv|json|xlsx))?$/);
+        if (colExport && method === 'GET' && !['backup','students','results','attendance','broadsheet','performance'].includes(colExport[1])) {
+            const col = colExport[1];
+            const fmt = colExport[2] || 'json';
+            const db = readDb();
+            const data = db[col];
+            if (data === undefined) { sendJson(res, 404, { error: 'Unknown collection' }); return; }
+            const rows = Array.isArray(data) ? data : [data];
+            if (fmt === 'csv') {
+                sendAttachment(res, rowsToCsv(rows), `${col}_export.csv`, 'text/csv; charset=UTF-8');
+            } else if (fmt === 'xlsx') {
+                sendExcel(res, rows, `${col}_export.xlsx`, col);
+            } else {
+                sendAttachment(res, JSON.stringify(data, null, 2), `${col}_export.json`, 'application/json; charset=UTF-8');
+            }
+            return;
+        }
+
+        // POST /api/downloads — store a generated file, then GET it as a real attachment
+        if (pathname === '/api/downloads' && method === 'POST') {
+            try {
+                const payload = await readBody(req);
+                const filename = safeFilePart(payload.filename || 'download.bin');
+                const mime = payload.mime || 'application/octet-stream';
+                if (!payload.content) { sendJson(res, 400, { error: 'Missing file content' }); return; }
+                ensureDlDir();
+                pruneOldDownloads();
+                const id = genId();
+                const meta = { id, filename, mime, createdAt: new Date().toISOString() };
+                fs.writeFileSync(path.join(DL_DIR, id + '.meta.json'), JSON.stringify(meta), 'utf8');
+                fs.writeFileSync(path.join(DL_DIR, id + '.bin'), Buffer.from(payload.content, 'base64'));
+                sendJson(res, 201, { id, filename, url: `/api/downloads/${id}/${encodeURIComponent(filename)}` });
+            } catch (e) { sendJson(res, 400, { error: e.message }); }
+            return;
+        }
+
+        const dlMatch = pathname.match(/^\/api\/downloads\/([^/]+)(?:\/([^/]+))?$/);
+        if (dlMatch && method === 'GET') {
+            const id = dlMatch[1].replace(/[^\w\-]+/g, '');
+            const metaPath = path.join(DL_DIR, id + '.meta.json');
+            const binPath = path.join(DL_DIR, id + '.bin');
+            if (!fs.existsSync(metaPath) || !fs.existsSync(binPath)) {
+                sendJson(res, 404, { error: 'File expired or not found' });
+                return;
+            }
+            try {
+                const meta = JSON.parse(fs.readFileSync(metaPath, 'utf8'));
+                const buf = fs.readFileSync(binPath);
+                sendAttachment(res, buf, decodeURIComponent(dlMatch[2] || meta.filename || 'download'), meta.mime || 'application/octet-stream');
+            } catch (e) { sendJson(res, 500, { error: 'Could not read file' }); }
             return;
         }
 
@@ -629,7 +1008,7 @@ const server = http.createServer(async (req, res) => {
                     return;
                 }
                 const db = readDb();
-                const collections = ['students','teachers','classes','subjects','academicYears','terms','results','reports','users','gradingScales','schoolSettings','scores','schoolInfo','studentReportDetails','parentContacts'];
+                const collections = ['students','teachers','classes','subjects','academicYears','terms','results','reports','users','gradingScales','schoolSettings','scores','schoolInfo','studentReportDetails','parentContacts','attendanceMarks','attendanceSettings'];
                 collections.forEach(col => {
                     if (payload[col] !== undefined) db[col] = payload[col];
                 });
@@ -686,10 +1065,19 @@ const server = http.createServer(async (req, res) => {
         return;
     }
 
+    // ─── Visible spreadsheet page (preview-safe) ────────────────────────────
+    if ((pathname === '/open' || pathname === '/open.html') && method === 'GET') {
+        const pack = resolveExportTable(parsedUrl.searchParams.get('src') || '', parsedUrl.searchParams);
+        const html = renderOpenPage(pack.title, pack.filename, pack.rows);
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=UTF-8', 'Cache-Control': 'no-store' });
+        res.end(html);
+        return;
+    }
+
     // ─── Static file server ─────────────────────────────────────────────────
 
     let reqPath = pathname;
-    if (reqPath === '/') reqPath = '/report.html';
+    if (reqPath === '/') reqPath = '/excel.html';
     // Convenience routes
     if (reqPath === '/admin') reqPath = '/admin.html';
     if (reqPath === '/student') reqPath = '/student.html';
@@ -728,7 +1116,9 @@ const server = http.createServer(async (req, res) => {
 
 initDb();
 
-server.listen(PORT, () => {
+ensureDlDir();
+
+server.listen(PORT, '0.0.0.0', () => {
     console.log('\n╔══════════════════════════════════════════════════════════════╗');
     console.log('║       OneReal School Management System — v2.2 Backend       ║');
     console.log('╚══════════════════════════════════════════════════════════════╝\n');
@@ -740,3 +1130,4 @@ server.listen(PORT, () => {
     console.log(`  Full Backup     →  http://localhost:${PORT}/api/export/backup`);
     console.log(`  Students CSV    →  http://localhost:${PORT}/api/export/students.csv\n`);
 });
+

@@ -64,8 +64,8 @@ service cloud.firestore {
     // STUDENTS COLLECTION
     // ──────────────────────────────────────────────────────────────────────────
     match /students/{studentId} {
-      allow read: if isTeacher();
-      allow create, update: if isAdmin();
+      allow read: if true;
+      allow create, update: if isAdmin() || isTeacher();
       allow delete: if isAdmin();
     }
 
@@ -158,7 +158,7 @@ service cloud.firestore {
     // REPORTS COLLECTION
     // ──────────────────────────────────────────────────────────────────────────
     match /reports/{reportId} {
-      allow read: if isTeacher();
+      allow read: if true;
       allow create, update: if isTeacher();
       allow delete: if isAdmin();
     }
@@ -167,8 +167,13 @@ service cloud.firestore {
     // SCHOOL SETTINGS
     // ──────────────────────────────────────────────────────────────────────────
     match /schoolSettings/{settingId} {
-      allow read: if isTeacher();
+      allow read: if true;
       allow create, update, delete: if isAdmin();
+    }
+
+    match /scores/{docId} {
+      allow read: if true;
+      allow write: if isTeacher();
     }
 
     // ──────────────────────────────────────────────────────────────────────────
@@ -184,8 +189,8 @@ service cloud.firestore {
     // LEGACY: schools/{schoolId} sub-collections (backward-compatible)
     // ──────────────────────────────────────────────────────────────────────────
     match /schools/{schoolId}/{collection}/{docId} {
-      allow read: if isTeacher();
-      allow write: if isTeacher();
+      allow read: if true;
+      allow write: if true;
     }
   }
 }

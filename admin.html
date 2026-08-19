@@ -2,11 +2,11 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>Admin Dashboard — OneReal School Management</title>
     <meta name="description" content="Professional School Administration Dashboard for OneReal Report Generator">
     <link rel="stylesheet" href="font-awesome.css">
-    <link rel="stylesheet" href="admin.css">
+    <link rel="stylesheet" href="admin.css?v=dash10">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
 </head>
 <body>
@@ -20,7 +20,7 @@
             <i class="fas fa-graduation-cap"></i>
         </div>
         <h1>OneReal School Admin</h1>
-        <p class="auth-subtitle">Sign in with your administrator account to continue</p>
+        <p class="auth-subtitle">Use any email and password <strong>admin123</strong>. Firebase staff logins work after you click Create Auth accounts.</p>
         <form id="adminLoginForm" autocomplete="on" onsubmit="return false;">
             <div class="auth-field">
                 <label for="adminEmail"><i class="fas fa-envelope"></i> Email Address</label>
@@ -39,6 +39,7 @@
             <a href="#" class="forgot-link" onclick="handleForgotPassword()">Forgot your password?</a>
         </form>
         <div class="auth-divider"><span>or</span></div>
+        <a href="/excel.html" class="teacher-link"><i class="fas fa-file-excel"></i> Excel templates — no login</a>
         <a href="/report.html" class="teacher-link"><i class="fas fa-chalkboard-teacher"></i> Go to Teacher Portal</a>
     </div>
 </div>
@@ -81,6 +82,9 @@
             <a class="nav-item" data-section="subjects" onclick="switchSection('subjects')">
                 <i class="fas fa-book-open"></i><span>Subjects</span>
             </a>
+            <a class="nav-item" data-section="attendance" onclick="switchSection('attendance')">
+                <i class="fas fa-user-check"></i><span>Attendance</span>
+            </a>
 
             <div class="nav-section-label">ACADEMICS</div>
             <a class="nav-item" data-section="academic-years" onclick="switchSection('academic-years')">
@@ -110,6 +114,9 @@
             <a class="nav-item" data-section="data-management" onclick="switchSection('data-management')">
                 <i class="fas fa-database"></i><span>Data Management</span>
             </a>
+            <a class="nav-item" href="/excel.html">
+                <i class="fas fa-file-excel"></i><span>Excel templates</span>
+            </a>
         </nav>
 
         <div class="sidebar-footer">
@@ -125,6 +132,8 @@
             </button>
         </div>
     </aside>
+
+    <div id="sidebarBackdrop" class="sidebar-backdrop" onclick="toggleSidebar()"></div>
 
     <!-- MAIN CONTENT -->
     <main class="main-content" id="mainContent">
@@ -232,33 +241,31 @@
                 </div>
             </div>
 
-            <!-- Charts Row -->
-            <div class="charts-row">
-                <div class="chart-card wide">
-                    <div class="chart-header">
-                        <h3>Grade Distribution</h3>
-                        <select id="gradeDistClassFilter" class="admin-select-sm" onchange="renderGradeDistChart()">
-                            <option value="">All Classes</option>
-                        </select>
+            <div class="chart-panel">
+                <div class="chart-panel-bar">
+                    <div class="chart-tabs" role="tablist">
+                        <button type="button" class="chart-tab active" data-chart-tab="grade" onclick="switchDashboardChart('grade')">Grade Distribution</button>
+                        <button type="button" class="chart-tab" data-chart-tab="subject" onclick="switchDashboardChart('subject')">Subject Averages</button>
+                        <button type="button" class="chart-tab" data-chart-tab="class" onclick="switchDashboardChart('class')">Class Performance</button>
+                        <button type="button" class="chart-tab" data-chart-tab="status" onclick="switchDashboardChart('status')">Results Status</button>
                     </div>
-                    <canvas id="gradeDistChart" height="220"></canvas>
+                    <select id="gradeDistClassFilter" class="admin-select-sm chart-panel-filter" onchange="renderGradeDistChart()">
+                        <option value="">All Classes</option>
+                    </select>
                 </div>
-                <div class="chart-card">
-                    <div class="chart-header"><h3>Subject Averages</h3></div>
-                    <canvas id="subjectAvgChart" height="220"></canvas>
-                </div>
-            </div>
-
-            <div class="charts-row">
-                <div class="chart-card">
-                    <div class="chart-header">
-                        <h3>Class Performance</h3>
+                <div class="chart-panel-body" style="height:150px;max-height:150px;overflow:hidden;">
+                    <div class="chart-pane active" data-chart-pane="grade">
+                        <div id="gradeDistChart" class="grade-bars"></div>
                     </div>
-                    <canvas id="classPerfChart" height="220"></canvas>
-                </div>
-                <div class="chart-card">
-                    <div class="chart-header"><h3>Results Status Pipeline</h3></div>
-                    <canvas id="resultStatusChart" height="220"></canvas>
+                    <div class="chart-pane" data-chart-pane="subject">
+                        <canvas id="subjectAvgChart"></canvas>
+                    </div>
+                    <div class="chart-pane" data-chart-pane="class">
+                        <canvas id="classPerfChart"></canvas>
+                    </div>
+                    <div class="chart-pane" data-chart-pane="status">
+                        <canvas id="resultStatusChart"></canvas>
+                    </div>
                 </div>
             </div>
 
@@ -286,15 +293,15 @@
             <div class="section-header">
                 <h2><i class="fas fa-user-graduate"></i> Student Management</h2>
                 <div class="section-actions">
-                    <button class="btn-admin btn-template" onclick="downloadTemplate('students')">
+                    <a class="btn-admin btn-template" href="/open?src=/api/templates/students.xlsx">
                         <i class="fas fa-file-excel"></i> Download Template
-                    </button>
+                    </a>
                     <button class="btn-admin btn-primary" onclick="openStudentModal()">
                         <i class="fas fa-plus"></i> Add Student
                     </button>
-                    <button class="btn-admin btn-secondary" onclick="exportStudentsCSV()">
-                        <i class="fas fa-download"></i> Export CSV
-                    </button>
+                    <a class="btn-admin btn-secondary" href="/open?src=/api/export/students.xlsx" >
+                        <i class="fas fa-download"></i> Export Excel
+                    </a>
                     <button class="btn-admin btn-secondary" onclick="openImportStudentsModal()">
                         <i class="fas fa-upload"></i> Import CSV
                     </button>
@@ -338,9 +345,12 @@
             <div class="section-header">
                 <h2><i class="fas fa-chalkboard-teacher"></i> Teacher Management</h2>
                 <div class="section-actions">
-                    <button class="btn-admin btn-template" onclick="downloadTemplate('teachers')">
+                    <a class="btn-admin btn-template" href="/open?src=/api/templates/teachers.xlsx" >
                         <i class="fas fa-file-excel"></i> Download Template
-                    </button>
+                    </a>
+                    <a class="btn-admin btn-secondary" href="/open?src=/api/export/teachers.xlsx" >
+                        <i class="fas fa-file-excel"></i> Export Excel
+                    </a>
                     <button class="btn-admin btn-primary" onclick="openTeacherModal()">
                         <i class="fas fa-plus"></i> Add Teacher
                     </button>
@@ -380,9 +390,12 @@
             <div class="section-header">
                 <h2><i class="fas fa-school"></i> Class Management</h2>
                 <div class="section-actions">
-                    <button class="btn-admin btn-template" onclick="downloadTemplate('classes')">
+                    <a class="btn-admin btn-template" href="/open?src=/api/templates/classes.xlsx" >
                         <i class="fas fa-file-excel"></i> Download Template
-                    </button>
+                    </a>
+                    <a class="btn-admin btn-secondary" href="/open?src=/api/export/classes.xlsx" >
+                        <i class="fas fa-file-excel"></i> Export Excel
+                    </a>
                     <button class="btn-admin btn-primary" onclick="openClassModal()">
                         <i class="fas fa-plus"></i> Add Class
                     </button>
@@ -408,9 +421,12 @@
             <div class="section-header">
                 <h2><i class="fas fa-book-open"></i> Subject Management</h2>
                 <div class="section-actions">
-                    <button class="btn-admin btn-template" onclick="downloadTemplate('subjects')">
+                    <a class="btn-admin btn-template" href="/open?src=/api/templates/subjects.xlsx" >
                         <i class="fas fa-file-excel"></i> Download Template
-                    </button>
+                    </a>
+                    <a class="btn-admin btn-secondary" href="/open?src=/api/export/subjects.xlsx" >
+                        <i class="fas fa-file-excel"></i> Export Excel
+                    </a>
                     <button class="btn-admin btn-primary" onclick="openSubjectModal()">
                         <i class="fas fa-plus"></i> Add Subject
                     </button>
@@ -426,6 +442,82 @@
                         </thead>
                         <tbody id="subjectsTableBody"></tbody>
                     </table>
+                </div>
+            </div>
+        </section>
+
+
+        <!-- ATTENDANCE SECTION -->
+        <section class="content-section" id="section-attendance">
+            <div class="section-header">
+                <h2><i class="fas fa-user-check"></i> Attendance</h2>
+                <div class="section-actions">
+                    <a class="btn-admin btn-secondary" href="/open?src=/api/export/attendance.xlsx" >
+                        <i class="fas fa-file-excel"></i> Export Excel
+                    </a>
+                    <button class="btn-admin btn-primary" onclick="renderAttendanceSection()">
+                        <i class="fas fa-sync-alt"></i> Refresh
+                    </button>
+                </div>
+            </div>
+            <div class="filter-bar">
+                <select id="attFilterClass" class="admin-select" onchange="renderAttendanceSection()"></select>
+                <input type="date" id="attFilterDate" class="admin-input" onchange="onAdminAttDateChange()">
+                <button type="button" class="btn-admin btn-success btn-sm" id="adminAttAllPresent"><i class="fas fa-check"></i> All present</button>
+                <button type="button" class="btn-admin btn-danger btn-sm" id="adminAttAllAbsent"><i class="fas fa-times"></i> All absent</button>
+                <button type="button" class="btn-admin btn-ghost btn-sm" id="adminAttClearDay">Clear day</button>
+            </div>
+            <div class="settings-grid">
+                <div class="card-admin">
+                    <div class="card-admin-header"><h3><i class="fas fa-clipboard-list"></i> Daily register</h3></div>
+                    <div id="attDailySummary" class="att-summary"></div>
+                    <div class="table-responsive">
+                        <table class="admin-table">
+                            <thead>
+                                <tr><th>#</th><th>Student</th><th>Admission</th><th>Status</th><th>Mark</th></tr>
+                            </thead>
+                            <tbody id="attRegisterBody"></tbody>
+                        </table>
+                    </div>
+                </div>
+                <div class="card-admin">
+                    <div class="card-admin-header"><h3><i class="fas fa-calendar-day"></i> Term attendance days</h3></div>
+                    <div class="settings-body">
+                        <p class="settings-hint">Reports print <strong>days present OUT OF school days</strong>. School days are weekdays between term start and term end. When you close the term, weekends are excluded automatically. Teachers cannot change these totals.</p>
+                        <div class="form-row">
+                            <div class="form-group-admin">
+                                <label>Term start (first school day)</label>
+                                <input type="date" id="attTermStart" class="admin-input">
+                            </div>
+                            <div class="form-group-admin">
+                                <label>Term end (or leave blank until close)</label>
+                                <input type="date" id="attTermEnd" class="admin-input">
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group-admin">
+                                <label>Override school days (optional)</label>
+                                <input type="number" min="0" max="300" id="attDefaultDays" class="admin-input" placeholder="Leave blank to use weekdays">
+                            </div>
+                        </div>
+                        <p class="settings-hint" id="attComputedDaysHint"></p>
+                        <button type="button" class="btn-admin btn-primary" onclick="saveAttendanceTermDays()"><i class="fas fa-save"></i> Save term school days</button>
+                    </div>
+                    <div class="table-responsive" style="margin-top:16px;">
+                        <table class="admin-table">
+                            <thead>
+                                <tr>
+                                    <th>Student</th>
+                                    <th>Marked present</th>
+                                    <th>Absent</th>
+                                    <th>Total days (admin)</th>
+                                    <th>Present override</th>
+                                    <th>On report</th>
+                                </tr>
+                            </thead>
+                            <tbody id="attTotalsBody"></tbody>
+                        </table>
+                    </div>
                 </div>
             </div>
         </section>
@@ -460,6 +552,14 @@
         <section class="content-section" id="section-results">
             <div class="section-header">
                 <h2><i class="fas fa-clipboard-list"></i> Results Management</h2>
+                <div class="section-actions">
+                    <a class="btn-admin btn-template" href="/open?src=/api/templates/results.xlsx" >
+                        <i class="fas fa-file-excel"></i> Download Template
+                    </a>
+                    <a class="btn-admin btn-secondary" href="/open?src=/api/export/results.xlsx" >
+                        <i class="fas fa-file-excel"></i> Export Excel
+                    </a>
+                </div>
             </div>
             <div class="filter-bar">
                 <select id="resultsFilterYear" class="admin-select" onchange="renderResultsTable()">
@@ -515,6 +615,12 @@
             <div class="section-header">
                 <h2><i class="fas fa-file-alt"></i> Report Management</h2>
                 <div class="section-actions">
+                    <button class="btn-admin btn-success" onclick="approveAllPendingReports()">
+                        <i class="fas fa-check-double"></i> Approve Pending
+                    </button>
+                    <a class="btn-admin btn-secondary" href="/open?src=/api/export/reports.xlsx" >
+                        <i class="fas fa-file-excel"></i> Export Excel
+                    </a>
                     <button class="btn-admin btn-primary" onclick="openGenerateReportModal()">
                         <i class="fas fa-plus"></i> Generate Reports
                     </button>
@@ -623,12 +729,87 @@
                     </div>
                 </div>
 
+                <!-- Report calendar — used on every class report sheet -->
+                <div class="card-admin settings-card">
+                    <div class="card-admin-header"><h3><i class="fas fa-calendar-week"></i> Report Calendar &amp; Headteacher</h3></div>
+                    <div class="settings-body">
+                        <p class="settings-hint">Teachers cannot edit these. They appear on report sheets for every class.</p>
+                        <div class="form-row">
+                            <div class="form-group-admin">
+                                <label>Vacation / Closing Date</label>
+                                <input type="text" id="settingsClosingDate" placeholder="e.g. 18th DEC, 2025" class="admin-input">
+                            </div>
+                            <div class="form-group-admin">
+                                <label>Re-opening Date</label>
+                                <input type="text" id="settingsReopeningDate" placeholder="e.g. 12th JAN, 2026" class="admin-input">
+                            </div>
+                        </div>
+                        <div class="form-group-admin">
+                            <label>Headteacher Name</label>
+                            <input type="text" id="settingsHeadTeacher" placeholder="Filled from a teacher with role Headteacher, or type here" class="admin-input">
+                            <p class="settings-hint" style="margin-top:6px;">If a staff record has the role <strong>Headteacher</strong>, that name is used automatically. Updating the teacher also updates reports.</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card-admin settings-card">
+                    <div class="card-admin-header"><h3><i class="fas fa-chalkboard-teacher"></i> Class Teachers</h3></div>
+                    <div class="settings-body">
+                        <p class="settings-hint">Class teacher names on reports come from the teacher assigned to each class. Change the assignment under <strong>Classes</strong>, or edit the teacher’s name under <strong>Teachers</strong>.</p>
+                        <div class="table-responsive">
+                            <table class="admin-table">
+                                <thead>
+                                    <tr><th>Class</th><th>Class Teacher</th><th>Source</th></tr>
+                                </thead>
+                                <tbody id="settingsClassTeacherBody"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Report Field Toggles -->
                 <div class="card-admin settings-card">
                     <div class="card-admin-header"><h3><i class="fas fa-toggle-on"></i> Report Field Toggles</h3></div>
                     <p class="settings-hint">Control which fields appear on generated report sheets.</p>
                     <div class="toggle-grid" id="fieldTogglesGrid">
                         <!-- Dynamically rendered by admin.js -->
+                    </div>
+                </div>
+
+                <div class="card-admin settings-card" style="grid-column: 1 / -1;">
+                    <div class="card-admin-header"><h3><i class="fas fa-cloud"></i> Firebase Cloud Connection</h3></div>
+                    <div class="settings-body">
+                        <p class="settings-hint">Firebase is Google’s online storage. Connecting it means teachers, admin, and students all see the same school data — even on different phones. You need a free Firebase project first (console.firebase.google.com). In that project, turn on <strong>Authentication → Email/Password</strong> and <strong>Cloud Firestore</strong>.</p>
+                        <ol class="fb-steps">
+                            <li><strong>Step 1 — Paste your keys.</strong> In Firebase: Project settings (gear) → Your apps → Web app. Copy the <code>firebaseConfig</code> object and paste it in the box below. Or type the six fields one by one.</li>
+                            <li><strong>Step 2 — Connect Firebase.</strong> Click the blue button. This only saves the keys and checks they work. Nothing is copied to the cloud yet.</li>
+                            <li><strong>Step 3 — Upload school data.</strong> Click the green button. This copies students, teachers, classes, scores, attendance, and reports from this computer up to Firebase. Do this once after connecting, and again whenever you want the cloud to match what you see here.</li>
+                            <li><strong>Step 4 — Create Auth accounts.</strong> Click the yellow button. This creates real login emails for every teacher and admin already in the system, so they can sign in on any device. If an email already exists in Firebase, it is skipped. Default passwords are the ones saved on each teacher, or <code>teacher123</code> / <code>admin123</code>.</li>
+                        </ol>
+                        <p class="settings-hint"><strong>Pull from cloud</strong> is the opposite of step 3. Use it only if another device already uploaded data and you want to download that copy onto this computer. Skip it on first setup.</p>
+                        <p id="fbCloudStatus" class="settings-hint" style="font-weight:700;">Status: LOCAL</p>
+                        <div class="form-group-admin">
+                            <label>Paste firebaseConfig JSON</label>
+                            <textarea id="fbConfigJson" class="admin-input" rows="9" placeholder="Paste the whole firebaseConfig box from Firebase (Use a &lt;script&gt; tag). Example:&#10;const firebaseConfig = {&#10;  apiKey: &quot;AIza...&quot;,&#10;  authDomain: &quot;your-project.firebaseapp.com&quot;,&#10;  projectId: &quot;your-project&quot;,&#10;  ...&#10;};"></textarea>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group-admin"><label>apiKey</label><input type="text" id="fbApiKey" class="admin-input"></div>
+                            <div class="form-group-admin"><label>authDomain</label><input type="text" id="fbAuthDomain" class="admin-input"></div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group-admin"><label>projectId</label><input type="text" id="fbProjectId" class="admin-input"></div>
+                            <div class="form-group-admin"><label>storageBucket</label><input type="text" id="fbStorageBucket" class="admin-input"></div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group-admin"><label>messagingSenderId</label><input type="text" id="fbMessagingSenderId" class="admin-input"></div>
+                            <div class="form-group-admin"><label>appId</label><input type="text" id="fbAppId" class="admin-input"></div>
+                        </div>
+                        <div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:8px;">
+                            <button type="button" class="btn-admin btn-primary" onclick="connectFirebaseFromSettings()"><i class="fas fa-plug"></i> Connect Firebase</button>
+                            <button type="button" class="btn-admin btn-success" onclick="uploadSchoolToFirebase()"><i class="fas fa-cloud-upload-alt"></i> Upload school data</button>
+                            <button type="button" class="btn-admin btn-secondary" onclick="downloadSchoolFromFirebase()"><i class="fas fa-cloud-download-alt"></i> Pull from cloud</button>
+                            <button type="button" class="btn-admin btn-warning" onclick="provisionFirebaseStaff()"><i class="fas fa-user-plus"></i> Create Auth accounts</button>
+                        </div>
                     </div>
                 </div>
 
@@ -695,9 +876,9 @@
             <div class="section-header">
                 <h2><i class="fas fa-history"></i> Activity Logs</h2>
                 <div class="section-actions">
-                    <button class="btn-admin btn-secondary" onclick="exportAuditLogs()">
-                        <i class="fas fa-download"></i> Export Logs
-                    </button>
+                    <a class="btn-admin btn-secondary" href="/open?src=/api/export/auditLogs.xlsx" >
+                        <i class="fas fa-file-excel"></i> Export Excel
+                    </a>
                     <button class="btn-admin btn-danger" onclick="confirmClearAuditLogs()">
                         <i class="fas fa-trash"></i> Clear Logs
                     </button>
@@ -737,6 +918,10 @@
             <div class="section-header">
                 <h2><i class="fas fa-database"></i> Data Management</h2>
                 <div class="section-actions">
+                    <a class="btn-admin btn-template" href="/excel.html"><i class="fas fa-file-excel"></i> Open Excel templates</a>
+                    <button class="btn-admin btn-danger" onclick="startRealSchoolData()">
+                        <i class="fas fa-broom"></i> Clear demo / start real users
+                    </button>
                     <button class="btn-admin btn-warning" onclick="openRestoreBackupModal()">
                         <i class="fas fa-trash-restore"></i> Restore Backup
                     </button>
@@ -752,22 +937,22 @@
                 <div class="card-admin">
                     <div class="card-admin-header"><h3><i class="fas fa-file-excel"></i> Import CSV Templates</h3></div>
                     <div class="import-section">
-                        <p class="settings-hint">Download standardized CSV templates with column headers and sample data.</p>
-                        <button class="export-btn" onclick="downloadTemplate('students')">
-                            <i class="fas fa-user-graduate"></i> Student Import Template (.csv)
-                        </button>
-                        <button class="export-btn" onclick="downloadTemplate('teachers')">
-                            <i class="fas fa-chalkboard-teacher"></i> Teacher Import Template (.csv)
-                        </button>
-                        <button class="export-btn" onclick="downloadTemplate('classes')">
-                            <i class="fas fa-school"></i> Class Import Template (.csv)
-                        </button>
-                        <button class="export-btn" onclick="downloadTemplate('subjects')">
-                            <i class="fas fa-book-open"></i> Subject Import Template (.csv)
-                        </button>
-                        <button class="export-btn" onclick="downloadTemplate('results')">
-                            <i class="fas fa-clipboard-list"></i> Results Import Template (.csv)
-                        </button>
+                        <p class="settings-hint">Download Excel templates. Open in Excel or Google Sheets, fill the rows, then import.</p>
+                        <a class="export-btn" href="/open?src=/api/templates/students.xlsx" >
+                            <i class="fas fa-user-graduate"></i> Student Import Template (Excel)
+                        </a>
+                        <a class="export-btn" href="/open?src=/api/templates/teachers.xlsx" >
+                            <i class="fas fa-chalkboard-teacher"></i> Teacher Import Template (Excel)
+                        </a>
+                        <a class="export-btn" href="/open?src=/api/templates/classes.xlsx" >
+                            <i class="fas fa-school"></i> Class Import Template (Excel)
+                        </a>
+                        <a class="export-btn" href="/open?src=/api/templates/subjects.xlsx" >
+                            <i class="fas fa-book-open"></i> Subject Import Template (Excel)
+                        </a>
+                        <a class="export-btn" href="/open?src=/api/templates/results.xlsx" >
+                            <i class="fas fa-clipboard-list"></i> Results Import Template (Excel)
+                        </a>
                     </div>
                 </div>
 
@@ -820,27 +1005,27 @@
                 <div class="card-admin">
                     <div class="card-admin-header"><h3><i class="fas fa-download"></i> Export & Backup</h3></div>
                     <div class="export-section">
-                        <button class="export-btn" onclick="exportCollection('students')">
+                        <a class="export-btn" href="/open?src=/api/export/students.json" >
                             <i class="fas fa-user-graduate"></i> Students (JSON)
-                        </button>
-                        <button class="export-btn" onclick="exportCollectionCSV('students')">
-                            <i class="fas fa-file-csv"></i> Students (CSV)
-                        </button>
-                        <button class="export-btn" onclick="exportCollection('teachers')">
+                        </a>
+                        <a class="export-btn" href="/open?src=/api/export/students.xlsx" >
+                            <i class="fas fa-file-excel"></i> Students (Excel)
+                        </a>
+                        <a class="export-btn" href="/open?src=/api/export/teachers.json" >
                             <i class="fas fa-chalkboard-teacher"></i> Teachers (JSON)
-                        </button>
-                        <button class="export-btn" onclick="exportCollection('results')">
+                        </a>
+                        <a class="export-btn" href="/open?src=/api/export/results.json" >
                             <i class="fas fa-clipboard-list"></i> Results (JSON)
-                        </button>
-                        <button class="export-btn" onclick="exportCollectionCSV('results')">
-                            <i class="fas fa-file-csv"></i> Results (CSV)
-                        </button>
-                        <button class="export-btn" onclick="exportCollection('auditLogs')">
+                        </a>
+                        <a class="export-btn" href="/open?src=/api/export/results.xlsx" >
+                            <i class="fas fa-file-excel"></i> Results (Excel)
+                        </a>
+                        <a class="export-btn" href="/open?src=/api/export/auditLogs.json" >
                             <i class="fas fa-history"></i> Audit Logs (JSON)
-                        </button>
-                        <button class="export-btn danger" onclick="confirmExportAll()">
+                        </a>
+                        <a class="export-btn danger" href="/open?src=/api/export/backup" >
                             <i class="fas fa-archive"></i> Full Backup (JSON)
-                        </button>
+                        </a>
                         <button class="export-btn warning" onclick="openRestoreBackupModal()">
                             <i class="fas fa-trash-restore"></i> Restore Backup (JSON)
                         </button>
@@ -1051,6 +1236,7 @@
                 <select id="cm-classTeacher" class="admin-select">
                     <option value="">None</option>
                 </select>
+                <p class="settings-hint" style="margin-top:6px;">The name printed on this class’s reports is taken from the selected teacher’s profile. Edit the teacher to change the name.</p>
             </div>
             <div class="form-group-admin">
                 <label>Status</label>
@@ -1309,13 +1495,13 @@
 </div>
 
 <!-- Firebase & Libraries -->
-<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-storage-compat.js"></script>
+<script src="vendor/firebase-compat.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-<script src="firebase-config.js"></script>
-<script src="admin.js"></script>
+<script src="seed-data.js?v=live1"></script>
+    <script src="firebase-config.js?v=fb3"></script>
+<script src="files.js?v=dl9"></script>
+<script src="attendance.js?v=hub4"></script>
+<script src="admin.js?v=dash22"></script>
 </body>
 </html>

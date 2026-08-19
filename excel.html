@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>Excel templates — The Living Spring School</title>
+    <style>
+        * { box-sizing: border-box; }
+        body { margin: 0; font-family: Inter, system-ui, sans-serif; background: #0b1220; color: #f8fafc; padding: 16px 16px 48px; }
+        .wrap { max-width: 960px; margin: 0 auto; }
+        h1 { font-size: 24px; margin: 8px 0; }
+        h2 { font-size: 16px; margin: 0 0 10px; }
+        p { color: #cbd5e1; line-height: 1.5; }
+        .note { background: #14532d; border: 1px solid #22c55e; color: #dcfce7; padding: 14px; border-radius: 12px; }
+        .card { background: #111827; border: 1px solid #334155; border-radius: 14px; padding: 14px; margin: 16px 0; }
+        button { appearance: none; border: 0; border-radius: 10px; padding: 10px 14px; font-weight: 800; background: #4f46e5; color: #fff; cursor: pointer; margin: 0 8px 10px 0; }
+        table { border-collapse: collapse; width: 100%; background: #fff; color: #0f172a; font-size: 12px; }
+        th, td { border: 1px solid #e2e8f0; padding: 6px 8px; text-align: left; white-space: nowrap; }
+        th { background: #f1f5f9; }
+        .tablewrap { overflow: auto; border-radius: 10px; }
+        textarea { width: 100%; min-height: 70px; margin-top: 8px; border-radius: 8px; border: 1px solid #334155; background: #0b1220; color: #e2e8f0; padding: 8px; font: 12px ui-monospace, monospace; }
+        a.back { color: #93c5fd; }
+        .ok { color: #86efac; font-weight: 700; min-height: 18px; }
+    </style>
+</head>
+<body>
+<div class="wrap">
+    <a class="back" href="/admin.html">Admin login</a> ·
+    <a class="back" href="/report.html">Teacher login</a> ·
+    <a class="back" href="/student.html">Student login</a>
+    <h1>Excel templates — already on this page</h1>
+    <p class="note">
+        No login needed. Each table below is the template.
+        Tap <strong>Copy table</strong>, then open Excel or Google Sheets and paste.
+        This preview window cannot drop a file into your computer Downloads folder.
+    </p>
+    <div id="sheets"></div>
+</div>
+<script>
+const SHEETS = [
+    {
+        id: 'students',
+        title: 'Students template',
+        rows: [
+            ['admissionNo','name','gender','dob','class','parentName','parentPhone'],
+            ['TLS/2026/001','Ama Mensah (SAMPLE)','Female','2014-03-12','Class 6','Akosua Mensah','0241234567'],
+            ['TLS/2026/002','Kofi Asante (SAMPLE)','Male','2013-11-08','Class 6','Yaw Asante','0209876543'],
+            ['TLS/2026/003','Type student name here','Female','YYYY-MM-DD','Class 5','Type parent name','0240000000']
+        ]
+    },
+    {
+        id: 'teachers',
+        title: 'Teachers template',
+        rows: [
+            ['name','email','phone','role','assignedClasses','assignedSubjects'],
+            ['Abena Owusu (SAMPLE)','abena.owusu@school.com','0241112233','Teacher','Class 6','Mathematics, Science'],
+            ['Kwame Boateng (SAMPLE)','kwame.boateng@school.com','0205556677','Class Teacher','Class 5','English Language'],
+            ['Type teacher name here','teacher@school.com','0240000000','Teacher','Class 4','Type subjects']
+        ]
+    },
+    {
+        id: 'classes',
+        title: 'Classes template',
+        rows: [
+            ['name','level','classTeacherName'],
+            ['Class 6','Primary','Abena Owusu (SAMPLE)'],
+            ['Class 5','Primary','Kwame Boateng (SAMPLE)'],
+            ['Class 1','Primary','Type class teacher name']
+        ]
+    },
+    {
+        id: 'subjects',
+        title: 'Subjects template',
+        rows: [
+            ['code','name','classNames'],
+            ['MATH','Mathematics','Class 6, Class 5'],
+            ['ENG','English Language','Class 6, Class 5'],
+            ['SCI','Science','Class 6, Class 5'],
+            ['CODE','Type subject name','Class 1, Class 2']
+        ]
+    },
+    {
+        id: 'results',
+        title: 'Results template',
+        rows: [
+            ['studentId','studentName','classId','subjectId','classScore','examScore'],
+            ['TLS/2026/001','Ama Mensah (SAMPLE)','Class 6','Mathematics',80,90],
+            ['TLS/2026/002','Kofi Asante (SAMPLE)','Class 6','Mathematics',76,88],
+            ['TLS/2026/003','Type student name','Class 6','English Language',0,0]
+        ]
+    },
+    {
+        id: 'marks',
+        title: 'Marks / scores template',
+        rows: [
+            ['Student Name','Class','Subject','Class Score (out of 100)','Exam Score (out of 100)'],
+            ['Student One','Class 6','Mathematics',80,90],
+            ['Student Two','Class 6','Mathematics',80,90]
+        ]
+    }
+];
+
+function csvOf(rows) {
+    return rows.map(r => r.map(v => {
+        const s = String(v == null ? '' : v);
+        return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+    }).join(',')).join('\n');
+}
+function tsvOf(rows) {
+    return rows.map(r => r.join('\t')).join('\n');
+}
+function tableOf(rows) {
+    return '<div class="tablewrap"><table>' + rows.map((r, i) => {
+        const tag = i === 0 ? 'th' : 'td';
+        return '<tr>' + r.map(c => '<' + tag + '>' + String(c).replace(/</g,'&lt;') + '</' + tag + '>').join('') + '</tr>';
+    }).join('') + '</table></div>';
+}
+
+document.getElementById('sheets').innerHTML = SHEETS.map(s =>
+    '<div class="card" id="' + s.id + '">' +
+    '<h2>' + s.title + '</h2>' +
+    '<button type="button" data-copy="' + s.id + '">Copy table</button>' +
+    '<div class="ok" id="ok-' + s.id + '"></div>' +
+    tableOf(s.rows) +
+    '<textarea readonly id="csv-' + s.id + '">' + csvOf(s.rows).replace(/</g,'&lt;') + '</textarea>' +
+    '</div>'
+).join('');
+
+document.addEventListener('click', function (e) {
+    const id = e.target && e.target.getAttribute('data-copy');
+    if (!id) return;
+    const spec = SHEETS.find(s => s.id === id);
+    const text = tsvOf(spec.rows);
+    const box = document.getElementById('csv-' + id);
+    const ok = document.getElementById('ok-' + id);
+    function done() { ok.textContent = 'Copied. Open Excel or Google Sheets and paste.'; }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(done).catch(function () {
+            box.focus(); box.select(); ok.textContent = 'CSV selected. Copy it, then paste into Excel.';
+        });
+    } else {
+        box.focus(); box.select();
+        try { document.execCommand('copy'); done(); }
+        catch (err) { ok.textContent = 'CSV selected. Copy it, then paste into Excel.'; }
+    }
+});
+</script>
+</body>
+</html>
