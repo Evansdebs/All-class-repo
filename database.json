@@ -1,17 +1,343 @@
 {
   "students": [],
+  "teachers": [],
+  "users": [],
+  "classes": [
+    {
+      "id": "cls1",
+      "name": "Class 1",
+      "level": "Primary",
+      "gradingScaleId": "preset_ghana_primary",
+      "classTeacherId": "",
+      "classTeacherName": "",
+      "status": "active"
+    },
+    {
+      "id": "cls2",
+      "name": "Class 2",
+      "level": "Primary",
+      "gradingScaleId": "preset_ghana_primary",
+      "classTeacherId": "",
+      "classTeacherName": "",
+      "status": "active"
+    },
+    {
+      "id": "cls3",
+      "name": "Class 3",
+      "level": "Primary",
+      "gradingScaleId": "preset_ghana_primary",
+      "classTeacherId": "",
+      "classTeacherName": "",
+      "status": "active"
+    },
+    {
+      "id": "cls4",
+      "name": "Class 4",
+      "level": "Primary",
+      "gradingScaleId": "preset_ghana_primary",
+      "classTeacherId": "",
+      "classTeacherName": "",
+      "status": "active"
+    },
+    {
+      "id": "cls5",
+      "name": "Class 5",
+      "level": "Primary",
+      "gradingScaleId": "preset_ghana_primary",
+      "classTeacherId": "",
+      "classTeacherName": "",
+      "status": "active"
+    },
+    {
+      "id": "cls6",
+      "name": "Class 6",
+      "level": "Primary",
+      "gradingScaleId": "preset_ghana_primary",
+      "classTeacherId": "",
+      "classTeacherName": "",
+      "status": "active"
+    }
+  ],
+  "subjects": [
+    {
+      "id": "sub1",
+      "code": "ENGL",
+      "name": "English Language",
+      "classIds": [
+        "cls1",
+        "cls2",
+        "cls3",
+        "cls4",
+        "cls5",
+        "cls6"
+      ],
+      "status": "active"
+    },
+    {
+      "id": "sub2",
+      "code": "MATH",
+      "name": "Mathematics",
+      "classIds": [
+        "cls1",
+        "cls2",
+        "cls3",
+        "cls4",
+        "cls5",
+        "cls6"
+      ],
+      "status": "active"
+    },
+    {
+      "id": "sub3",
+      "code": "SCIE",
+      "name": "Science",
+      "classIds": [
+        "cls1",
+        "cls2",
+        "cls3",
+        "cls4",
+        "cls5",
+        "cls6"
+      ],
+      "status": "active"
+    },
+    {
+      "id": "sub4",
+      "code": "RME",
+      "name": "RME",
+      "classIds": [
+        "cls1",
+        "cls2",
+        "cls3",
+        "cls4",
+        "cls5",
+        "cls6"
+      ],
+      "status": "active"
+    },
+    {
+      "id": "sub5",
+      "code": "HIST",
+      "name": "History",
+      "classIds": [
+        "cls1",
+        "cls2",
+        "cls3",
+        "cls4",
+        "cls5",
+        "cls6"
+      ],
+      "status": "active"
+    },
+    {
+      "id": "sub6",
+      "code": "CREA",
+      "name": "Creative Arts",
+      "classIds": [
+        "cls1",
+        "cls2",
+        "cls3",
+        "cls4",
+        "cls5",
+        "cls6"
+      ],
+      "status": "active"
+    },
+    {
+      "id": "sub7",
+      "code": "COMP",
+      "name": "Computing",
+      "classIds": [
+        "cls1",
+        "cls2",
+        "cls3",
+        "cls4",
+        "cls5",
+        "cls6"
+      ],
+      "status": "active"
+    },
+    {
+      "id": "sub8",
+      "code": "FREN",
+      "name": "French",
+      "classIds": [
+        "cls1",
+        "cls2",
+        "cls3",
+        "cls4",
+        "cls5",
+        "cls6"
+      ],
+      "status": "active"
+    },
+    {
+      "id": "sub9",
+      "code": "ASAN",
+      "name": "Asante Twi",
+      "classIds": [
+        "cls1",
+        "cls2",
+        "cls3",
+        "cls4",
+        "cls5",
+        "cls6"
+      ],
+      "status": "active"
+    },
+    {
+      "id": "sub10",
+      "code": "CARE",
+      "name": "Career Technology",
+      "classIds": [
+        "cls1",
+        "cls2",
+        "cls3",
+        "cls4",
+        "cls5",
+        "cls6"
+      ],
+      "status": "active"
+    }
+  ],
+  "academicYears": [
+    {
+      "id": "ay2025",
+      "name": "2025/2026",
+      "isActive": true,
+      "isArchived": false
+    }
+  ],
+  "terms": [
+    {
+      "id": "term1",
+      "name": "First Term",
+      "yearId": "ay2025",
+      "termNumber": 1,
+      "isActive": true,
+      "isClosed": false
+    },
+    {
+      "id": "term2",
+      "name": "Second Term",
+      "yearId": "ay2025",
+      "termNumber": 2,
+      "isActive": false,
+      "isClosed": false
+    },
+    {
+      "id": "term3",
+      "name": "Third Term",
+      "yearId": "ay2025",
+      "termNumber": 3,
+      "isActive": false,
+      "isClosed": false
+    }
+  ],
+  "gradingScales": [
+    {
+      "id": "gs-primary",
+      "name": "Ghana Primary Grading System",
+      "isActive": true,
+      "items": [
+        {
+          "min": 80,
+          "max": 100,
+          "grade": "A",
+          "remark": "ADVANCE"
+        },
+        {
+          "min": 68,
+          "max": 79,
+          "grade": "P",
+          "remark": "PROFICIENCY"
+        },
+        {
+          "min": 54,
+          "max": 67,
+          "grade": "AP",
+          "remark": "APPROACHING PROFICIENCY"
+        },
+        {
+          "min": 40,
+          "max": 53,
+          "grade": "D",
+          "remark": "DEVELOPING"
+        },
+        {
+          "min": 0,
+          "max": 39,
+          "grade": "B",
+          "remark": "BEGINNER"
+        }
+      ]
+    }
+  ],
+  "results": [],
+  "reports": [],
   "scores": {},
   "schoolInfo": {
-    "academicYear": "2024/2025",
+    "academicYear": "2025/2026",
     "term": "1",
-    "closingDate": "19th DEC, 2024",
-    "reopeningDate": "13th JAN, 2025",
-    "numberOnRoll": "18",
-    "basicLevel": "6",
+    "closingDate": "18th DEC, 2025",
+    "reopeningDate": "12th JAN, 2026",
     "classTeacher": "",
-    "headTeacher": ""
+    "headTeacher": "REV. DR. OSEI KOFI",
+    "schoolLogo": null,
+    "numberOnRollByClass": {}
   },
-  "studentReportDetails": {},
+  "schoolSettings": {
+    "schoolName": "The Living Spring School",
+    "motto": "Drink deep or taste not the spring of knowledge",
+    "address": "P.O. Box 16493 K.I.A, Accra",
+    "phone": "0243438604",
+    "email": "info@livingspring.edu.gh",
+    "reportTitle": "END OF TERM REPORT SHEET",
+    "closingDate": "18th DEC, 2025",
+    "reopeningDate": "12th JAN, 2026",
+    "headTeacher": "REV. DR. OSEI KOFI",
+    "primaryColor": "#1a56db",
+    "secondaryColor": "#3af2a3",
+    "headerTextColor": "#ffffff",
+    "schoolLogo": null,
+    "signature": null,
+    "fieldToggles": {
+      "showPosition": true,
+      "showSchoolMotto": true,
+      "showSchoolLogo": true,
+      "showAttendance": true,
+      "showNextTerm": true,
+      "showSignature": true,
+      "showConduct": true,
+      "showClassTeacherRemark": true,
+      "showGradingTable": true,
+      "showStudentPhoto": true,
+      "showHeadteacherRemark": true,
+      "showNumberOnRoll": true,
+      "showPromotionStatus": true
+    }
+  },
+  "studentReportDetails": {
+    "D8n3h1m8MBbIt3obs9Mr": {
+      "attendance": "1 OUT OF —"
+    }
+  },
   "parentContacts": {},
-  "auditLogs": []
+  "auditLogs": [],
+  "attendanceMarks": {
+    "D8n3h1m8MBbIt3obs9Mr": {
+      "2026-08-19": {
+        "status": "present",
+        "className": "",
+        "termKey": "2025/2026|1",
+        "by": "admin",
+        "at": "2026-08-19T22:01:44.153Z"
+      }
+    }
+  },
+  "attendanceSettings": {
+    "defaultDays": {},
+    "studentDays": {},
+    "studentPresentOverride": {}
+  }
 }

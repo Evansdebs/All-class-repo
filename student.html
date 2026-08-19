@@ -2,11 +2,11 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>OneReal School Management — Student Portal</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="font-awesome.css">
-    <link rel="stylesheet" href="student.css">
+    <link rel="stylesheet" href="student.css?v=m1">
 </head>
 <body class="student-portal-body">
 
@@ -41,6 +41,9 @@
                 <i class="fas fa-sign-in-alt"></i> Access Report
             </button>
             <div style="margin-top:20px;">
+                <a href="/excel.html" style="color:rgba(255,255,255,.7);font-size:13px;text-decoration:none;display:block;margin-bottom:8px;">
+                    <i class="fas fa-file-excel"></i> Excel templates — no login
+                </a>
                 <a href="/report.html" style="color:rgba(255,255,255,.4);font-size:12.5px;text-decoration:none;">
                     <i class="fas fa-chalkboard-teacher"></i> Teacher Sign In
                 </a>
@@ -94,10 +97,17 @@
                 <label>Academic Year & Term</label>
                 <span id="st-term">—</span>
             </div>
+            <div class="profile-meta-item">
+                <label>Attendance</label>
+                <span id="st-attendance">—</span>
+            </div>
         </div>
 
         <!-- Action Bar -->
         <div class="student-action-bar">
+            <a class="btn-student-action primary" id="studentExcelBtn" href="/open?src=/api/export/student.xlsx">
+                <i class="fas fa-file-excel"></i> Download Excel
+            </a>
             <button class="btn-student-action primary" onclick="window.print()">
                 <i class="fas fa-print"></i> Print Official Report Sheet
             </button>
@@ -142,10 +152,12 @@
     </main>
 
     <!-- Firebase & Utility Scripts -->
-    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
-    <script src="firebase-config.js"></script>
-    <script src="student.js"></script>
+    <script src="vendor/firebase-compat.js"></script>
+    <script src="jspdf.umd.min.js"></script>
+    <script src="seed-data.js?v=live1"></script>
+    <script src="firebase-config.js?v=fb3"></script>
+    <script src="files.js?v=dl9"></script>
+    <script src="attendance.js?v=hub4"></script>
+    <script src="student.js?v=dl6"></script>
 </body>
 </html>

@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>Excel sheets — OneReal</title>
+    <style>
+        body { margin: 0; font-family: Inter, system-ui, sans-serif; background: #0b1220; color: #f8fafc; padding: 16px; }
+        .wrap { max-width: 720px; margin: 0 auto; }
+        a { color: #93c5fd; }
+        .card { background: #111827; border: 1px solid #334155; border-radius: 14px; padding: 14px; margin: 10px 0; }
+        .card a { display: inline-block; margin-top: 8px; background: #4f46e5; color: #fff; text-decoration: none; font-weight: 800; padding: 10px 14px; border-radius: 10px; }
+        h1 { font-size: 22px; }
+        p { color: #cbd5e1; line-height: 1.5; }
+    </style>
+</head>
+<body>
+<div class="wrap">
+    <a href="/admin.html">← Admin</a> · <a href="/report.html">Teacher</a>
+    <h1>Open a spreadsheet</h1>
+    <p>Each button opens the table on this site. Copy it, then paste into Excel or Google Sheets.</p>
+    <div class="card"><strong>Students template</strong><br><a href="/open?src=/api/templates/students.xlsx">Open table</a></div>
+    <div class="card"><strong>Teachers template</strong><br><a href="/open?src=/api/templates/teachers.xlsx">Open table</a></div>
+    <div class="card"><strong>Classes template</strong><br><a href="/open?src=/api/templates/classes.xlsx">Open table</a></div>
+    <div class="card"><strong>Subjects template</strong><br><a href="/open?src=/api/templates/subjects.xlsx">Open table</a></div>
+    <div class="card"><strong>Results template</strong><br><a href="/open?src=/api/templates/results.xlsx">Open table</a></div>
+    <div class="card"><strong>Marks template</strong><br><a href="/open?src=/api/templates/marks.xlsx">Open table</a></div>
+    <div class="card"><strong>Export students</strong><br><a href="/open?src=/api/export/students.xlsx">Open table</a></div>
+    <div class="card"><strong>Export teachers</strong><br><a href="/open?src=/api/export/teachers.xlsx">Open table</a></div>
+    <div class="card"><strong>Export results</strong><br><a href="/open?src=/api/export/results.xlsx">Open table</a></div>
+    <div class="card"><strong>Export attendance</strong><br><a href="/open?src=/api/export/attendance.xlsx">Open table</a></div>
+</div>
+<script>
+var src = new URLSearchParams(location.search).get('src');
+if (src) location.replace('/open?src=' + encodeURIComponent(src));
+</script>
+</body>
+</html>

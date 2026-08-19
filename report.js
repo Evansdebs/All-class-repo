@@ -1139,7 +1139,7 @@ async function submitScoresForApproval(className) {
     const resultIds  = [];
 
     for (const subject of gradingSystem.length ? Object.keys(scores) : []) {
-        for (const student of classStudents) {
+        for (const student of approvedStudents) {
             const entry = scores[subject]?.[student.id];
             if (!entry || entry.totalScore === '') continue;
 
@@ -1475,6 +1475,68 @@ function calculateStudentPerformance(studentId) {
     };
 }
 
+
+// ── Report approval (admin must approve before download) ──
+function getReportApprovalKey(studentId) {
+    const year = (schoolInfo && schoolInfo.academicYear) || '';
+    const term = (schoolInfo && schoolInfo.term) || '';
+    return String(studentId) + '|' + year + '|' + term;
+}
+
+function loadReportRecords() {
+    try { return JSON.parse(localStorage.getItem('reports') || '[]'); }
+    catch (e) { return []; }
+}
+
+function saveReportRecords(list) {
+    localStorage.setItem('reports', JSON.stringify(list));
+}
+
+function getReportRecord(studentId) {
+    const key = getReportApprovalKey(studentId);
+    return loadReportRecords().find(r => r.approvalKey === key || (String(r.studentId) === String(studentId) && (r.termId || '') === String((schoolInfo && schoolInfo.term) || '') && (r.academicYearId || '') === String((schoolInfo && schoolInfo.academicYear) || '')));
+}
+
+function isReportApproved(studentId) {
+    const rec = getReportRecord(studentId);
+    if (!rec) return false;
+    const status = String(rec.status || '').toLowerCase();
+    return status === 'approved' || status === 'published';
+}
+
+function upsertPendingReports(studentList) {
+    const list = loadReportRecords();
+    const year = (schoolInfo && schoolInfo.academicYear) || '';
+    const term = (schoolInfo && schoolInfo.term) || '';
+    studentList.forEach(student => {
+        const key = getReportApprovalKey(student.id);
+        const existing = list.find(r => r.approvalKey === key);
+        if (existing) {
+            if (String(existing.status).toLowerCase() !== 'approved' && String(existing.status).toLowerCase() !== 'published') {
+                existing.status = 'Pending';
+                existing.generatedAt = new Date().toISOString();
+                existing.studentName = student.name;
+                existing.classId = student.class;
+            }
+        } else {
+            list.push({
+                id: 'rpt_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+                approvalKey: key,
+                studentId: student.id,
+                studentName: student.name,
+                classId: student.class,
+                academicYearId: year,
+                termId: term,
+                status: 'Pending',
+                generatedAt: new Date().toISOString(),
+                generatedBy: sessionStorage.getItem('teacherEmail') || 'teacher'
+            });
+        }
+    });
+    saveReportRecords(list);
+}
+
+
 // Generate reports for all students in a class
 function generateAllClassReports() {
     const selectedClass = individualClassSelect.value;
@@ -1490,9 +1552,15 @@ function generateAllClassReports() {
         return;
     }
 
+    upsertPendingReports(classStudents);
+
     // Show the students grid
     studentsReportsGrid.style.display = 'grid';
-    bulkDownloadReportsBtn.style.display = 'inline-block';
+    const approvedCount = classStudents.filter(s => isReportApproved(s.id)).length;
+    bulkDownloadReportsBtn.style.display = approvedCount ? 'inline-block' : 'none';
+    if (!approvedCount) {
+        bulkDownloadReportsBtn.title = 'Admin must approve reports before they can be downloaded';
+    }
     
     // Clear existing content
     studentsReportsGrid.innerHTML = '';
@@ -1526,6 +1594,10 @@ function generateAllClassReports() {
             </div>
             <div class="student-report-class">${student.class}</div>
             ${hasReportDetails ? '<div class="student-report-status status-ready"><i class="fas fa-edit"></i> Customized</div>' : ''}
+            <div class="student-report-status ${isReportApproved(student.id) ? 'status-ready' : 'status-pending'}">
+                <i class="fas ${isReportApproved(student.id) ? 'fa-check-circle' : 'fa-hourglass-half'}"></i>
+                ${isReportApproved(student.id) ? 'Approved — ready to download' : 'Awaiting admin approval'}
+            </div>
             <div class="student-report-actions">
                 <button class="btn edit-btn" onclick="openEditModal(${student.id})">
                     <i class="fas fa-edit"></i> Edit
@@ -1533,8 +1605,8 @@ function generateAllClassReports() {
                 <button class="btn preview-btn" onclick="previewStudentReport(${student.id})">
                     <i class="fas fa-eye"></i> Preview
                 </button>
-                <button class="btn download-btn" onclick="downloadStudentReport(${student.id})">
-                    <i class="fas fa-download"></i> Download
+                <button class="btn download-btn" onclick="downloadStudentReport(${student.id})" ${isReportApproved(student.id) ? '' : 'disabled style="opacity:.45;cursor:not-allowed;" title="Admin must approve this report before download"'}>
+                    <i class="fas fa-download"></i> ${isReportApproved(student.id) ? 'Download' : 'Locked'}
                 </button>
             </div>
         `;
@@ -1542,7 +1614,7 @@ function generateAllClassReports() {
         studentsReportsGrid.appendChild(reportCard);
     });
     
-    showNotification(`Generated ${classStudents.length} student reports for ${selectedClass}`, 'success');
+    showNotification(`Generated ${classStudents.length} reports for ${selectedClass}. Download stays locked until the admin approves them.`, 'success');
 }
 
 // Open edit modal for a student
@@ -2285,6 +2357,11 @@ function downloadStudentReport(studentId) {
         return;
     }
 
+    if (!isReportApproved(studentId)) {
+        showNotification('This report is waiting for admin approval. It cannot be downloaded yet.', 'error');
+        return;
+    }
+
     if (typeof window.jspdf === 'undefined' || typeof window.jspdf.jsPDF === 'undefined') {
         showNotification('PDF library not available. Please reload the page.', 'error');
         return;
@@ -2381,7 +2458,16 @@ async function bulkDownloadAllReports() {
         return;
     }
 
-    showNotification(`Preparing ${classStudents.length} PDFs for download...`, 'info');
+    const approvedStudents = classStudents.filter(s => isReportApproved(s.id));
+    if (!approvedStudents.length) {
+        showNotification('No approved reports in this class yet. Ask the admin to approve them first.', 'error');
+        return;
+    }
+    if (approvedStudents.length < classStudents.length) {
+        showNotification(`Only ${approvedStudents.length} of ${classStudents.length} reports are approved. Downloading approved ones only.`, 'warning');
+    }
+
+    showNotification(`Preparing ${approvedStudents.length} approved PDFs for download...`, 'info');
 
     if (typeof JSZip === 'undefined') {
         showNotification('ZIP library not available. Please reload the page.', 'error');
@@ -2722,6 +2808,11 @@ async function shareReportToWhatsApp(studentId) {
     const student = students.find(s => s.id === studentId);
     if (!student) {
         showNotification('Student not found.', 'error');
+        return;
+    }
+
+    if (!isReportApproved(studentId)) {
+        showNotification('This report has not been approved by admin yet. Sharing is locked.', 'error');
         return;
     }
 

@@ -4,12 +4,13 @@
 
 // Default Firebase Config (fill in from Firebase Console or use Admin Dashboard)
 const DEFAULT_FIREBASE_CONFIG = {
-    apiKey: "",
-    authDomain: "",
-    projectId: "",
-    storageBucket: "",
-    messagingSenderId: "",
-    appId: ""
+    apiKey: "AIzaSyDvl4Gyas2paysZjE1OCoBkt8ssNW8DvIs",
+    authDomain: "reportsheetgen-9c986.firebaseapp.com",
+    projectId: "reportsheetgen-9c986",
+    storageBucket: "reportsheetgen-9c986.firebasestorage.app",
+    messagingSenderId: "1065254905250",
+    appId: "1:1065254905250:web:40d00e89e6cdaba5713efb",
+    measurementId: "G-H6G42CGXD6"
 };
 
 let firebaseApp = null;
@@ -17,6 +18,8 @@ let db = null;
 let auth = null;
 let storage = null;
 let isFirebaseActive = false;
+let lastFirebaseError = '';
+let firebaseAuthHooked = false;
 
 // Current authenticated user & their role profile
 let currentUserProfile = null;
@@ -42,52 +45,73 @@ function saveFirebaseConfig(config) {
 // INITIALIZATION
 // ──────────────────────────────────────────────────────────────────────────────
 
+function getLastFirebaseError() {
+    return lastFirebaseError;
+}
+
 function initFirebase(config = getStoredFirebaseConfig()) {
-    if (typeof firebase === 'undefined') {
-        console.warn('Firebase SDK not loaded.');
+    lastFirebaseError = '';
+    if (typeof firebase === 'undefined' || !firebase.initializeApp) {
+        lastFirebaseError = 'Firebase SDK did not load. Hard-refresh the page.';
+        console.warn(lastFirebaseError);
         isFirebaseActive = false;
         return false;
     }
 
     if (!config || !config.apiKey || !config.projectId) {
-        console.log('Firebase config incomplete.');
+        lastFirebaseError = 'Firebase config is missing apiKey or projectId.';
+        console.log(lastFirebaseError);
         isFirebaseActive = false;
         return false;
     }
 
     try {
-        if (!firebase.apps.length) {
-            firebaseApp = firebase.initializeApp(config);
-        } else {
+        if (firebase.apps && firebase.apps.length) {
             firebaseApp = firebase.app();
+            const same = firebaseApp.options
+                && firebaseApp.options.apiKey === config.apiKey
+                && firebaseApp.options.projectId === config.projectId;
+            if (!same) {
+                try { firebaseApp.delete(); } catch (e) {}
+                firebaseApp = firebase.initializeApp(config);
+            }
+        } else {
+            firebaseApp = firebase.initializeApp(config);
+        }
+
+        if (typeof firebase.firestore !== 'function') {
+            throw new Error('Firestore SDK missing.');
+        }
+        if (typeof firebase.auth !== 'function') {
+            throw new Error('Auth SDK missing.');
         }
 
         db = firebase.firestore();
         auth = firebase.auth();
         if (firebase.storage) storage = firebase.storage();
 
-        // Enable offline persistence
-        db.enablePersistence({ synchronizeTabs: true }).catch((err) => {
-            if (err.code !== 'failed-precondition' && err.code !== 'unimplemented') {
-                console.warn('Persistence error:', err);
-            }
-        });
+        try {
+            db.enablePersistence({ synchronizeTabs: true }).catch(() => {});
+        } catch (e) {}
 
         isFirebaseActive = true;
 
-        // Auth state observer
-        auth.onAuthStateChanged(async (user) => {
-            if (user) {
-                await loadUserProfile(user.uid);
-            } else {
-                currentUserProfile = null;
-            }
-            updateAuthUI(user);
-        });
+        if (!firebaseAuthHooked && auth) {
+            firebaseAuthHooked = true;
+            auth.onAuthStateChanged(async (user) => {
+                if (user) {
+                    try { await loadUserProfile(user.uid); } catch (e) {}
+                } else {
+                    currentUserProfile = null;
+                }
+                updateAuthUI(user);
+            });
+        }
 
         console.log('Firebase initialized successfully!');
         return true;
     } catch (error) {
+        lastFirebaseError = error.message || String(error);
         console.error('Firebase initialization error:', error);
         isFirebaseActive = false;
         return false;
@@ -831,7 +855,7 @@ function setupRealtimeListeners(onDataUpdateCallback) {
     if (!isFirebaseActive || !db) return;
 
     const schoolId = localStorage.getItem('schoolId') || 'default_school';
-    const legacyCollections = ['students', 'scores', 'schoolInfo', 'studentReportDetails', 'parentContacts'];
+    const legacyCollections = ['students', 'scores', 'schoolInfo', 'studentReportDetails', 'parentContacts', 'attendanceMarks', 'attendanceSettings'];
 
     legacyCollections.forEach(colName => {
         db.collection('schools').doc(schoolId).collection(colName).doc('main_data')
@@ -867,6 +891,151 @@ function setupAdminRealtimeListeners(collectionsConfig, onUpdate) {
     });
 
     return unsubscribers;
+}
+
+const SCHOOL_PAYLOAD_KEYS = [
+    'students', 'teachers', 'classes', 'subjects', 'academicYears', 'terms',
+    'results', 'reports', 'users', 'gradingScales', 'scores', 'schoolInfo',
+    'schoolSettings', 'studentReportDetails', 'parentContacts',
+    'attendanceMarks', 'attendanceSettings', 'auditLogs'
+];
+
+function schoolDocId() {
+    return localStorage.getItem('schoolId') || 'living_spring';
+}
+
+function isFirebaseConnected() {
+    return !!(typeof isFirebaseActive !== 'undefined' && isFirebaseActive && db);
+}
+
+function getFirebaseStatusText() {
+    if (isFirebaseConnected()) return 'CLOUD';
+    const cfg = getStoredFirebaseConfig();
+    if (cfg && cfg.apiKey && cfg.projectId) return 'OFFLINE';
+    return 'LOCAL';
+}
+
+async function pushSchoolToFirebase() {
+    if (!isFirebaseConnected()) throw new Error('Firebase is not connected. Paste your config first.');
+    const schoolId = schoolDocId();
+    localStorage.setItem('schoolId', schoolId);
+    const batchWrites = [];
+    for (const key of SCHOOL_PAYLOAD_KEYS) {
+        let data;
+        try { data = JSON.parse(localStorage.getItem(key) || (key === 'scores' || key.endsWith('Settings') || key.includes('Info') || key.includes('Details') || key.includes('Contacts') || key.includes('Marks') ? '{}' : '[]')); }
+        catch (e) { data = key === 'scores' ? {} : []; }
+        if (data == null) continue;
+        batchWrites.push(
+            db.collection('schools').doc(schoolId).collection(key).doc('main_data').set({
+                payload: JSON.stringify(data),
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+            })
+        );
+    }
+    const arrays = ['students', 'teachers', 'classes', 'subjects', 'academicYears', 'terms', 'results', 'reports', 'users', 'gradingScales'];
+    for (const col of arrays) {
+        const items = JSON.parse(localStorage.getItem(col) || '[]');
+        if (!Array.isArray(items)) continue;
+        for (const item of items) {
+            const id = String(item.id || item.uid || ('id_' + Date.now() + Math.random().toString(36).slice(2, 6)));
+            batchWrites.push(db.collection(col).doc(id).set({ ...item, id }, { merge: true }));
+        }
+    }
+    const settings = JSON.parse(localStorage.getItem('schoolSettings') || '{}');
+    batchWrites.push(db.collection('schoolSettings').doc('main').set({ ...settings, updatedAt: firebase.firestore.FieldValue.serverTimestamp() }, { merge: true }));
+    await Promise.all(batchWrites);
+    await logActivity('Firebase Sync', 'Uploaded school data to Firestore');
+    return { ok: true, collections: SCHOOL_PAYLOAD_KEYS.length };
+}
+
+async function pullSchoolFromFirebase() {
+    if (!isFirebaseConnected()) return false;
+    const schoolId = schoolDocId();
+    let any = false;
+    for (const key of SCHOOL_PAYLOAD_KEYS) {
+        try {
+            const doc = await db.collection('schools').doc(schoolId).collection(key).doc('main_data').get();
+            if (doc.exists && doc.data().payload) {
+                localStorage.setItem(key, doc.data().payload);
+                any = true;
+            }
+        } catch (e) {}
+    }
+    const arrays = ['students', 'teachers', 'classes', 'subjects', 'academicYears', 'terms', 'results', 'reports', 'users', 'gradingScales'];
+    for (const col of arrays) {
+        try {
+            const snap = await db.collection(col).get();
+            if (!snap.empty) {
+                const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+                localStorage.setItem(col, JSON.stringify(data));
+                any = true;
+            }
+        } catch (e) {}
+    }
+    try {
+        const settingsDoc = await db.collection('schoolSettings').doc('main').get();
+        if (settingsDoc.exists) {
+            localStorage.setItem('schoolSettings', JSON.stringify(settingsDoc.data()));
+            any = true;
+        }
+    } catch (e) {}
+    return any;
+}
+
+async function provisionAuthUser(email, password, displayName, role) {
+    if (!isFirebaseConnected() || typeof firebase === 'undefined') throw new Error('Firebase is not connected.');
+    if (!email || !password || password.length < 6) throw new Error('Email and a password of at least 6 characters are required.');
+    const secondary = firebase.initializeApp(getStoredFirebaseConfig(), 'provision_' + Date.now());
+    try {
+        const creds = await secondary.auth().createUserWithEmailAndPassword(email, password);
+        await db.collection('users').doc(creds.user.uid).set({
+            uid: creds.user.uid,
+            email,
+            displayName: displayName || email,
+            role: role || 'Teacher',
+            assignedClasses: [],
+            assignedSubjects: [],
+            status: 'active',
+            createdAt: firebase.firestore.FieldValue.serverTimestamp()
+        }, { merge: true });
+        await secondary.auth().signOut();
+        return creds.user.uid;
+    } finally {
+        try { await secondary.delete(); } catch (e) {}
+    }
+}
+
+async function provisionStaffFromLocal() {
+    if (!isFirebaseConnected()) throw new Error('Firebase is not connected.');
+    const teachers = JSON.parse(localStorage.getItem('teachers') || '[]');
+    const users = JSON.parse(localStorage.getItem('users') || '[]');
+    const created = [];
+    const skipped = [];
+    const people = [];
+    teachers.forEach(t => { if (t.email) people.push({ email: t.email, name: t.name, role: t.role || 'Teacher', password: t.password || 'teacher123' }); });
+    users.forEach(u => { if (u.email && !people.some(p => p.email.toLowerCase() === u.email.toLowerCase())) people.push({ email: u.email, name: u.displayName || u.name, role: u.role || 'Teacher', password: u.password || 'admin123' }); });
+    for (const p of people) {
+        try {
+            await provisionAuthUser(p.email, p.password, p.name, p.role);
+            created.push(p.email);
+        } catch (e) {
+            skipped.push(p.email + ' (' + (e.code || e.message) + ')');
+        }
+    }
+    return { created, skipped };
+}
+
+function startSchoolRealtime(onChange) {
+    if (!isFirebaseConnected()) return;
+    setupRealtimeListeners(function (name, data) {
+        if (typeof onChange === 'function') onChange(name, data);
+    });
+    setupAdminRealtimeListeners(
+        ['students', 'teachers', 'classes', 'subjects', 'reports', 'results', 'academicYears', 'terms'].map(name => ({ name })),
+        function (name, data) {
+            if (typeof onChange === 'function') onChange(name, data);
+        }
+    );
 }
 
 // Initialize on load

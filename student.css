@@ -69,7 +69,7 @@ body.student-portal-body {
     width: 100%; padding: 12px 16px;
     background: rgba(255, 255, 255, 0.08);
     border: 1.5px solid var(--border-dark);
-    border-radius: 10px; color: #fff; font-size: 14px;
+    border-radius: 10px; color: #fff; font-size: 16px;
     outline: none; transition: border-color 0.2s;
     font-family: var(--font-family);
 }
@@ -205,6 +205,39 @@ body.student-portal-body {
 
 /* Responsive */
 @media (max-width: 640px) {
-    .student-header { padding: 14px 16px; flex-direction: column; gap: 12px; align-items: flex-start; }
-    .bece-aggregate-banner { flex-direction: column; text-align: center; gap: 12px; }
+    html, body { overflow-x: hidden; }
+    .student-auth-card { padding: 28px 18px; }
+    .student-header {
+        padding: calc(12px + env(safe-area-inset-top)) 14px 12px;
+        flex-direction: column;
+        gap: 10px;
+        align-items: stretch;
+    }
+    .student-brand { min-width: 0; }
+    .student-brand h1 { font-size: 16px; line-height: 1.25; }
+    .student-user-info {
+        justify-content: space-between;
+        width: 100%;
+        gap: 8px;
+    }
+    .btn-student-logout { min-height: 42px; }
+    .student-container { margin: 16px auto; padding: 0 12px calc(20px + env(safe-area-inset-bottom)); }
+    .bece-aggregate-banner {
+        flex-direction: column;
+        text-align: center;
+        gap: 12px;
+        padding: 18px 16px;
+    }
+    .bece-agg-value { font-size: 36px; }
+    .student-profile-card { grid-template-columns: 1fr; padding: 16px; }
+    .student-card-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 8px;
+        padding: 14px 14px;
+    }
+    .student-table { min-width: 620px; }
+    .student-card-box { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    .student-action-bar { justify-content: stretch; }
+    .btn-student-action { width: 100%; justify-content: center; min-height: 46px; }
 }

@@ -60,23 +60,7 @@ const REPORT_FIELD_TOGGLES = [
 document.addEventListener('DOMContentLoaded', () => {
     initFirebase();
 
-    if (typeof firebase !== 'undefined' && firebase.auth) {
-        firebase.auth().onAuthStateChanged(async (user) => {
-            if (user) {
-                await loadUserProfile(user.uid);
-                const role = getCurrentUserRole();
-                if (!['Super Admin','Administrator','Headteacher'].includes(role)) {
-                    showAdminOverlay('You do not have admin access. Contact your system administrator.');
-                    return;
-                }
-                hideAuthOverlay();
-                await initAdminApp();
-            } else {
-                showAuthOverlay();
-            }
-        });
-    } else {
-        // Firebase not configured — allow local mode via simple passcode
+    const openLocalAdmin = () => {
         const unlocked = sessionStorage.getItem('adminUnlocked') === 'true';
         if (unlocked) {
             hideAuthOverlay();
@@ -84,6 +68,28 @@ document.addEventListener('DOMContentLoaded', () => {
         } else {
             showAuthOverlay();
         }
+    };
+
+    if (typeof firebase !== 'undefined' && firebase.auth && isFirebaseActive) {
+        firebase.auth().onAuthStateChanged(async (user) => {
+            if (user) {
+                try { await loadUserProfile(user.uid); } catch (e) {}
+                const role = getCurrentUserRole();
+                if (role && !['Super Admin','Administrator','Headteacher','Guest'].includes(role)) {
+                    // Teachers stay out of admin. Guest means no profile yet — allow if locally unlocked.
+                    if (['Teacher','Class Teacher'].includes(role)) {
+                        showAdminOverlay('You do not have admin access. Contact your system administrator.');
+                        return;
+                    }
+                }
+                hideAuthOverlay();
+                await initAdminApp();
+                return;
+            }
+            openLocalAdmin();
+        });
+    } else {
+        openLocalAdmin();
     }
 });
 
@@ -118,25 +124,26 @@ async function handleAdminLogin() {
 
     if (errorEl) errorEl.style.display = 'none';
 
-    // Fallback local passcode if Firebase not configured
-    if (!isFirebaseActive) {
-        if (password === 'admin123' || password === 'admin') {
-            sessionStorage.setItem('adminUnlocked', 'true');
-            hideAuthOverlay();
-            await initAdminApp();
-            return;
-        } else {
-            if (errorEl) { errorEl.textContent = 'Invalid passcode. Default: admin123'; errorEl.style.display = 'block'; }
-            return;
-        }
+    const localAdminOk = password === 'admin123' || password === 'admin';
+
+    async function enterLocalAdmin() {
+        sessionStorage.setItem('adminUnlocked', 'true');
+        sessionStorage.setItem('adminEmail', email || 'admin@school.com');
+        hideAuthOverlay();
+        await initAdminApp();
     }
 
-    if (!email || !password) {
-        if (errorEl) { errorEl.textContent = 'Please enter email and password.'; errorEl.style.display = 'block'; }
+    // School local passcode always works, even after Firebase is connected.
+    if (localAdminOk) {
+        await enterLocalAdmin();
         return;
     }
 
-    // Show loader
+    if (!email || !password) {
+        if (errorEl) { errorEl.textContent = 'Please enter email and password. Local admin password is admin123.'; errorEl.style.display = 'block'; }
+        return;
+    }
+
     const btnText   = btn?.querySelector('.btn-text');
     const btnLoader = btn?.querySelector('.btn-loader');
     if (btnText) btnText.style.display = 'none';
@@ -144,13 +151,22 @@ async function handleAdminLogin() {
     if (btn) btn.disabled = true;
 
     try {
-        await loginFirebaseUser(email, password);
-        // onAuthStateChanged will handle the rest
+        if (isFirebaseActive && typeof loginFirebaseUser === 'function') {
+            await loginFirebaseUser(email, password);
+            return;
+        }
+        if (errorEl) { errorEl.textContent = 'Use password admin123, or create a Firebase account first.'; errorEl.style.display = 'block'; }
     } catch (e) {
-        const msg = e.code === 'auth/user-not-found'    ? 'No account found with this email.' :
-                    e.code === 'auth/wrong-password'      ? 'Incorrect password.' :
-                    e.code === 'auth/invalid-email'       ? 'Invalid email address.' :
-                    e.code === 'auth/too-many-requests'   ? 'Too many attempts. Try again later.' :
+        const code = e.code || '';
+        if (code === 'auth/invalid-credential' || code === 'auth/user-not-found' || code === 'auth/wrong-password') {
+            if (errorEl) {
+                errorEl.textContent = 'That email is not in Firebase yet. Use password admin123 to open Admin, then click Create Auth accounts.';
+                errorEl.style.display = 'block';
+            }
+            return;
+        }
+        const msg = code === 'auth/invalid-email' ? 'Invalid email address.' :
+                    code === 'auth/too-many-requests' ? 'Too many attempts. Try again later.' :
                     `Login failed: ${e.message}`;
         if (errorEl) { errorEl.textContent = msg; errorEl.style.display = 'block'; }
     } finally {
@@ -192,6 +208,9 @@ function togglePasswordVisibility(inputId, btn) {
 // ─── Init Admin App ──────────────────────────────────────────────────────────
 async function initAdminApp() {
     updateSidebarUser();
+    if (typeof Attendance !== 'undefined' && Attendance.hydrateFromServer) {
+        try { await Attendance.hydrateFromServer(); } catch (e) {}
+    }
     await loadAllData();
     loadDashboard();
     renderFieldToggles();
@@ -207,13 +226,21 @@ async function initAdminApp() {
         });
     }
 
-    // Poll every 3s when Firebase not active
+    // Poll data in the background, but do not rebuild open form checkboxes
     if (!isFirebaseActive) {
-        setInterval(loadAllData, 3000);
+        setInterval(() => loadAllData({ refreshForms: false }), 3000);
     }
 }
 
-async function loadAllData() {
+function isAnyAdminModalOpen() {
+    return Array.from(document.querySelectorAll('.modal-overlay')).some(el => {
+        const display = window.getComputedStyle(el).display;
+        return display && display !== 'none';
+    });
+}
+
+async function loadAllData(opts = {}) {
+    const refreshForms = opts.refreshForms !== false;
     try {
         const [students, teachers, classes, subjects, academicYears,
                terms, results, reports, users, gradingScales] = await Promise.all([
@@ -243,9 +270,17 @@ async function loadAllData() {
 
         const settings = await fetchSchoolSettings();
         if (settings) adminState.settings = settings;
+        if (typeof Attendance !== 'undefined') Attendance.load();
 
         updateNavBadges();
-        populateAllDropdowns();
+        if (refreshForms && !isAnyAdminModalOpen()) {
+            populateAllDropdowns();
+        }
+        const attSection = document.getElementById('section-attendance');
+        if (attSection && attSection.classList.contains('active')) {
+            const typing = document.activeElement && ['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement.tagName);
+            if (!typing) renderAttendanceSection();
+        }
     } catch (e) {
         console.error('Error loading admin data:', e);
     }
@@ -298,6 +333,7 @@ function switchSection(sectionId) {
         'classes':'Classes','subjects':'Subjects','academic-years':'Academic Years & Terms',
         'grading':'Grading System','results':'Results','reports':'Reports',
         'settings':'School Settings','users':'Users & Roles',
+        'attendance':'Attendance',
         'audit-logs':'Activity Logs','data-management':'Data Management'
     };
     const bc = document.getElementById('breadcrumb');
@@ -317,18 +353,24 @@ function switchSection(sectionId) {
         case 'users':          renderUsersTable(); break;
         case 'audit-logs':     renderAuditLogs(); break;
         case 'data-management':renderDataManagement(); break;
+        case 'attendance':     renderAttendanceSection(); break;
         case 'settings':       loadSettingsForm(); break;
     }
 
-    // Close mobile sidebar
     document.getElementById('sidebar')?.classList.remove('mobile-open');
+    document.getElementById('sidebarBackdrop')?.classList.remove('show');
+    document.body.classList.remove('nav-open');
 }
 
 function toggleSidebar() {
     const sidebar = document.getElementById('sidebar');
+    const backdrop = document.getElementById('sidebarBackdrop');
     if (!sidebar) return;
     if (window.innerWidth <= 768) {
-        sidebar.classList.toggle('mobile-open');
+        const open = !sidebar.classList.contains('mobile-open');
+        sidebar.classList.toggle('mobile-open', open);
+        if (backdrop) backdrop.classList.toggle('show', open);
+        document.body.classList.toggle('nav-open', open);
     } else {
         sidebar.classList.toggle('collapsed');
     }
@@ -339,6 +381,7 @@ function updateNavBadges() {
     if (studBadge) studBadge.textContent = adminState.students.length;
 
     const pendingResults = adminState.results.filter(r => r.status === 'Submitted').length;
+    const pendingReports = adminState.reports.filter(r => !['approved','published'].includes(String(r.status||'').toLowerCase())).length;
     const resBadge = document.getElementById('nav-badge-results');
     if (resBadge) {
         resBadge.textContent = pendingResults;
@@ -347,7 +390,7 @@ function updateNavBadges() {
 
     const notifCount = document.getElementById('notificationCount');
     if (notifCount) {
-        const total = pendingResults;
+        const total = pendingResults + pendingReports;
         notifCount.textContent = total;
         notifCount.style.display = total > 0 ? 'flex' : 'none';
     }
@@ -380,10 +423,45 @@ function setKPI(id, value) {
     if (el) el.textContent = value ?? '–';
 }
 
+const CHART_TAB_MAP = {
+    grade:   'gradeDistChart',
+    subject: 'subjectAvgChart',
+    class:   'classPerfChart',
+    status:  'resultStatusChart',
+};
+
+function switchDashboardChart(tabId) {
+    document.querySelectorAll('.chart-tab').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.chartTab === tabId);
+    });
+    document.querySelectorAll('.chart-pane').forEach(pane => {
+        pane.classList.toggle('active', pane.dataset.chartPane === tabId);
+    });
+    const filter = document.getElementById('gradeDistClassFilter');
+    if (filter) filter.style.visibility = tabId === 'grade' ? 'visible' : 'hidden';
+
+    requestAnimationFrame(() => {
+        const chartKey = CHART_TAB_MAP[tabId];
+        const chart = adminState.charts[chartKey];
+        if (chart) {
+            try { chart.resize(); } catch (e) {}
+        } else if (tabId === 'grade') {
+            renderGradeDistChart();
+        } else if (tabId === 'subject') {
+            renderSubjectAvgChart();
+        } else if (tabId === 'class') {
+            renderClassPerfChart();
+        } else if (tabId === 'status') {
+            renderResultStatusChart();
+        }
+    });
+}
+
 // ─── Charts ──────────────────────────────────────────────────────────────────
 function renderGradeDistChart() {
-    const ctx = document.getElementById('gradeDistChart');
-    if (!ctx) return;
+    const box = document.getElementById('gradeDistChart');
+    if (!box) return;
+    destroyChart('gradeDistChart');
 
     const classFilter = document.getElementById('gradeDistClassFilter')?.value || '';
     let results = adminState.results;
@@ -394,23 +472,22 @@ function renderGradeDistChart() {
         if (r.grade) gradeCounts[r.grade] = (gradeCounts[r.grade] || 0) + 1;
     });
 
-    const labels = Object.keys(gradeCounts);
-    const data   = Object.values(gradeCounts);
-    const colors = ['#4f46e5','#059669','#d97706','#dc2626','#0284c7','#7c3aed'];
+    const entries = Object.entries(gradeCounts);
+    if (!entries.length) {
+        box.innerHTML = '<div class="grade-bars-empty">No graded results yet</div>';
+        return;
+    }
 
-    destroyChart('gradeDistChart');
-    adminState.charts.gradeDistChart = new Chart(ctx, {
-        type: 'bar',
-        data: {
-            labels,
-            datasets: [{ label: 'Students', data, backgroundColor: colors.slice(0, labels.length), borderRadius: 8 }]
-        },
-        options: {
-            responsive: true, maintainAspectRatio: false,
-            plugins: { legend: { display: false } },
-            scales: { y: { beginAtZero: true, grid: { color: '#f1f5f9' } }, x: { grid: { display: false } } }
-        }
-    });
+    const max = Math.max(...entries.map(([, n]) => n), 1);
+    const colors = ['#4f46e5','#059669','#d97706','#dc2626','#0284c7','#7c3aed','#0d9488','#db2777'];
+    box.innerHTML = entries.map(([grade, count], i) => {
+        const pct = Math.max(8, Math.round((count / max) * 100));
+        return `<div class="grade-bar-col">
+            <div class="grade-bar-count">${count}</div>
+            <div class="grade-bar-track"><div class="grade-bar-fill" style="height:${pct}%;background:${colors[i % colors.length]}"></div></div>
+            <div class="grade-bar-label">${escHtml(grade)}</div>
+        </div>`;
+    }).join('');
 }
 
 function renderSubjectAvgChart() {
@@ -505,7 +582,7 @@ function renderResultStatusChart() {
         },
         options: {
             responsive: true, maintainAspectRatio: false,
-            plugins: { legend: { position: 'bottom', labels: { padding: 16, font: { size: 11 } } } },
+            plugins: { legend: { position: 'right', labels: { padding: 10, font: { size: 11 }, boxWidth: 12 } } },
             cutout: '65%'
         }
     });
@@ -521,7 +598,7 @@ function destroyChart(id) {
 function renderRecentActivity() {
     const tbody = document.getElementById('recentActivityBody');
     if (!tbody) return;
-    const logs = adminState.auditLogs.slice(0, 10);
+    const logs = adminState.auditLogs.slice(0, 4);
     tbody.innerHTML = logs.length ? logs.map(l => `
         <tr>
             <td>${escHtml(l.user || '')}</td>
@@ -566,6 +643,7 @@ function populateAllDropdowns() {
 
     // Grade dist filter
     populateSelect('gradeDistClassFilter', adminState.classes, 'id', 'name', 'All Classes');
+    populateSelect('attFilterClass', adminState.classes, 'id', 'name', 'All Classes');
 
     // Generate report modal
     populateSelect('gr-class',   adminState.classes,       'id', 'name', 'Select Class');
@@ -915,8 +993,26 @@ async function saveTeacher() {
             showToast('Teacher updated!', 'success');
             await logActivity('Teacher Updated', `Updated teacher ${name}`, id);
         }
+        const teacherId = id || adminState.teachers.find(t => t.email === email)?.id;
+        if (teacherId) {
+            adminState.classes.forEach(c => {
+                if (String(c.classTeacherId) === String(teacherId)) c.classTeacherName = name;
+            });
+            for (const c of adminState.classes.filter(c => String(c.classTeacherId) === String(teacherId))) {
+                try { await updateDocument('classes', c.id, { classTeacherName: name }); } catch (e) {}
+            }
+            localStorage.setItem('classes', JSON.stringify(adminState.classes));
+        }
+        if (role === 'Headteacher' && status !== 'inactive') {
+            const settings = { ...(adminState.settings || {}), headTeacher: name };
+            adminState.settings = settings;
+            try { await saveSchoolSettings(settings); } catch (e) {}
+            persistSchoolInfoPatch({ headTeacher: name });
+        }
         closeModal('teacherModal');
         renderTeachersTable();
+        renderClassesTable();
+        renderClassTeacherMap();
     } catch (e) {
         showToast(`Error: ${e.message}`, 'error');
     }
@@ -1023,21 +1119,30 @@ async function saveClass() {
 
     if (!name) { showToast('Class name is required.', 'error'); return; }
 
-    const data = { name, level, gradingScaleId, classTeacherId, status };
+    const teacher = adminState.teachers.find(t => String(t.id) === String(classTeacherId));
+    const data = { name, level, gradingScaleId, classTeacherId, classTeacherName: teacher?.name || '', status };
     try {
         if (id) {
             await updateDocument('classes', id, data);
             const idx = adminState.classes.findIndex(c => c.id === id);
             if (idx >= 0) adminState.classes[idx] = { ...adminState.classes[idx], ...data };
             showToast('Class updated!', 'success');
+            await logActivity('Class Updated', `Updated ${name}` + (teacher ? ` — class teacher ${teacher.name}` : ''), id);
         } else {
             const newDoc = await addDocument('classes', data);
             adminState.classes.push(newDoc);
             showToast('Class added!', 'success');
             await logActivity('Class Added', `Created class ${name}`, newDoc.id);
         }
+        if (teacher && id) {
+            const assigned = new Set(teacher.assignedClasses || []);
+            assigned.add(id);
+            teacher.assignedClasses = Array.from(assigned);
+            try { await updateDocument('teachers', teacher.id, { assignedClasses: teacher.assignedClasses }); } catch (e) {}
+        }
         closeModal('classModal');
         renderClassesTable();
+        renderClassTeacherMap();
         populateAllDropdowns();
     } catch (e) {
         showToast(`Error: ${e.message}`, 'error');
@@ -1243,6 +1348,8 @@ async function setActiveYear(id) {
     }
     await updateDocument('academicYears', id, { isActive: true });
     adminState.academicYears.forEach(y => { y.isActive = y.id === id; });
+    const year = adminState.academicYears.find(y => y.id === id);
+    persistSchoolInfoPatch({ academicYear: year?.name || '' });
     renderAcademicYears();
     showToast('Active academic year updated!', 'success');
     await logActivity('Active Year Set', `Set academic year active`, id);
@@ -1262,13 +1369,18 @@ async function setActiveTerm(termId, yearId) {
 }
 
 async function closeTerm(termId) {
-    showConfirm('Close this term? This will lock all results for this term.', async () => {
-        await updateDocument('terms', termId, { isActive: false, isClosed: true });
+    showConfirm('Close this term? School days on reports will be weekdays only (weekends excluded). Results for the term will lock.', async () => {
+        const today = (typeof Attendance !== 'undefined' && Attendance.todayISO()) || new Date().toISOString().slice(0, 10);
+        await updateDocument('terms', termId, { isActive: false, isClosed: true, endDate: today });
         const t = adminState.terms.find(t => t.id === termId);
-        if (t) { t.isActive = false; t.isClosed = true; }
+        if (t) { t.isActive = false; t.isClosed = true; t.endDate = today; }
+        let days = 0;
+        if (typeof Attendance !== 'undefined') {
+            days = Attendance.finalizeClosedTerm(today);
+        }
         renderAcademicYears();
-        showToast('Term closed.', 'success');
-        await logActivity('Term Closed', `Closed term`, termId);
+        showToast(days ? `Term closed. Report attendance is now days present out of ${days} school days (weekends excluded).` : 'Term closed.', 'success');
+        await logActivity('Term Closed', `Closed term — ${days} weekday school days`, termId);
     });
 }
 
@@ -1366,6 +1478,7 @@ function gradeRowHTML(r = {}, i) {
 }
 
 function addGradeRow() {
+ 
     const container = document.getElementById('gradeRowsContainer');
     if (!container) return;
     const div = document.createElement('div');
@@ -1473,7 +1586,7 @@ function renderResultsTable() {
         const locked  = r.locked ? 'locked' : 'unlocked';
         return `<tr>
             <td><input type="checkbox" class="result-checkbox" value="${r.id}" onchange="handleResultCheckbox()"></td>
-            <td>${escHtml(student?.name || r.studentId || '—')}</td>
+            <td>${escHtml(student?.name || r.studentName || r.studentId || '—')}</td>
             <td>${escHtml(resolveClass(r.classId))}</td>
             <td>${escHtml(r.subjectId || '—')}</td>
             <td>${r.classScore ?? '—'}</td>
@@ -1618,12 +1731,14 @@ function renderReportsTable() {
             <td>${i + 1}</td>
             <td>${escHtml(student?.name || r.studentId || '—')}</td>
             <td>${escHtml(resolveClass(r.classId))}</td>
-            <td>${escHtml(year?.name || '—')}</td>
-            <td>${escHtml(term?.name || '—')}</td>
+            <td>${escHtml(year?.name || r.academicYearId || '—')}</td>
+            <td>${escHtml(term?.name || r.termId || '—')}</td>
             <td><span class="status-pill ${status.toLowerCase()}">${status}</span></td>
             <td>${r.generatedAt ? new Date(r.generatedAt).toLocaleString() : '—'}</td>
             <td>
                 <div class="action-btns">
+                    ${['pending','generated'].includes(status.toLowerCase()) ? `<button class="action-btn success" title="Approve for download" onclick="approveReport('${r.id}')"><i class="fas fa-check"></i></button>` : ''}
+                    ${['approved','published'].includes(status.toLowerCase()) ? `<button class="action-btn warning" title="Revoke approval" onclick="revokeReportApproval('${r.id}')"><i class="fas fa-undo"></i></button>` : ''}
                     <button class="action-btn" title="View Report" onclick="viewReport('${r.id}')"><i class="fas fa-file-alt"></i></button>
                     <button class="action-btn delete" onclick="confirmDeleteReport('${r.id}')"><i class="fas fa-trash"></i></button>
                 </div>
@@ -1633,6 +1748,48 @@ function renderReportsTable() {
 
     const countEl = document.getElementById('reportsCount');
     if (countEl) countEl.textContent = `${data.length} reports`;
+}
+
+function persistReports() {
+    localStorage.setItem('reports', JSON.stringify(adminState.reports));
+}
+
+async function approveReport(id) {
+    const r = adminState.reports.find(x => String(x.id) === String(id));
+    if (!r) { showToast('Report not found.', 'error'); return; }
+    r.status = 'Approved';
+    r.approvedAt = new Date().toISOString();
+    persistReports();
+    try { await updateDocument('reports', r.id, { status: 'Approved', approvedAt: r.approvedAt }); } catch (e) {}
+    renderReportsTable();
+    updateNavBadges();
+    showToast(`Approved ${r.studentName || 'report'} — teachers can now download it.`, 'success');
+    await logActivity('Report Approved', `Approved report for ${r.studentName || r.studentId}`, r.id);
+}
+
+async function revokeReportApproval(id) {
+    const r = adminState.reports.find(x => String(x.id) === String(id));
+    if (!r) return;
+    r.status = 'Pending';
+    persistReports();
+    try { await updateDocument('reports', r.id, { status: 'Pending' }); } catch (e) {}
+    renderReportsTable();
+    updateNavBadges();
+    showToast('Approval revoked. Download is locked again.', 'warning');
+}
+
+async function approveAllPendingReports() {
+    const pending = adminState.reports.filter(r => !['approved','published'].includes(String(r.status||'').toLowerCase()));
+    if (!pending.length) { showToast('No pending reports to approve.', 'info'); return; }
+    showConfirm(`Approve ${pending.length} pending report(s) for download?`, async () => {
+        const now = new Date().toISOString();
+        pending.forEach(r => { r.status = 'Approved'; r.approvedAt = now; });
+        persistReports();
+        renderReportsTable();
+        updateNavBadges();
+        showToast(`${pending.length} reports approved. Teachers can download them now.`, 'success');
+        await logActivity('Reports Approved', `Bulk-approved ${pending.length} reports`);
+    });
 }
 
 function openGenerateReportModal() {
@@ -1705,14 +1862,61 @@ async function confirmDeleteReport(id) {
 }
 
 // ─── SCHOOL SETTINGS ─────────────────────────────────────────────────────────
+function getSchoolInfo() {
+    try { return JSON.parse(localStorage.getItem('schoolInfo') || '{}'); } catch (e) { return {}; }
+}
+
+function persistSchoolInfoPatch(patch) {
+    const info = { ...getSchoolInfo(), ...patch };
+    localStorage.setItem('schoolInfo', JSON.stringify(info));
+    if (typeof syncSaveCollection === 'function') {
+        try { syncSaveCollection('schoolInfo', info); } catch (e) {}
+    }
+    return info;
+}
+
+function assignedClassTeacher(cls) {
+    if (!cls) return null;
+    return adminState.teachers.find(t => String(t.id) === String(cls.classTeacherId)) || null;
+}
+
+function autoHeadteacherName() {
+    const ht = adminState.teachers.find(t => t.role === 'Headteacher' && t.status !== 'inactive');
+    return ht?.name || '';
+}
+
+function renderClassTeacherMap() {
+    const tbody = document.getElementById('settingsClassTeacherBody');
+    if (!tbody) return;
+    const rows = (adminState.classes || []).filter(c => c.status !== 'inactive');
+    tbody.innerHTML = rows.length ? rows.map(c => {
+        const teacher = assignedClassTeacher(c);
+        return `<tr>
+            <td><strong>${escHtml(c.name)}</strong></td>
+            <td>${escHtml(teacher?.name || 'Not assigned')}</td>
+            <td>${teacher ? 'Teachers → ' + escHtml(teacher.name) : 'Assign in Classes'}</td>
+        </tr>`;
+    }).join('') : emptyRow(3, 'No classes yet. Add them under Classes.');
+}
+
 function loadSettingsForm() {
     const s = adminState.settings || {};
+    const info = getSchoolInfo();
     const fields = ['settingsSchoolName','settingsMotto','settingsAddress','settingsPhone','settingsEmail','settingsReportTitle'];
     const keys   = ['schoolName','motto','address','phone','email','reportTitle'];
     fields.forEach((id, i) => {
         const el = document.getElementById(id);
         if (el) el.value = s[keys[i]] || '';
     });
+
+    const closeEl = document.getElementById('settingsClosingDate');
+    const openEl  = document.getElementById('settingsReopeningDate');
+    const headEl  = document.getElementById('settingsHeadTeacher');
+    if (closeEl) closeEl.value = s.closingDate || info.closingDate || '';
+    if (openEl)  openEl.value  = s.reopeningDate || info.reopeningDate || '';
+    if (headEl)  headEl.value  = autoHeadteacherName() || s.headTeacher || info.headTeacher || '';
+
+    renderClassTeacherMap();
 
     if (s.primaryColor)     { document.getElementById('settingsPrimaryColor').value       = s.primaryColor;     document.getElementById('settingsPrimaryColorHex').value       = s.primaryColor; }
     if (s.secondaryColor)   { document.getElementById('settingsSecondaryColor').value     = s.secondaryColor;   document.getElementById('settingsSecondaryColorHex').value     = s.secondaryColor; }
@@ -1728,6 +1932,7 @@ function loadSettingsForm() {
     }
 
     renderFieldToggles();
+    loadFirebaseForm();
 }
 
 function renderFieldToggles() {
@@ -1745,6 +1950,8 @@ function renderFieldToggles() {
 }
 
 async function saveAllSettings() {
+    const activeYear = adminState.academicYears.find(y => y.isActive);
+    const activeTerm = adminState.terms.find(t => t.isActive);
     const settings = {
         schoolName:      document.getElementById('settingsSchoolName')?.value?.trim() || '',
         motto:           document.getElementById('settingsMotto')?.value?.trim() || '',
@@ -1752,6 +1959,9 @@ async function saveAllSettings() {
         phone:           document.getElementById('settingsPhone')?.value?.trim() || '',
         email:           document.getElementById('settingsEmail')?.value?.trim() || '',
         reportTitle:     document.getElementById('settingsReportTitle')?.value?.trim() || '',
+        closingDate:     document.getElementById('settingsClosingDate')?.value?.trim() || '',
+        reopeningDate:   document.getElementById('settingsReopeningDate')?.value?.trim() || '',
+        headTeacher:     document.getElementById('settingsHeadTeacher')?.value?.trim() || autoHeadteacherName(),
         primaryColor:    document.getElementById('settingsPrimaryColor')?.value || '#1a56db',
         secondaryColor:  document.getElementById('settingsSecondaryColor')?.value || '#7e3af2',
         headerTextColor: document.getElementById('settingsHeaderTextColor')?.value || '#ffffff',
@@ -1767,7 +1977,16 @@ async function saveAllSettings() {
     try {
         await saveSchoolSettings(settings);
         adminState.settings = settings;
-        showToast('Settings saved!', 'success');
+        persistSchoolInfoPatch({
+            academicYear:  activeYear?.name || getSchoolInfo().academicYear || '',
+            term:          activeTerm ? String(activeTerm.termNumber || '') : (getSchoolInfo().term || ''),
+            closingDate:   settings.closingDate,
+            reopeningDate: settings.reopeningDate,
+            headTeacher:   settings.headTeacher,
+            schoolLogo:    settings.schoolLogo
+        });
+        showToast('Settings saved! Teacher portal will show these on reports.', 'success');
+        await logActivity('School Settings Updated', 'Updated report calendar and school information');
     } catch (e) {
         showToast(`Error: ${e.message}`, 'error');
     }
@@ -1958,7 +2177,7 @@ function renderAuditLogs() {
 }
 
 function exportAuditLogs() {
-    downloadJSON(adminState.auditLogs, 'audit_logs.json');
+    startFileDownload('/api/export/auditLogs.xlsx');
 }
 
 function confirmClearAuditLogs() {
@@ -1994,34 +2213,13 @@ function renderDataManagement() {
 // ──────────────────────────────────────────────────────────────────────────────
 // DOWNLOADABLE CSV TEMPLATES
 // ──────────────────────────────────────────────────────────────────────────────
-function downloadTemplate(type) {
-    const templates = {
-        students: {
-            filename: 'students_import_template.csv',
-            content: 'admissionNo,name,gender,dob,class,parentName,parentPhone\nTLS/2026/001,John Doe,Male,2014-05-12,Class 6,Robert Doe,0201234567\nTLS/2026/002,Jane Smith,Female,2014-08-20,Class 6,Mary Smith,0249876543'
-        },
-        teachers: {
-            filename: 'teachers_import_template.csv',
-            content: 'name,email,phone,role,assignedClasses,assignedSubjects\nKwame Mensah,teacher@school.com,0201234567,Teacher,"Class 6","Mathematics, Science"'
-        },
-        classes: {
-            filename: 'classes_import_template.csv',
-            content: 'name,level,classTeacherName\nClass 6,Upper Primary,Kwame Mensah'
-        },
-        subjects: {
-            filename: 'subjects_import_template.csv',
-            content: 'code,name,classNames\nMATH,Mathematics,"Class 6, Class 5"\nENG,English Language,"Class 6, Class 5"'
-        },
-        results: {
-            filename: 'results_import_template.csv',
-            content: 'studentId,studentName,classId,subjectId,classScore,examScore\nTLS/2026/001,John Doe,Class 6,Mathematics,42,48\nTLS/2026/002,Jane Smith,Class 6,Mathematics,38,44'
-        }
-    };
+function startFileDownload(url) {
+    if (!url) return;
+    window.location.href = '/open?src=' + encodeURIComponent(url);
+}
 
-    const tpl = templates[type];
-    if (!tpl) { showToast('Template type not supported.', 'error'); return; }
-    downloadFile(tpl.content, tpl.filename, 'text/csv');
-    showToast(`Downloaded ${tpl.filename}`, 'success');
+function downloadTemplate(type) {
+    startFileDownload('/api/templates/' + encodeURIComponent(type) + '.xlsx');
 }
 
 function triggerImport(collection) {
@@ -2035,16 +2233,22 @@ async function handleImportCSV(event, collection) {
     adminState.importCollection = collection;
 
     const text = await file.text();
-    const rows = text.split('\n').filter(r => r.trim());
-    if (!rows.length) { showToast('Empty CSV file.', 'error'); return; }
-
-    const headers = rows[0].split(',').map(h => h.trim().replace(/"/g, ''));
-    const records = rows.slice(1).map(row => {
-        const values = row.split(',').map(v => v.trim().replace(/"/g, ''));
-        const obj = {};
-        headers.forEach((h, i) => { obj[h] = values[i] || ''; });
-        return obj;
-    });
+    let records = [];
+    if (window.OneRealFiles && OneRealFiles.parseCsv) {
+        records = OneRealFiles.parseCsv(text);
+    } else {
+        const rows = text.split('\n').filter(r => r.trim());
+        if (!rows.length) { showToast('Empty CSV file.', 'error'); return; }
+        const headers0 = rows[0].split(',').map(h => h.trim().replace(/"/g, ''));
+        records = rows.slice(1).map(row => {
+            const values = row.split(',').map(v => v.trim().replace(/"/g, ''));
+            const obj = {};
+            headers0.forEach((h, i) => { obj[h] = values[i] || ''; });
+            return obj;
+        });
+    }
+    if (!records.length) { showToast('Empty CSV file.', 'error'); return; }
+    const headers = Object.keys(records[0]);
 
     adminState.importData = records;
     showImportPreview(headers, records, collection);
@@ -2253,6 +2457,12 @@ async function executeBackupRestore() {
         const data = pendingRestoreData;
 
         const collections = ['students', 'teachers', 'classes', 'subjects', 'academicYears', 'terms', 'results', 'reports', 'users', 'gradingScales'];
+        if (data.attendanceMarks) {
+            localStorage.setItem('attendanceMarks', JSON.stringify(data.attendanceMarks));
+        }
+        if (data.attendanceSettings) {
+            localStorage.setItem('attendanceSettings', JSON.stringify(data.attendanceSettings));
+        }
 
         for (const col of collections) {
             if (Array.isArray(data[col])) {
@@ -2290,16 +2500,14 @@ async function executeBackupRestore() {
 function exportStudentsCSV() { exportCollectionCSV('students'); }
 
 async function exportCollection(name) {
-    const data = adminState[name] || await safeGetCollection(name);
-    downloadJSON(data, `${name}_export.json`);
+    startFileDownload('/api/export/' + encodeURIComponent(name) + '.json');
+    showToast('File is ready. Use Save Excel or Copy table.', 'success');
 }
 
 async function exportCollectionCSV(name) {
-    const data = adminState[name] || await safeGetCollection(name);
-    if (!data.length) { showToast('No data to export.', 'warning'); return; }
-    const headers = Object.keys(data[0]);
-    const csv = [headers.join(','), ...data.map(r => headers.map(h => `"${(r[h] ?? '').toString().replace(/"/g, '""')}"`).join(','))].join('\n');
-    downloadFile(csv, `${name}_export.csv`, 'text/csv');
+    const path = name === 'attendance' ? '/api/export/attendance.xlsx' : '/api/export/' + encodeURIComponent(name) + '.xlsx';
+    startFileDownload(path);
+    showToast('Excel is ready. Use Save Excel or Copy table.', 'success');
 }
 
 async function confirmExportAll() {
@@ -2318,14 +2526,53 @@ async function confirmExportAll() {
             users:         adminState.users,
             gradingScales: adminState.gradingScales,
             auditLogs:     adminState.auditLogs,
-            settings:      adminState.settings
+            settings:      adminState.settings,
+            attendanceMarks: JSON.parse(localStorage.getItem('attendanceMarks') || '{}'),
+            attendanceSettings: JSON.parse(localStorage.getItem('attendanceSettings') || '{}'),
+            scores: JSON.parse(localStorage.getItem('scores') || '{}'),
+            schoolInfo: JSON.parse(localStorage.getItem('schoolInfo') || '{}'),
+            schoolSettings: adminState.settings,
+            studentReportDetails: JSON.parse(localStorage.getItem('studentReportDetails') || '{}'),
+            parentContacts: JSON.parse(localStorage.getItem('parentContacts') || '{}')
         };
-        downloadJSON(backup, `school_backup_${new Date().toISOString().split('T')[0]}.json`);
-        showToast('Full backup exported!', 'success');
+        startFileDownload('/api/export/backup');
+        showToast('Backup is ready. Use Save file or Copy table.', 'success');
     });
 }
 
 function openImportStudentsModal() { triggerImport('students'); }
+
+async function startRealSchoolData() {
+    showConfirm('Remove all demo students, teachers, scores, attendance and reports? School name, classes and grading stay. You can then add real staff and learners.', async () => {
+        const emptyKeys = {
+            students: [], teachers: [], users: [], results: [], reports: [],
+            scores: {}, studentReportDetails: {}, parentContacts: {},
+            attendanceMarks: {}, attendanceSettings: { defaultDays: {}, studentDays: {}, studentPresentOverride: {} }
+        };
+        Object.keys(emptyKeys).forEach(k => localStorage.setItem(k, JSON.stringify(emptyKeys[k])));
+        localStorage.setItem('onerealSeedVersion', '2026-08-19-live1');
+        adminState.students = [];
+        adminState.teachers = [];
+        adminState.users = [];
+        adminState.results = [];
+        adminState.reports = [];
+        try {
+            await fetch('/api/restore', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(emptyKeys)
+            });
+        } catch (e) {}
+        if (typeof isFirebaseConnected === 'function' && isFirebaseConnected() && typeof pushSchoolToFirebase === 'function') {
+            try { await pushSchoolToFirebase(); } catch (e) {}
+        }
+        await loadAllData();
+        loadDashboard();
+        showToast('Demo data cleared. Add real teachers and students now.', 'success');
+        await logActivity('Demo Data Cleared', 'Switched to real users');
+        switchSection('teachers');
+    }, 'Start with real users');
+}
 
 // ─── GLOBAL SEARCH ────────────────────────────────────────────────────────────
 function handleGlobalSearch(query) {
@@ -2424,16 +2671,14 @@ function renderPagination(containerId, total, perPage, currentPage, onPageChange
 
 // ─── DOWNLOAD HELPERS ─────────────────────────────────────────────────────────
 function downloadJSON(data, filename) {
-    downloadFile(JSON.stringify(data, null, 2), filename, 'application/json');
+    return downloadFile(JSON.stringify(data, null, 2), filename, 'application/json');
 }
 
 function downloadFile(content, filename, mimeType) {
-    const blob = new Blob([content], { type: mimeType });
-    const url  = URL.createObjectURL(blob);
-    const a    = document.createElement('a');
-    a.href = url; a.download = filename;
-    document.body.appendChild(a); a.click();
-    document.body.removeChild(a); URL.revokeObjectURL(url);
+    if (window.OneRealFiles && OneRealFiles.download) {
+        return OneRealFiles.download(filename, content, mimeType || 'application/octet-stream');
+    }
+    window.location.href = '/sheet.html?src=' + encodeURIComponent('/api/export/backup');
 }
 
 // ─── RESOLVE HELPERS ──────────────────────────────────────────────────────────
@@ -2461,4 +2706,359 @@ function escHtml(str) {
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;')
         .replace(/'/g, '&#39;');
+}
+
+
+// ─── ATTENDANCE ──────────────────────────────────────────────────────────────
+function bindAdminAttendanceButtons() {
+    const p = document.getElementById('adminAttAllPresent');
+    const a = document.getElementById('adminAttAllAbsent');
+    const c = document.getElementById('adminAttClearDay');
+    if (p) p.onclick = function () { adminMarkAll('present'); };
+    if (a) a.onclick = function () { adminMarkAll('absent'); };
+    if (c) c.onclick = function () { adminMarkAll(''); };
+}
+
+function attendanceStudents() {
+    const classF = document.getElementById('attFilterClass')?.value || '';
+    let list = adminState.students.filter(s => s.status !== 'inactive');
+    if (classF) {
+        const cls = adminState.classes.find(c => c.id === classF || c.name === classF);
+        list = list.filter(s => s.classId === classF || s.class === classF || (cls && (s.class === cls.name || s.classId === cls.id)));
+    }
+    return list;
+}
+
+function adminAttDate() {
+    if (typeof Attendance === 'undefined') return '';
+    const today = Attendance.todayISO();
+    const el = document.getElementById('attFilterDate');
+    let date = (el && el.value) || today;
+    if (Attendance.isFuture(date)) {
+        showToast('You cannot mark a date after today.', 'error');
+        date = today;
+        if (el) el.value = today;
+    }
+    if (Attendance.isWeekend(date)) {
+        showToast('Weekends are not school days.', 'warning');
+        const d = new Date(date + 'T12:00:00');
+        while (d.getDay() === 0 || d.getDay() === 6) d.setDate(d.getDate() - 1);
+        const iso = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+        date = iso > today ? today : iso;
+        if (el) el.value = date;
+    }
+    if (el) { el.max = today; el.value = date; }
+    return date;
+}
+
+function onAdminAttDateChange() {
+    adminAttDate();
+    renderAttendanceSection();
+}
+
+function renderAttendanceSection() {
+    if (typeof Attendance === 'undefined') {
+        showToast('Attendance module failed to load. Hard-refresh the page.', 'error');
+        return;
+    }
+    Attendance.load();
+    populateSelect('attFilterClass', adminState.classes, 'id', 'name', 'All Classes');
+    const date = adminAttDate();
+    const list = attendanceStudents();
+    const sum = Attendance.summaryForClass(list, date);
+    const win = Attendance.termWindow();
+    const days = Attendance.schoolDaysInTerm();
+
+    const startEl = document.getElementById('attTermStart');
+    const endEl = document.getElementById('attTermEnd');
+    const daysEl = document.getElementById('attDefaultDays');
+    const hint = document.getElementById('attComputedDaysHint');
+    if (startEl && document.activeElement !== startEl) startEl.value = win.start || '';
+    if (endEl && document.activeElement !== endEl) endEl.value = win.end && win.closed ? win.end : (win.end || '');
+    if (daysEl && document.activeElement !== daysEl) daysEl.value = '';
+    if (hint) hint.textContent = days ? ('Computed school days (weekdays only): ' + days) : 'Set term start so school days can be counted.';
+
+    const sumEl = document.getElementById('attDailySummary');
+    if (sumEl) {
+        sumEl.innerHTML = `
+            <span class="att-pill">${sum.present} present</span>
+            <span class="att-pill">${sum.late} late</span>
+            <span class="att-pill">${sum.absent} absent</span>
+            <span class="att-pill">${sum.unmarked} unmarked</span>
+            <span class="att-pill">${sum.total} students</span>
+            <span class="att-pill">On reports: present OUT OF ${days || '—'}</span>`;
+    }
+
+    const tbody = document.getElementById('attRegisterBody');
+    if (tbody) {
+        tbody.innerHTML = list.length ? list.map((s, i) => {
+            const m = Attendance.getDay(s.id, date);
+            const st = m ? m.status : '';
+            return `<tr>
+                <td>${i + 1}</td>
+                <td><strong>${escHtml(s.name)}</strong></td>
+                <td>${escHtml(s.admissionNo || '')}</td>
+                <td>${st ? `<span class="status-pill ${st === 'absent' ? 'pending' : 'approved'}">${st}</span>` : '—'}</td>
+                <td><div class="att-mark">
+                    <button type="button" class="att-btn ${st === 'present' ? 'on-present' : ''}" data-att-id="${s.id}" data-att-status="present">Present</button>
+                    <button type="button" class="att-btn ${st === 'late' ? 'on-late' : ''}" data-att-id="${s.id}" data-att-status="late">Late</button>
+                    <button type="button" class="att-btn ${st === 'absent' ? 'on-absent' : ''}" data-att-id="${s.id}" data-att-status="absent">Absent</button>
+                </div></td>
+            </tr>`;
+        }).join('') : emptyRow(5, 'No students in this class');
+        tbody.querySelectorAll('[data-att-id]').forEach(btn => {
+            btn.addEventListener('click', () => adminMarkStudent(btn.getAttribute('data-att-id'), btn.getAttribute('data-att-status')));
+        });
+    }
+
+    const totals = document.getElementById('attTotalsBody');
+    if (totals) {
+        totals.innerHTML = list.length ? list.map(s => {
+            const present = Attendance.presentCount(s.id);
+            const absent = Attendance.absentCount(s.id);
+            const total = Attendance.totalDays(s.id);
+            const ov = Attendance.hasPresentOverride(s.id);
+            return `<tr>
+                <td>${escHtml(s.name)}</td>
+                <td>${present}</td>
+                <td>${absent}</td>
+                <td><input type="number" min="0" class="admin-input" style="width:90px;" value="${total || ''}"
+                    onchange="adminSetStudentDays('${s.id}', this.value)"></td>
+                <td><input type="number" min="0" class="admin-input" style="width:90px;" placeholder="auto"
+                    value="${ov ? present : ''}"
+                    onchange="adminSetPresentOverride('${s.id}', this.value)"></td>
+                <td><strong>${escHtml(Attendance.label(s.id) || '—')}</strong></td>
+            </tr>`;
+        }).join('') : emptyRow(6, 'No students');
+    }
+    bindAdminAttendanceButtons();
+}
+
+function adminMarkStudent(id, status) {
+    if (typeof Attendance === 'undefined') return;
+    const date = adminAttDate();
+    const current = Attendance.getDay(id, date);
+    const next = current && current.status === status ? '' : status;
+    const student = adminState.students.find(s => String(s.id) === String(id));
+    const res = Attendance.mark(id, date, next, { className: student?.class || '', by: 'admin' });
+    if (!res.ok) { showToast(res.error, 'error'); return; }
+    renderAttendanceSection();
+}
+
+function adminMarkAll(status) {
+    if (typeof Attendance === 'undefined') {
+        showToast('Attendance module failed to load. Hard-refresh the page.', 'error');
+        return;
+    }
+    const date = adminAttDate();
+    const list = attendanceStudents();
+    if (!list.length) { showToast('No students to mark. Choose a class with students.', 'warning'); return; }
+    const res = Attendance.markMany(list, date, status, { by: 'admin' });
+    if (!res.ok) { showToast(res.error, 'error'); return; }
+    renderAttendanceSection();
+    showToast(status ? `Marked all ${list.length} students ${status}.` : `Cleared ${list.length} marks for this day.`, 'success');
+}
+
+function saveAttendanceTermDays() {
+    if (typeof Attendance === 'undefined') return;
+    const start = document.getElementById('attTermStart')?.value || '';
+    const end = document.getElementById('attTermEnd')?.value || '';
+    const override = document.getElementById('attDefaultDays')?.value;
+    Attendance.setTermRange(start, end);
+    if (override !== '' && override != null) Attendance.setDefaultDays(override);
+    renderAttendanceSection();
+    showToast('Term school days saved. Reports will show days present out of this total.', 'success');
+    logActivity('Attendance Days Updated', `Term range ${start}–${end || 'open'}`);
+}
+
+function saveAttendanceDefaultDays() { saveAttendanceTermDays(); }
+
+function adminSetStudentDays(id, value) {
+    if (typeof Attendance === 'undefined') return;
+    Attendance.setStudentDays(id, value === '' ? '' : value);
+    renderAttendanceSection();
+}
+
+function adminSetPresentOverride(id, value) {
+    if (typeof Attendance === 'undefined') return;
+    Attendance.setPresentOverride(id, value === '' ? '' : value);
+    renderAttendanceSection();
+}
+
+function parseFirebaseConfigText(raw) {
+    const text = String(raw || '').trim();
+    if (!text) return null;
+
+    const pick = (obj) => {
+        if (!obj || typeof obj !== 'object') return null;
+        const cfg = {
+            apiKey: String(obj.apiKey || '').trim(),
+            authDomain: String(obj.authDomain || '').trim(),
+            projectId: String(obj.projectId || '').trim(),
+            storageBucket: String(obj.storageBucket || '').trim(),
+            messagingSenderId: String(obj.messagingSenderId || '').trim(),
+            appId: String(obj.appId || '').trim(),
+            measurementId: String(obj.measurementId || '').trim()
+        };
+        return cfg.apiKey && cfg.projectId ? cfg : null;
+    };
+
+    try {
+        const direct = JSON.parse(text);
+        const ok = pick(direct);
+        if (ok) return ok;
+    } catch (e) {}
+
+    let cleaned = text
+        .replace(/^\uFEFF/, '')
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+        .replace(/(^|[^:])\/\/.*$/gm, '$1')
+        .replace(/const\s+firebaseConfig\s*=/i, '')
+        .replace(/let\s+firebaseConfig\s*=/i, '')
+        .replace(/var\s+firebaseConfig\s*=/i, '')
+        .replace(/export\s+default\s+/i, '')
+        .replace(/;\s*$/m, '')
+        .trim();
+
+    const assign = text.match(/firebaseConfig\s*=\s*(\{[\s\S]*?\})\s*;?/i);
+    if (assign) cleaned = assign[1];
+    else {
+        const brace = cleaned.match(/\{[\s\S]*\}/);
+        if (brace) cleaned = brace[0];
+    }
+
+    cleaned = cleaned
+        .replace(/([{,]\s*)([A-Za-z_][A-Za-z0-9_]*)\s*:/g, '$1"$2":')
+        .replace(/'([^'\\]*(?:\\.[^'\\]*)*)'/g, (_, inner) => JSON.stringify(inner.replace(/\\'/g, "'")))
+        .replace(/,\s*([}\]])/g, '$1');
+
+    try {
+        const parsed = JSON.parse(cleaned);
+        const ok = pick(parsed);
+        if (ok) return ok;
+    } catch (e) {}
+
+    const grab = (key) => {
+        const m = text.match(new RegExp(key + '\\s*[:=]\\s*[\'"]([^\'"]+)[\'"]', 'i'));
+        return m ? m[1].trim() : '';
+    };
+    const fallback = pick({
+        apiKey: grab('apiKey'),
+        authDomain: grab('authDomain'),
+        projectId: grab('projectId'),
+        storageBucket: grab('storageBucket'),
+        messagingSenderId: grab('messagingSenderId'),
+        appId: grab('appId'),
+        measurementId: grab('measurementId')
+    });
+    if (fallback) return fallback;
+    throw new Error('Could not read the Firebase keys. Paste the whole firebaseConfig box from Firebase (Use a <script> tag), including apiKey and projectId.');
+}
+
+function firebaseConfigFromForm() {
+    const pasted = (document.getElementById('fbConfigJson')?.value || '').trim();
+    if (pasted) {
+        const fromPaste = parseFirebaseConfigText(pasted);
+        if (fromPaste) {
+            const fill = (id, val) => { const el = document.getElementById(id); if (el && val) el.value = val; };
+            fill('fbApiKey', fromPaste.apiKey);
+            fill('fbAuthDomain', fromPaste.authDomain);
+            fill('fbProjectId', fromPaste.projectId);
+            fill('fbStorageBucket', fromPaste.storageBucket);
+            fill('fbMessagingSenderId', fromPaste.messagingSenderId);
+            fill('fbAppId', fromPaste.appId);
+            return fromPaste;
+        }
+    }
+    return {
+        apiKey: document.getElementById('fbApiKey')?.value?.trim() || '',
+        authDomain: document.getElementById('fbAuthDomain')?.value?.trim() || '',
+        projectId: document.getElementById('fbProjectId')?.value?.trim() || '',
+        storageBucket: document.getElementById('fbStorageBucket')?.value?.trim() || '',
+        messagingSenderId: document.getElementById('fbMessagingSenderId')?.value?.trim() || '',
+        appId: document.getElementById('fbAppId')?.value?.trim() || ''
+    };
+}
+
+function loadFirebaseForm() {
+    const cfg = typeof getStoredFirebaseConfig === 'function' ? getStoredFirebaseConfig() : {};
+    const set = (id, val) => { const el = document.getElementById(id); if (el && val) el.value = val; };
+    set('fbApiKey', cfg.apiKey);
+    set('fbAuthDomain', cfg.authDomain);
+    set('fbProjectId', cfg.projectId);
+    set('fbStorageBucket', cfg.storageBucket);
+    set('fbMessagingSenderId', cfg.messagingSenderId);
+    set('fbAppId', cfg.appId);
+    const jsonEl = document.getElementById('fbConfigJson');
+    if (jsonEl && cfg.apiKey) jsonEl.value = JSON.stringify(cfg, null, 2);
+    refreshFirebaseStatus();
+}
+
+function refreshFirebaseStatus() {
+    const el = document.getElementById('fbCloudStatus');
+    const text = typeof getFirebaseStatusText === 'function' ? getFirebaseStatusText() : 'LOCAL';
+    if (el) el.textContent = 'Status: ' + text + (typeof isFirebaseConnected === 'function' && isFirebaseConnected() ? ' — live sync on' : '');
+    const roleEl = document.getElementById('sidebarUserRole');
+    if (roleEl && text === 'CLOUD') roleEl.textContent = (roleEl.textContent || 'Admin').replace(' · CLOUD', '') + ' · CLOUD';
+}
+
+async function connectFirebaseFromSettings() {
+    try {
+        const cfg = firebaseConfigFromForm();
+        if (!cfg.apiKey || !cfg.projectId) {
+            showToast('Enter apiKey and projectId, or paste the full firebaseConfig JSON.', 'error');
+            return;
+        }
+        saveFirebaseConfig(cfg);
+        const ok = initFirebase(cfg);
+        if (!ok) {
+            const why = (typeof getLastFirebaseError === 'function' && getLastFirebaseError())
+                || (typeof firebase === 'undefined' ? 'Firebase SDK did not load.' : 'Check the keys.');
+            showToast('Could not start Firebase. ' + why, 'error');
+            refreshFirebaseStatus();
+            return;
+        }
+        refreshFirebaseStatus();
+        showToast('Firebase connected. Upload school data next.', 'success');
+        await logActivity('Firebase Connected', cfg.projectId);
+    } catch (e) {
+        showToast(e.message, 'error');
+    }
+}
+
+async function uploadSchoolToFirebase() {
+    try {
+        if (typeof pushSchoolToFirebase !== 'function') throw new Error('Firebase helper missing. Hard-refresh.');
+        showToast('Uploading school data to Firestore…', 'info');
+        const res = await pushSchoolToFirebase();
+        refreshFirebaseStatus();
+        showToast('Uploaded ' + res.collections + ' collections to Firebase.', 'success');
+    } catch (e) {
+        showToast(e.message, 'error');
+    }
+}
+
+async function downloadSchoolFromFirebase() {
+    try {
+        if (typeof pullSchoolFromFirebase !== 'function') throw new Error('Firebase helper missing.');
+        showToast('Pulling school data from Firestore…', 'info');
+        const ok = await pullSchoolFromFirebase();
+        await loadAllData();
+        loadDashboard();
+        loadSettingsForm();
+        showToast(ok ? 'Cloud data loaded into this browser.' : 'No cloud documents found yet. Upload first.', ok ? 'success' : 'warning');
+    } catch (e) {
+        showToast(e.message, 'error');
+    }
+}
+
+async function provisionFirebaseStaff() {
+    try {
+        if (typeof provisionStaffFromLocal !== 'function') throw new Error('Firebase helper missing.');
+        showToast('Creating Firebase Auth accounts for staff…', 'info');
+        const res = await provisionStaffFromLocal();
+        showToast('Created ' + res.created.length + ' Auth account(s). Skipped: ' + (res.skipped.length ? res.skipped.join('; ') : 'none'), 'success');
+    } catch (e) {
+        showToast(e.message, 'error');
+    }
 }
