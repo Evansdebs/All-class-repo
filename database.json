@@ -1,0 +1,17 @@
+{
+  "students": [],
+  "scores": {},
+  "schoolInfo": {
+    "academicYear": "2024/2025",
+    "term": "1",
+    "closingDate": "19th DEC, 2024",
+    "reopeningDate": "13th JAN, 2025",
+    "numberOnRoll": "18",
+    "basicLevel": "6",
+    "classTeacher": "",
+    "headTeacher": ""
+  },
+  "studentReportDetails": {},
+  "parentContacts": {},
+  "auditLogs": []
+}

@@ -1,0 +1,191 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper: get the requesting user's role from the users collection
+    function getUserRole() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
+    }
+
+    // Helper: check if user is authenticated
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Helper: role checkers
+    function isSuperAdmin() {
+      return isAuthenticated() && getUserRole() == 'Super Admin';
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && (getUserRole() == 'Super Admin' || getUserRole() == 'Administrator');
+    }
+
+    function isHeadteacher() {
+      return isAuthenticated() && (getUserRole() == 'Super Admin' || getUserRole() == 'Administrator' || getUserRole() == 'Headteacher');
+    }
+
+    function isTeacher() {
+      return isAuthenticated() && getUserRole() in ['Super Admin', 'Administrator', 'Headteacher', 'Class Teacher', 'Teacher'];
+    }
+
+    // Helper: check if teacher is assigned to a class
+    function isAssignedToClass(classId) {
+      return isAuthenticated() && (
+        isAdmin() ||
+        classId in get(/databases/$(database)/documents/users/$(request.auth.uid)).data.assignedClasses
+      );
+    }
+
+    // Helper: check if teacher is assigned to a subject
+    function isAssignedToSubject(subjectId) {
+      return isAuthenticated() && (
+        isAdmin() ||
+        subjectId in get(/databases/$(database)/documents/users/$(request.auth.uid)).data.assignedSubjects
+      );
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // USERS COLLECTION
+    // ──────────────────────────────────────────────────────────────────────────
+    match /users/{userId} {
+      // Any authenticated user can read their own profile
+      allow read: if isAuthenticated() && (request.auth.uid == userId || isAdmin());
+      // Only admins can write/update user roles. Users can update their own name/profile fields.
+      allow create: if isAdmin();
+      allow update: if isAuthenticated() && (
+        request.auth.uid == userId && !('role' in request.resource.data.diff(resource.data).affectedKeys()) ||
+        isAdmin()
+      );
+      allow delete: if isSuperAdmin();
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // STUDENTS COLLECTION
+    // ──────────────────────────────────────────────────────────────────────────
+    match /students/{studentId} {
+      allow read: if isTeacher();
+      allow create, update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // TEACHERS COLLECTION
+    // ──────────────────────────────────────────────────────────────────────────
+    match /teachers/{teacherId} {
+      allow read: if isTeacher();
+      allow create, update, delete: if isAdmin();
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // CLASSES COLLECTION
+    // ──────────────────────────────────────────────────────────────────────────
+    match /classes/{classId} {
+      allow read: if isTeacher();
+      allow create, update, delete: if isAdmin();
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // SUBJECTS COLLECTION
+    // ──────────────────────────────────────────────────────────────────────────
+    match /subjects/{subjectId} {
+      allow read: if isTeacher();
+      allow create, update, delete: if isAdmin();
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // ACADEMIC YEARS COLLECTION
+    // ──────────────────────────────────────────────────────────────────────────
+    match /academicYears/{yearId} {
+      allow read: if isTeacher();
+      allow create, update, delete: if isAdmin();
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // TERMS COLLECTION
+    // ──────────────────────────────────────────────────────────────────────────
+    match /terms/{termId} {
+      allow read: if isTeacher();
+      allow create, update, delete: if isAdmin();
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // GRADING SCALES COLLECTION
+    // ──────────────────────────────────────────────────────────────────────────
+    match /gradingScales/{scaleId} {
+      allow read: if isTeacher();
+      allow create, update, delete: if isAdmin();
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // RESULTS COLLECTION
+    // Rules:
+    //   - Teacher can create/update results only if:
+    //     a) The result belongs to an assigned class AND assigned subject
+    //     b) The result status is 'Draft' (not locked)
+    //   - Headteacher/Admin can update any result (approve, lock, unlock)
+    //   - Admins can delete results
+    // ──────────────────────────────────────────────────────────────────────────
+    match /results/{resultId} {
+      allow read: if isTeacher();
+
+      allow create: if isTeacher() && (
+        isAdmin() ||
+        (
+          isAssignedToClass(request.resource.data.classId) &&
+          isAssignedToSubject(request.resource.data.subjectId) &&
+          request.resource.data.status in ['Draft', 'Submitted'] &&
+          request.resource.data.locked == false
+        )
+      );
+
+      allow update: if isAuthenticated() && (
+        isHeadteacher() ||
+        (
+          isTeacher() &&
+          resource.data.locked == false &&
+          resource.data.status in ['Draft', 'Submitted'] &&
+          isAssignedToClass(resource.data.classId) &&
+          isAssignedToSubject(resource.data.subjectId) &&
+          !('locked' in request.resource.data.diff(resource.data).affectedKeys())
+        )
+      );
+
+      allow delete: if isAdmin();
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // REPORTS COLLECTION
+    // ──────────────────────────────────────────────────────────────────────────
+    match /reports/{reportId} {
+      allow read: if isTeacher();
+      allow create, update: if isTeacher();
+      allow delete: if isAdmin();
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // SCHOOL SETTINGS
+    // ──────────────────────────────────────────────────────────────────────────
+    match /schoolSettings/{settingId} {
+      allow read: if isTeacher();
+      allow create, update, delete: if isAdmin();
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // AUDIT LOGS
+    // ──────────────────────────────────────────────────────────────────────────
+    match /auditLogs/{logId} {
+      allow read: if isAdmin();
+      allow create: if isTeacher();
+      allow update, delete: if isSuperAdmin();
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // LEGACY: schools/{schoolId} sub-collections (backward-compatible)
+    // ──────────────────────────────────────────────────────────────────────────
+    match /schools/{schoolId}/{collection}/{docId} {
+      allow read: if isTeacher();
+      allow write: if isTeacher();
+    }
+  }
+}

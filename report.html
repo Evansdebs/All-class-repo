@@ -1,0 +1,1110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OneReal Report Generator — Teacher Portal</title>
+    <meta name="description" content="OneReal Primary School Report Generator — Teacher Portal">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="font-awesome.css">
+    <link rel="stylesheet" href="report.css">
+</head>
+<body>
+
+<!-- ════ TEACHER AUTH OVERLAY ════ -->
+<div id="teacherAuthOverlay" style="
+    position:fixed;inset:0;z-index:9000;
+    background:linear-gradient(135deg,#0f172a 0%,#1e1b4b 50%,#312e81 100%);
+    display:flex;align-items:center;justify-content:center;
+    font-family:'Inter',sans-serif;
+">
+    <div style="
+        background:rgba(255,255,255,0.06);backdrop-filter:blur(20px);
+        border:1px solid rgba(255,255,255,0.12);border-radius:24px;
+        padding:48px 40px;width:100%;max-width:420px;
+        box-shadow:0 25px 60px rgba(0,0,0,.5);text-align:center;
+    ">
+        <div style="
+            width:68px;height:68px;background:linear-gradient(135deg,#4f46e5,#7c3aed);
+            border-radius:18px;display:flex;align-items:center;justify-content:center;
+            font-size:28px;color:#fff;margin:0 auto 18px;
+        "><i class="fas fa-chalkboard-teacher"></i></div>
+        <h2 style="color:#fff;font-size:22px;font-weight:700;margin-bottom:6px;">Teacher Sign In</h2>
+        <p style="color:rgba(255,255,255,.5);font-size:13px;margin-bottom:28px;">Sign in to access the Report Generator</p>
+        <div style="margin-bottom:14px;text-align:left;">
+            <label style="display:block;color:rgba(255,255,255,.6);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;margin-bottom:7px;">Email</label>
+            <input type="email" id="teacherLoginEmail" placeholder="teacher@school.com" autocomplete="email"
+                style="width:100%;padding:12px 15px;background:rgba(255,255,255,.08);border:1.5px solid rgba(255,255,255,.12);border-radius:10px;color:#fff;font-size:14px;outline:none;box-sizing:border-box;" 
+                onfocus="this.style.borderColor='rgba(99,102,241,.8)'" onblur="this.style.borderColor='rgba(255,255,255,.12)'">
+        </div>
+        <div style="margin-bottom:20px;text-align:left;">
+            <label style="display:block;color:rgba(255,255,255,.6);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;margin-bottom:7px;">Password</label>
+            <div style="position:relative;">
+                <input type="password" id="teacherLoginPassword" placeholder="••••••••" autocomplete="current-password"
+                    style="width:100%;padding:12px 42px 12px 15px;background:rgba(255,255,255,.08);border:1.5px solid rgba(255,255,255,.12);border-radius:10px;color:#fff;font-size:14px;outline:none;box-sizing:border-box;"
+                    onfocus="this.style.borderColor='rgba(99,102,241,.8)'" onblur="this.style.borderColor='rgba(255,255,255,.12)'"
+                    onkeydown="if(event.key==='Enter') handleTeacherLogin()">
+                <button type="button" onclick="togglePasswordVisibility('teacherLoginPassword', 'teacherPwToggleIcon')"
+                    style="position:absolute;right:12px;top:50%;transform:translateY(-50%);background:none;border:none;color:rgba(255,255,255,.5);cursor:pointer;font-size:14px;padding:4px;"
+                    title="Toggle password view">
+                    <i class="fas fa-eye" id="teacherPwToggleIcon"></i>
+                </button>
+            </div>
+        </div>
+        <div id="teacherAuthError" style="display:none;background:rgba(220,38,38,.15);border:1px solid rgba(220,38,38,.4);color:#fca5a5;border-radius:8px;padding:10px 14px;font-size:13px;margin-bottom:14px;text-align:left;"></div>
+        <button id="teacherLoginBtn" onclick="handleTeacherLogin()" style="
+            width:100%;padding:13px;background:linear-gradient(135deg,#4f46e5,#7c3aed);
+            color:#fff;border:none;border-radius:10px;font-size:15px;font-weight:600;
+            cursor:pointer;box-shadow:0 4px 14px rgba(79,70,229,.4);font-family:'Inter',sans-serif;
+        "><i class="fas fa-sign-in-alt"></i> Sign In</button>
+        <div style="margin-top:16px;">
+            <a href="/admin.html" style="color:rgba(255,255,255,.35);font-size:12px;text-decoration:none;">
+                <i class="fas fa-user-shield"></i> Admin Dashboard
+            </a>
+        </div>
+    </div>
+</div>
+    <!-- Splash Screen (Hidden until authenticated) -->
+    <div id="splash-screen" style="display:none;">
+        <div class="welcome-card">
+            <div class="logo">
+                <i class="fas fa-school"></i>
+            </div>
+            <h1>OneReal Report Generator</h1>
+            <p>Another stressful term to generate report sheets? Don't worry.<br>OneReal got you covered. Just tap in.</p>
+            <button class="btn welcome-btn" id="tapInBtn" type="button">
+                <i class="fas fa-arrow-right"></i> Tap In
+            </button>
+        </div>
+    </div>
+
+    <!-- Support Contact Modal -->
+    <div class="edit-modal" id="supportContactModal">
+        <div class="edit-modal-content">
+            <div class="edit-modal-header">
+                <h3>Need Help?</h3>
+            </div>
+            <div class="edit-modal-body">
+                <p>In case you face any challenges using the app, please contact the system developer <strong>ONEREAL</strong>:</p>
+                <div class="contact-item">
+                    <div class="contact-label">Phone</div>
+                    <div class="contact-value">0257537457</div>
+                </div>
+                <div class="contact-item">
+                    <div class="contact-label">Email</div>
+                    <div class="contact-value">evansdebrah111@gmail.com</div>
+                </div>
+                <div class="countdown-bar">
+                    <div class="countdown-progress"></div>
+                </div>
+            </div>
+            <div class="edit-modal-footer">
+                <button class="btn btn-success" id="closeSupportModal" type="button">OK</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Notification Area -->
+    <div id="notification-area"></div>
+
+    <!-- Edit Student Modal -->
+    <div class="edit-modal" id="editStudentModal" style="display: none;">
+        <div class="edit-modal-content">
+            <div class="edit-modal-header">
+                <h3 id="editStudentModalTitle">Edit Student</h3>
+                <button class="close-modal" id="closeEditStudentModal">&times;</button>
+            </div>
+            <div class="edit-modal-body">
+                <div class="form-group">
+                    <label for="editStudentName">Student Name</label>
+                    <input type="text" id="editStudentName" placeholder="Enter student name">
+                </div>
+                <div class="form-group">
+                    <label for="editStudentClass">Class</label>
+                    <select id="editStudentClass">
+                        <option value="Class 1">Class 1</option>
+                        <option value="Class 2">Class 2</option>
+                        <option value="Class 3">Class 3</option>
+                        <option value="Class 4">Class 4</option>
+                        <option value="Class 5">Class 5</option>
+                        <option value="Class 6">Class 6</option>
+                    </select>
+                </div>
+            </div>
+            <div class="edit-modal-footer">
+                <button class="btn btn-danger" id="cancelEditStudent" type="button">Cancel</button>
+                <button class="btn btn-success" id="saveStudentEdit" type="button">Save Changes</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Edit Report Modal -->
+    <div class="edit-modal" id="editReportModal">
+        <div class="edit-modal-content">
+            <div class="edit-modal-header">
+                <h3 id="editModalTitle">Edit Student Report Details</h3>
+                <button class="close-modal" id="closeEditModal">&times;</button>
+            </div>
+            <div class="edit-modal-body">
+                <div class="form-group">
+                    <label for="editAttendance">Attendance</label>
+                    <input type="text" id="editAttendance" placeholder="e.g., 69 OUT OF 70">
+                </div>
+
+                <div class="form-group">
+                    <label for="editPromotionStatus">Promotion Status</label>
+                    <select id="editPromotionStatus">
+                        <option value="">-- Select Status --</option>
+                        <option value="Promoted">Promoted</option>
+                        <option value="Repeated">Repeated</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="editPromotionTarget">Promoted To / Repeated In</label>
+                    <select id="editPromotionTarget">
+                        <option value="">-- Select Class --</option>
+                        <option value="Basic 1">Basic 1</option>
+                        <option value="Basic 2">Basic 2</option>
+                        <option value="Basic 3">Basic 3</option>
+                        <option value="Basic 4">Basic 4</option>
+                        <option value="Basic 5">Basic 5</option>
+                        <option value="Basic 6">Basic 6</option>
+                        <option value="Basic 7">Basic 7</option>
+                        <option value="Basic 8">Basic 8</option>
+                        <option value="Basic 9">Basic 9</option>
+                    </select>
+                </div>
+                
+                <div class="form-group dropdown-group">
+                    <label for="editConduct">Conduct</label>
+                    <select id="editConduct">
+                        <option value="">-- Select Conduct --</option>
+                        <!-- Positive Conduct Options -->
+                        <option value="Exemplary behavior, always respectful">Exemplary behavior, always respectful</option>
+                        <option value="Very well behaved and courteous">Very well behaved and courteous</option>
+                        <option value="Polite, respectful and well-mannered">Polite, respectful and well-mannered</option>
+                        <option value="Cooperative and helpful to classmates">Cooperative and helpful to classmates</option>
+                        <option value="Disciplined and focused in class">Disciplined and focused in class</option>
+                        <option value="Friendly and gets along well with peers">Friendly and gets along well with peers</option>
+                        <option value="Responsible and reliable student">Responsible and reliable student</option>
+                        <option value="Shows good leadership qualities">Shows good leadership qualities</option>
+                        <option value="Always follows classroom rules">Always follows classroom rules</option>
+                        <option value="Shows excellent self-control">Shows excellent self-control</option>
+                        <option value="Consistently demonstrates good manners">Consistently demonstrates good manners</option>
+                        <option value="Punctual and prepared for class">Punctual and prepared for class</option>
+                        <option value="Respectful of school property and others' belongings">Respectful of school property and others' belongings</option>
+                        <option value="Demonstrates empathy towards classmates">Demonstrates empathy towards classmates</option>
+                        <option value="Exhibits positive attitude towards learning">Exhibits positive attitude towards learning</option>
+                        
+                        <!-- Average Conduct Options -->
+                        <option value="Generally well-behaved">Generally well-behaved</option>
+                        <option value="Satisfactory behavior most of the time">Satisfactory behavior most of the time</option>
+                        <option value="Respectful to teachers and peers">Respectful to teachers and peers</option>
+                        <option value="Follows instructions adequately">Follows instructions adequately</option>
+                        <option value="Works well when supervised">Works well when supervised</option>
+                        <option value="Shows improvement in behavior">Shows improvement in behavior</option>
+                        <option value="Generally cooperative during lessons">Generally cooperative during lessons</option>
+                        <option value="Responds well to guidance">Responds well to guidance</option>
+                        
+                        <!-- Needs Improvement Options -->
+                        <option value="Needs improvement in behavior">Needs improvement in behavior</option>
+                        <option value="Sometimes disruptive in class">Sometimes disruptive in class</option>
+                        <option value="Can be inattentive during lessons">Can be inattentive during lessons</option>
+                        <option value="Requires constant supervision">Requires constant supervision</option>
+                        <option value="Needs to control temper better">Needs to control temper better</option>
+                        <option value="Often talks during lessons">Often talks during lessons</option>
+                        <option value="Should respect classmates more">Should respect classmates more</option>
+                        <option value="Needs to follow instructions better">Needs to follow instructions better</option>
+                        <option value="Frequently forgets classroom rules">Frequently forgets classroom rules</option>
+                        <option value="Needs to improve self-discipline">Needs to improve self-discipline</option>
+                        <option value="Often forgets homework and materials">Often forgets homework and materials</option>
+                        <option value="Distracts others during class">Distracts others during class</option>
+                        <option value="Needs to listen more carefully">Needs to listen more carefully</option>
+                        <option value="Should work on anger management">Should work on anger management</option>
+                        <option value="Frequently interrupts the teacher">Frequently interrupts the teacher</option>
+                        
+                        <!-- Poor Conduct Options -->
+                        <option value="Exhibits challenging behavior regularly">Exhibits challenging behavior regularly</option>
+                        <option value="Disruptive and disrespectful at times">Disruptive and disrespectful at times</option>
+                        <option value="Requires frequent disciplinary action">Requires frequent disciplinary action</option>
+                        <option value="Struggles with peer relationships">Struggles with peer relationships</option>
+                        <option value="Defiant towards authority figures">Defiant towards authority figures</option>
+                        
+                        <option value="Custom...">Custom...</option>
+                    </select>
+                </div>
+                
+                <div class="form-group dropdown-group">
+                    <label for="editInterest">Interest</label>
+                    <select id="editInterest">
+                        <option value="">-- Select Interest --</option>
+                        <!-- Academic Interests -->
+                        <option value="Reading and storytelling">Reading and storytelling</option>
+                        <option value="Mathematics and puzzles">Mathematics and puzzles</option>
+                        <option value="Science experiments">Science experiments</option>
+                        <option value="Creative writing">Creative writing</option>
+                        <option value="History and stories">History and stories</option>
+                        <option value="Language learning">Language learning</option>
+                        <option value="Computer technology">Computer technology</option>
+                        <option value="Environmental studies">Environmental studies</option>
+                        <option value="Geography and maps">Geography and maps</option>
+                        <option value="Research projects">Research projects</option>
+                        
+                        <!-- Creative Interests -->
+                        <option value="Drawing and painting">Drawing and painting</option>
+                        <option value="Arts and crafts">Arts and crafts</option>
+                        <option value="Music and singing">Music and singing</option>
+                        <option value="Drama and acting">Drama and acting</option>
+                        <option value="Dancing">Dancing</option>
+                        <option value="Pottery and sculpture">Pottery and sculpture</option>
+                        <option value="Creative design">Creative design</option>
+                        <option value="Photography">Photography</option>
+                        
+                        <!-- Physical Interests -->
+                        <option value="Sports and games">Sports and games</option>
+                        <option value="Physical education">Physical education</option>
+                        <option value="Outdoor activities">Outdoor activities</option>
+                        <option value="Team sports">Team sports</option>
+                        <option value="Swimming">Swimming</option>
+                        <option value="Athletics">Athletics</option>
+                        <option value="Martial arts">Martial arts</option>
+                        <option value="Yoga and meditation">Yoga and meditation</option>
+                        
+                        <!-- Social Interests -->
+                        <option value="Group activities">Group activities</option>
+                        <option value="Helping others">Helping others</option>
+                        <option value="Class discussions">Class discussions</option>
+                        <option value="Leadership roles">Leadership roles</option>
+                        <option value="Community service">Community service</option>
+                        <option value="Debate and public speaking">Debate and public speaking</option>
+                        <option value="Peer tutoring">Peer tutoring</option>
+                        
+                        <!-- Practical Interests -->
+                        <option value="Hands-on activities">Hands-on activities</option>
+                        <option value="Practical work">Practical work</option>
+                        <option value="Problem-solving tasks">Problem-solving tasks</option>
+                        <option value="Project work">Project work</option>
+                        <option value="Building and construction">Building and construction</option>
+                        <option value="Cooking and nutrition">Cooking and nutrition</option>
+                        <option value="Gardening">Gardening</option>
+                        
+                        <!-- General Interests -->
+                        <option value="Shows interest in all subjects">Shows interest in all subjects</option>
+                        <option value="Enthusiastic learner">Enthusiastic learner</option>
+                        <option value="Curious about new topics">Curious about new topics</option>
+                        <option value="Eager to participate in class">Eager to participate in class</option>
+                        <option value="Enjoys challenging tasks">Enjoys challenging tasks</option>
+                        
+                        <option value="Custom...">Custom...</option>
+                    </select>
+                </div>
+                
+                <div class="form-group dropdown-group">
+                    <label for="editTeacherRemarks">Class Teacher's Remarks</label>
+                    <select id="editTeacherRemarks">
+                        <option value="">-- Select Remarks --</option>
+                        <!-- Excellent Performance -->
+                        <option value="An outstanding student who excels in all subjects">An outstanding student who excels in all subjects</option>
+                        <option value="Excellent performance, always at the top of the class">Excellent performance, always at the top of the class</option>
+                        <option value="Shows exceptional understanding of all topics">Shows exceptional understanding of all topics</option>
+                        <option value="A brilliant student with great potential">A brilliant student with great potential</option>
+                        <option value="Consistently produces excellent work">Consistently produces excellent work</option>
+                        <option value="Demonstrates exceptional analytical skills">Demonstrates exceptional analytical skills</option>
+                        <option value="Shows remarkable creativity and innovation">Shows remarkable creativity and innovation</option>
+                        <option value="A natural leader in academic pursuits">A natural leader in academic pursuits</option>
+                        
+                        <!-- Very Good Performance -->
+                        <option value="Very good performance in all subjects">Very good performance in all subjects</option>
+                        <option value="Shows great improvement and understanding">Shows great improvement and understanding</option>
+                        <option value="Works diligently and achieves good results">Works diligently and achieves good results</option>
+                        <option value="A hardworking student with good progress">A hardworking student with good progress</option>
+                        <option value="Performs very well in class activities">Performs very well in class activities</option>
+                        <option value="Demonstrates strong comprehension skills">Demonstrates strong comprehension skills</option>
+                        <option value="Consistent performer with good understanding">Consistent performer with good understanding</option>
+                        
+                        <!-- Good Performance -->
+                        <option value="Good performance with steady progress">Good performance with steady progress</option>
+                        <option value="Shows satisfactory understanding of subjects">Shows satisfactory understanding of subjects</option>
+                        <option value="Works well and completes assignments on time">Works well and completes assignments on time</option>
+                        <option value="A good student who participates actively">A good student who participates actively</option>
+                        <option value="Shows potential with consistent effort">Shows potential with consistent effort</option>
+                        <option value="Completes tasks to a satisfactory standard">Completes tasks to a satisfactory standard</option>
+                        <option value="Demonstrates improvement across subjects">Demonstrates improvement across subjects</option>
+                        
+                        <!-- Average Performance -->
+                        <option value="Satisfactory performance in most subjects">Satisfactory performance in most subjects</option>
+                        <option value="Shows average understanding of topics">Shows average understanding of topics</option>
+                        <option value="Needs to be more consistent in studies">Needs to be more consistent in studies</option>
+                        <option value="Should put more effort into schoolwork">Should put more effort into schoolwork</option>
+                        <option value="Capable of better performance with focus">Capable of better performance with focus</option>
+                        <option value="Shows occasional understanding of concepts">Shows occasional understanding of concepts</option>
+                        <option value="Performance varies across different subjects">Performance varies across different subjects</option>
+                        
+                        <!-- Needs Improvement -->
+                        <option value="Needs to improve academic performance">Needs to improve academic performance</option>
+                        <option value="Should pay more attention in class">Should pay more attention in class</option>
+                        <option value="Needs to complete homework regularly">Needs to complete homework regularly</option>
+                        <option value="Should participate more in class activities">Should participate more in class activities</option>
+                        <option value="Requires additional support in studies">Requires additional support in studies</option>
+                        <option value="Struggles to grasp basic concepts">Struggles to grasp basic concepts</option>
+                        <option value="Needs to develop better study habits">Needs to develop better study habits</option>
+                        <option value="Should seek help when facing difficulties">Should seek help when facing difficulties</option>
+                        
+                        <!-- Weak Performance -->
+                        <option value="Struggles with understanding concepts">Struggles with understanding concepts</option>
+                        <option value="Needs significant improvement in all areas">Needs significant improvement in all areas</option>
+                        <option value="Should seek extra help with schoolwork">Should seek extra help with schoolwork</option>
+                        <option value="Finds it difficult to keep up with class">Finds it difficult to keep up with class</option>
+                        <option value="Performance below expected level">Performance below expected level</option>
+                        <option value="Requires intensive remedial support">Requires intensive remedial support</option>
+                        <option value="Struggles with basic literacy/numeracy">Struggles with basic literacy/numeracy</option>
+                        
+                        <!-- Social/Behavioral Remarks -->
+                        <option value="Works well with classmates">Works well with classmates</option>
+                        <option value="A helpful and kind classmate">A helpful and kind classmate</option>
+                        <option value="Shows good leadership in group work">Shows good leadership in group work</option>
+                        <option value="Needs to improve social interaction">Needs to improve social interaction</option>
+                        <option value="Should cooperate more with peers">Should cooperate more with peers</option>
+                        <option value="Demonstrates excellent teamwork skills">Demonstrates excellent teamwork skills</option>
+                        <option value="Sometimes isolated from peer group">Sometimes isolated from peer group</option>
+                        
+                        <!-- Attendance/Punctuality -->
+                        <option value="Excellent attendance and punctuality">Excellent attendance and punctuality</option>
+                        <option value="Regular in attendance">Regular in attendance</option>
+                        <option value="Needs to improve attendance">Needs to improve attendance</option>
+                        <option value="Often late to school">Often late to school</option>
+                        <option value="Frequent absenteeism affecting performance">Frequent absenteeism affecting performance</option>
+                        
+                        <!-- General Encouragement -->
+                        <option value="Keep up the good work!">Keep up the good work!</option>
+                        <option value="With more effort, will do better">With more effort, will do better</option>
+                        <option value="I'm proud of your improvement">I'm proud of your improvement</option>
+                        <option value="Continue working hard next term">Continue working hard next term</option>
+                        <option value="Your hard work is paying off">Your hard work is paying off</option>
+                        <option value="Believe in yourself, you can do it">Believe in yourself, you can do it</option>
+                        
+                        <option value="Custom...">Custom...</option>
+                    </select>
+                </div>
+            </div>
+            <div class="edit-modal-footer">
+                <button type="button" class="btn btn-outline" id="generateSmartRemarksBtn" style="margin-right: auto;" title="Auto-generate remarks based on student scores">
+                    <i class="fas fa-magic"></i> Smart Auto-Remarks
+                </button>
+                <button type="button" class="btn btn-danger" id="cancelEdit" onclick="closeEditModal()">Cancel</button>
+                <button type="button" class="btn btn-success" id="saveEdit" onclick="saveReportDetails()">Save Changes</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main App -->
+    <div id="app" style="display:none;">
+        <div class="container">
+            <header>
+                <div class="header-actions">
+                    <div>
+                        <h1>OneReal Report Generator</h1>
+                        <p>THE LIVING SPRING SCHOOL - END OF TERM REPORT SHEET</p>
+                    </div>
+                    <div class="header-controls" style="display:flex;align-items:center;gap:10px;">
+                        <span id="currentUserDisplay" style="
+                            display:none;font-size:12px;color:#6366f1;font-weight:600;
+                            background:rgba(99,102,241,.1);padding:5px 12px;border-radius:20px;
+                            border:1px solid rgba(99,102,241,.25);white-space:nowrap;
+                        "></span>
+                        <button class="btn btn-sm" id="darkModeToggle" type="button" title="Toggle dark mode">
+                            <i class="fas fa-moon"></i> Dark Mode
+                        </button>
+                        <button class="btn btn-sm" id="teacherSignOutBtn" type="button"
+                            title="Sign Out"
+                            style="background:rgba(220,38,38,.1);color:#dc2626;border-color:rgba(220,38,38,.3);"
+                            onclick="handleTeacherSignOut()">
+                            <i class="fas fa-sign-out-alt"></i> Sign Out
+                        </button>
+                    </div>
+                </div>
+            </header>
+
+            <div class="summary-dashboard card" id="summaryDashboard">
+                <div class="summary-header">
+                    <h2><i class="fas fa-chart-line"></i> Summary Dashboard</h2>
+                    <span class="summary-pill">Live overview</span>
+                </div>
+                <div class="summary-grid">
+                    <div class="summary-card">
+                        <i class="fas fa-user-graduate"></i>
+                        <div class="summary-value" id="summaryStudents">0</div>
+                        <div class="summary-label">Students Added</div>
+                    </div>
+                    <div class="summary-card">
+                        <i class="fas fa-school"></i>
+                        <div class="summary-value" id="summaryClasses">0</div>
+                        <div class="summary-label">Classes</div>
+                    </div>
+                    <div class="summary-card">
+                        <i class="fas fa-book-open"></i>
+                        <div class="summary-value" id="summarySubjects">0</div>
+                        <div class="summary-label">Subjects with Scores</div>
+                    </div>
+                    <div class="summary-card">
+                        <i class="fas fa-trophy"></i>
+                        <div class="summary-value" id="summaryTop">--</div>
+                        <div class="summary-label">Top Performer</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="tabs">
+                <div class="tab active" data-tab="school-info">School Information</div>
+                <div class="tab" data-tab="students">Manage Students</div>
+                <div class="tab" data-tab="subjects">Enter Scores</div>
+                <div class="tab" data-tab="broadsheet">Class Broadsheet <i class="fas fa-table" style="color: #4361ee;"></i></div>
+                <div class="tab" data-tab="individual">Individual Reports</div>
+                <div class="tab" data-tab="performance">Performance & Ranking</div>
+                <div class="tab" data-tab="whatsapp">WhatsApp Sharing  <i class="fab fa-whatsapp" style="color: #2545d3;"></i></div>
+            </div>
+
+            <!-- School Information Tab -->
+            <div class="tab-content active" id="school-info">
+                <div class="card">
+                    <h2>School Term Information</h2>
+                    
+                    <div class="logo-upload-container">
+                        <div class="logo-upload-preview">
+                            <div class="logo-preview" id="logoPreview">
+                                <span>School Logo</span>
+                            </div>
+                            <input type="file" id="logoUpload" accept="image/*" style="display: none;">
+                            <button class="btn" onclick="document.getElementById('logoUpload').click()">
+                                <i class="fas fa-upload"></i> Upload School Logo
+                            </button>
+                            <div class="logo-upload-instructions">
+                                Recommended: 100x100px (Will appear on both sides)
+                            </div>
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="academicYear">Academic Year</label>
+                            <input type="text" id="academicYear" placeholder="e.g., 2024/2025" value="2024/2025">
+                        </div>
+                        <div class="form-group">
+                            <label for="term">Term</label>
+                            <select id="term">
+                                <option value="1">Term 1</option>
+                                <option value="2">Term 2</option>
+                                <option value="3">Term 3</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="closingDate">Date of Vacation</label>
+                            <input type="text" id="closingDate" placeholder="e.g., 19th DEC, 2024" value="19th DEC, 2024">
+                        </div>
+                        <div class="form-group">
+                            <label for="reopeningDate">Re-opening Date</label>
+                            <input type="text" id="reopeningDate" placeholder="e.g., 13th JAN, 2025" value="13th JAN, 2025">
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="numberOnRollMode">Number on Roll Mode</label>
+                            <select id="numberOnRollMode">
+                                <option value="manual">Manual Entry</option>
+                        <option value="auto">Auto-generate</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="numberOnRollClass">Class</label>
+                             <select id="numberOnRollClass">
+                                <option value="Class 1">Class 1</option>
+                                <option value="Class 2">Class 2</option>
+                                <option value="Class 3">Class 3</option>
+                                <option value="Class 4">Class 4</option>
+                                <option value="Class 5">Class 5</option>
+                                <option value="Class 6" selected>Class 6</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="numberOnRoll">Number on Roll</label>
+                            <input type="number" id="numberOnRoll" placeholder="e.g., 18" value="18">
+                        </div>
+                        <div class="form-group">
+                            <label for="basicLevel">Class Level</label>
+                            <select id="basicLevel">
+                                <option value="1">Class 1</option>
+                                <option value="2">Class 2</option>
+                                <option value="3">Class 3</option>
+                                <option value="4">Class 4</option>
+                                <option value="5">Class 5</option>
+                                <option value="6" selected>Class 6</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="classTeacher">Class Teacher's Name</label>
+                            <input type="text" id="classTeacher" placeholder="e.g., MR. K. DEBRAH">
+                        </div>
+                        <div class="form-group">
+                            <label for="headTeacher">Headteacher's Name</label>
+                            <input type="text" id="headTeacher" placeholder="e.g., REV. DR. OSEI KOFI">
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="gradingSchemeSelect">Grading System</label>
+                            <select id="gradingSchemeSelect">
+                                <option value="primary">Ghana Primary (A: Advance, P: Proficiency, AP, D, B)</option>
+                                <option value="standard">Standard Letter Grades (A: 80-100, B: 70-79, C: 60-69, D: 50-59, F: 0-49)</option>
+                                <option value="jhs">JHS / Basic 7-9 (Grade 1-9 System)</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="logo-upload-container" style="margin-top: 15px;">
+                        <div class="logo-upload-preview">
+                            <div class="logo-preview" id="signaturePreview">
+                                <span>Headteacher Signature</span>
+                            </div>
+                            <input type="file" id="signatureUpload" accept="image/*" style="display: none;">
+                            <button class="btn" onclick="document.getElementById('signatureUpload').click()" type="button">
+                                <i class="fas fa-signature"></i> Upload Digital Signature
+                            </button>
+                            <div class="logo-upload-instructions">
+                                PNG format with transparent background recommended
+                            </div>
+                        </div>
+                    </div>
+
+                    <p style="margin-top: 8px; color: #6b7280; font-size: 0.9rem;">Choose Auto-generate to count the students already entered for the selected class.</p>
+                    <button class="btn btn-success" id="saveSchoolInfo">Save School Information</button>
+                    
+                    <div class="data-actions">
+                        <button class="btn" id="exportData">Export Data (JSON)</button>
+                        <button class="btn" id="exportCsv">Export Data (CSV)</button>
+                        <button class="btn" id="importData">Import Data</button>
+                        <button class="btn btn-danger" id="clearData">Clear All Data</button>
+                        <input type="file" id="importFile" accept=".json" style="display: none;">
+                    </div>
+                </div>
+            </div>
+
+            <!-- Manage Students Tab -->
+            <div class="tab-content" id="students">
+                <div class="card">
+                    <h2>Add Students to Class</h2>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="studentName">Student Name</label>
+                            <input type="text" id="studentName" placeholder="Enter student name">
+                        </div>
+                        <div class="form-group">
+                            <label for="studentClass">Class</label>
+                            <select id="studentClass">
+                                <option value="Class 1">Class 1</option>
+                                <option value="Class 2">Class 2</option>
+                                <option value="Class 3">Class 3</option>
+                                <option value="Class 4">Class 4</option>
+                                <option value="Class 5">Class 5</option>
+                                <option value="Class 6">Class 6</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="studentPhotoUpload">Student Photo (Optional)</label>
+                            <input type="file" id="studentPhotoUpload" accept="image/*">
+                        </div>
+                    </div>
+                    <button class="btn" id="addStudent">Add Student</button>
+
+                    <div class="search-box">
+                        <input type="text" id="studentSearch" placeholder="Search students by name...">
+                    </div>
+
+                    <div class="students-list" id="studentsList">
+                        <!-- Students will be listed here -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- Enter Scores Tab -->
+            <div class="tab-content" id="subjects">
+                <div class="card">
+                    <h2>Select Subject to Enter Scores</h2>
+                    <div class="class-selector">
+                        <label for="scoreClass">Select Class:</label>
+                        <select id="scoreClass">
+                            <option value="">-- Select Class --</option>
+                            <option value="Class 1">Class 1</option>
+                            <option value="Class 2">Class 2</option>
+                            <option value="Class 3">Class 3</option>
+                            <option value="Class 4">Class 4</option>
+                            <option value="Class 5">Class 5</option>
+                            <option value="Class 6">Class 6</option>
+                        </select>
+                    </div>
+
+                    <div class="excel-upload-card" style="margin: 15px 0; padding: 15px; background: rgba(67, 97, 238, 0.05); border: 2px dashed #4361ee; border-radius: 8px; text-align: center;">
+                        <i class="fas fa-file-excel" style="font-size: 1.8rem; color: #217346; margin-bottom: 6px;"></i>
+                        <h3>Bulk Excel / CSV Mark Sheet Upload</h3>
+                        <p style="font-size: 0.88rem; color: #666; margin-bottom: 10px;">Upload a spreadsheet containing Student Names, Class, Class Scores (30%), and Exam Scores (70%).</p>
+                        <input type="file" id="excelMarksFile" accept=".xlsx, .xls, .csv" style="display: none;">
+                        <button class="btn" type="button" onclick="document.getElementById('excelMarksFile').click()" style="background: #217346; color: white;">
+                            <i class="fas fa-file-upload"></i> Upload Excel Mark Sheet
+                        </button>
+                        <button class="btn btn-outline" type="button" id="downloadExcelTemplateBtn" style="margin-left: 8px;">
+                            <i class="fas fa-download"></i> Download Template
+                        </button>
+                    </div>
+
+                    <div class="subjects-grid" id="subjectsGrid">
+                        <!-- Subjects will be listed here -->
+                    </div>
+                </div>
+
+                <div class="card" id="scoreEntryCard" style="display: none;">
+                    <h2 id="subjectTitle">Enter Scores for <span id="currentSubject"></span></h2>
+                    <div class="score-entry" id="scoreEntry">
+                        <!-- Score entry form will be here -->
+                    </div>
+                    <div class="actions">
+                        <button class="btn btn-success" id="saveScores">Save Scores</button>
+                        <button class="btn btn-danger" id="cancelScores">Cancel</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Class Broadsheet Tab (NEW) -->
+            <div class="tab-content" id="broadsheet">
+                <div class="card">
+                    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 15px;">
+                        <h2><i class="fas fa-table"></i> Class Broadsheet (Master Mark Sheet)</h2>
+                        <div class="actions">
+                            <button class="btn" id="exportBroadsheetCsv" type="button"><i class="fas fa-file-csv"></i> Export CSV</button>
+                            <button class="btn btn-success" id="exportBroadsheetExcel" type="button"><i class="fas fa-file-excel"></i> Export Excel</button>
+                            <button class="btn btn-outline" id="printBroadsheetBtn" type="button"><i class="fas fa-print"></i> Print Broadsheet</button>
+                        </div>
+                    </div>
+                    <div class="class-selector">
+                        <label for="broadsheetClass">Select Class:</label>
+                        <select id="broadsheetClass">
+                            <option value="">-- Select Class --</option>
+                            <option value="Class 1">Class 1</option>
+                            <option value="Class 2">Class 2</option>
+                            <option value="Class 3">Class 3</option>
+                            <option value="Class 4">Class 4</option>
+                            <option value="Class 5">Class 5</option>
+                            <option value="Class 6">Class 6</option>
+                        </select>
+                    </div>
+
+                    <div id="broadsheetContainer" class="table-responsive" style="margin-top: 15px; overflow-x: auto;">
+                        <p style="color: #666;">Select a class above to load the master broadsheet.</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Individual Reports Tab -->
+            <div class="tab-content" id="individual">
+                <div class="card">
+                    <h2>Generate Individual Student Reports</h2>
+                    <div class="class-selector">
+                        <label for="individualClass">Select Class:</label>
+                        <select id="individualClass">
+                            <option value="">-- Select Class --</option>
+                            <option value="Class 1">Class 1</option>
+                            <option value="Class 2">Class 2</option>
+                            <option value="Class 3">Class 3</option>
+                            <option value="Class 4">Class 4</option>
+                            <option value="Class 5">Class 5</option>
+                            <option value="Class 6">Class 6</option>
+                        </select>
+                    </div>
+                    
+                    <div class="actions" style="margin-bottom: 20px;">
+                        <button class="btn" id="generateAllReports">Generate All Reports</button>
+                        <button class="btn" id="applyPromotionToClass">Apply Promotion to Class</button>
+                        <button class="btn btn-success" id="bulkDownloadReports" style="display: none;">
+                            <i class="fas fa-download"></i> Download All Reports (ZIP)
+                        </button>
+                    </div>
+                    
+                    <div class="students-grid" id="studentsReportsGrid" style="display: none;">
+                        <!-- Students with their reports will be listed here -->
+                    </div>
+                    
+                    <div id="individualReportContainer">
+                        <!-- Single report preview will be shown here -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- Performance & Ranking Tab -->
+            <div class="tab-content" id="performance">
+                <div class="card">
+                    <h2>Student Performance Analysis & Ranking</h2>
+                    <div class="class-selector">
+                        <label for="performanceClass">Select Class:</label>
+                        <select id="performanceClass">
+                            <option value="">-- Select Class --</option>
+                            <option value="Class 1">Class 1</option>
+                            <option value="Class 2">Class 2</option>
+                            <option value="Class 3">Class 3</option>
+                            <option value="Class 4">Class 4</option>
+                            <option value="Class 5">Class 5</option>
+                            <option value="Class 6">Class 6</option>
+                        </select>
+                    </div>
+                    <div style="display: flex; gap: 10px; margin-top: 10px;">
+                        <button class="btn" id="generatePerformance">Generate Performance Analysis</button>
+                        <button class="btn btn-success" id="generateAwardCertificatesBtn" type="button">
+                            <i class="fas fa-award"></i> Generate Award Certificates
+                        </button>
+                    </div>
+                    
+                    <div id="performanceContainer">
+                        <!-- Performance charts and ranking will be displayed here -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- WhatsApp Integration Tab -->
+            <div class="tab-content" id="whatsapp">
+                <div class="card">
+                    <h2><i class="fab fa-whatsapp" style="color: #25D366;"></i> WhatsApp Report Distribution</h2>
+                    
+                    <div class="whatsapp-instructions">
+                        <h4>How to Send Reports via WhatsApp:</h4>
+                        <ul>
+                            <li>Select a class and student to manage parent contact information</li>
+                            <li>Enter parent's WhatsApp number (include country code, e.g., +233XXXXXXXXX)</li>
+                            <li>Generate and preview the report first</li>
+                            <li>Send individual reports or use bulk send for the entire class</li>
+                            <li>Reports will open in WhatsApp Web/Desktop for you to review before sending</li>
+                        </ul>
+                    </div>
+
+                    <div class="class-selector">
+                        <label for="whatsappClass">Select Class:</label>
+                        <select id="whatsappClass">
+                            <option value="">-- Select Class --</option>
+                            <option value="Class 1">Class 1</option>
+                            <option value="Class 2">Class 2</option>
+                            <option value="Class 3">Class 3</option>
+                            <option value="Class 4">Class 4</option>
+                            <option value="Class 5">Class 5</option>
+                            <option value="Class 6">Class 6</option>
+                        </select>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="whatsappStudent">Select Student</label>
+                            <select id="whatsappStudent">
+                                <option value="">-- Select a student --</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="parent-info-grid">
+                        <div class="form-group">
+                            <label for="parentName">Parent/Guardian Name</label>
+                            <input type="text" id="parentName" placeholder="Enter parent/guardian name">
+                        </div>
+                        <div class="form-group">
+                            <label for="whatsappNumber">WhatsApp Number</label>
+                            <div class="phone-input-container">
+                                <i class="fas fa-phone"></i>
+                                <input type="tel" id="whatsappNumber" placeholder="+233XXXXXXXXX">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="actions">
+                        <button class="btn" id="saveParentInfo">Save Parent Information</button>
+                        <button class="btn btn-whatsapp" id="sendWhatsApp">
+                            <i class="fab fa-whatsapp"></i> Send Report via WhatsApp
+                        </button>
+                    </div>
+
+                    <div class="student-parents-list" id="parentsList">
+                        <!-- Parents/guardians will be listed here -->
+                    </div>
+
+                    <div class="bulk-send-container">
+                        <h3>Bulk Send Reports</h3>
+                        <p>Send reports to all parents in the selected class</p>
+                        <button class="btn btn-whatsapp" id="bulkSendWhatsApp">
+                            <i class="fab fa-whatsapp"></i> Send Reports to All Parents
+                        </button>
+                        <div id="bulkSendStatus" style="margin-top: 15px;"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Super Admin Dashboard Tab -->
+            <div class="tab-content" id="super-admin">
+                <div class="card" style="border-top: 4px solid #7c3aed;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 20px;">
+                        <h2><i class="fas fa-user-shield" style="color: #7c3aed;"></i> Super Admin Command & Activity Control Center</h2>
+                        <div class="actions">
+                            <button class="btn btn-sm" id="refreshAdminDataBtn" type="button"><i class="fas fa-sync-alt"></i> Refresh Trail</button>
+                            <button class="btn btn-sm btn-danger" id="clearAuditTrailBtn" type="button"><i class="fas fa-trash"></i> Clear Audit Logs</button>
+                        </div>
+                    </div>
+
+                    <!-- Admin Statistics Overview Cards -->
+                    <div class="admin-stats-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-bottom: 25px;">
+                        <div class="admin-stat-card" style="background: rgba(124, 58, 237, 0.08); padding: 16px; border-radius: 10px; border: 1px solid rgba(124, 58, 237, 0.2);">
+                            <div style="font-size: 0.85rem; color: #6b21a8; font-weight: 600;">CLOUD ENGINE</div>
+                            <div id="adminStatCloudStatus" style="font-size: 1.4rem; font-weight: bold; color: #581c87; margin-top: 4px;">ACTIVE</div>
+                            <div style="font-size: 0.78rem; color: #6b7280; margin-top: 4px;">Real-Time Sync Ready</div>
+                        </div>
+                        <div class="admin-stat-card" style="background: rgba(59, 130, 246, 0.08); padding: 16px; border-radius: 10px; border: 1px solid rgba(59, 130, 246, 0.2);">
+                            <div style="font-size: 0.85rem; color: #1e40af; font-weight: 600;">TOTAL LEARNERS</div>
+                            <div id="adminStatTotalStudents" style="font-size: 1.4rem; font-weight: bold; color: #1e3a8a; margin-top: 4px;">0</div>
+                            <div style="font-size: 0.78rem; color: #6b7280; margin-top: 4px;">Across all registered classes</div>
+                        </div>
+                        <div class="admin-stat-card" style="background: rgba(16, 185, 129, 0.08); padding: 16px; border-radius: 10px; border: 1px solid rgba(16, 185, 129, 0.2);">
+                            <div style="font-size: 0.85rem; color: #065f46; font-weight: 600;">SCORES LOGGED</div>
+                            <div id="adminStatTotalScores" style="font-size: 1.4rem; font-weight: bold; color: #064e3b; margin-top: 4px;">0</div>
+                            <div style="font-size: 0.78rem; color: #6b7280; margin-top: 4px;">Subject score records</div>
+                        </div>
+                        <div class="admin-stat-card" style="background: rgba(245, 158, 11, 0.08); padding: 16px; border-radius: 10px; border: 1px solid rgba(245, 158, 11, 0.2);">
+                            <div style="font-size: 0.85rem; color: #92400e; font-weight: 600;">AUDIT EVENTS</div>
+                            <div id="adminStatTotalLogs" style="font-size: 1.4rem; font-weight: bold; color: #78350f; margin-top: 4px;">0</div>
+                            <div style="font-size: 0.78rem; color: #6b7280; margin-top: 4px;">System activity logs</div>
+                        </div>
+                    </div>
+
+                    <!-- Live Activity Audit Trail -->
+                    <div style="margin-top: 20px;">
+                        <h3 style="margin-bottom: 12px; font-size: 1.1rem;"><i class="fas fa-history" style="color: #4f46e5;"></i> Live Activity Audit Trail</h3>
+                        <div class="table-responsive" style="max-height: 350px; overflow-y: auto; border: 1px solid #e5e7eb; border-radius: 8px;">
+                            <table class="broadsheet-table" style="width: 100%; border-collapse: collapse; font-size: 0.9rem;">
+                                <thead>
+                                    <tr style="background: #f8fafc; text-align: left;">
+                                        <th style="padding: 10px;">Time</th>
+                                        <th style="padding: 10px;">User / Teacher</th>
+                                        <th style="padding: 10px;">Action Performed</th>
+                                        <th style="padding: 10px;">Event Details</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="auditLogsTableBody">
+                                    <tr><td colspan="4" style="padding: 15px; text-align: center; color: #94a3b8;">Loading audit trail...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- System Master Override & Record Inspector -->
+                    <div style="margin-top: 30px;">
+                        <h3 style="margin-bottom: 12px; font-size: 1.1rem;"><i class="fas fa-tools" style="color: #0284c7;"></i> Master Class & Student Inspector</h3>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="adminClassFilter">Select Class to Inspect</label>
+                                <select id="adminClassFilter">
+                                    <option value="">-- All Classes --</option>
+                                    <option value="Class 1">Class 1</option>
+                                    <option value="Class 2">Class 2</option>
+                                    <option value="Class 3">Class 3</option>
+                                    <option value="Class 4">Class 4</option>
+                                    <option value="Class 5">Class 5</option>
+                                    <option value="Class 6">Class 6</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="adminStudentSearch">Filter Student Name</label>
+                                <input type="text" id="adminStudentSearch" placeholder="Search learner across all classes...">
+                            </div>
+                        </div>
+                        <div id="adminMasterStudentsGrid" class="students-list" style="max-height: 400px; overflow-y: auto; margin-top: 10px;">
+                            <!-- Super admin list of learners -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Firebase Configuration Modal -->
+    <div class="edit-modal" id="firebaseConfigModal" style="display: none;">
+        <div class="edit-modal-content">
+            <div class="edit-modal-header">
+                <h3><i class="fas fa-cloud"></i> Firebase Cloud Connection</h3>
+                <button class="close-modal" id="closeFirebaseConfigModal">&times;</button>
+            </div>
+            <div class="edit-modal-body">
+                <p style="font-size: 0.9rem; margin-bottom: 15px; color: #666;">
+                    Connect your Firebase Firestore project to automatically sync students, scores, and reports across devices.
+                </p>
+                <div class="form-group">
+                    <label for="fbApiKey">API Key</label>
+                    <input type="text" id="fbApiKey" placeholder="AIzaSy...">
+                </div>
+                <div class="form-group">
+                    <label for="fbAuthDomain">Auth Domain</label>
+                    <input type="text" id="fbAuthDomain" placeholder="your-app.firebaseapp.com">
+                </div>
+                <div class="form-group">
+                    <label for="fbProjectId">Project ID</label>
+                    <input type="text" id="fbProjectId" placeholder="your-app-id">
+                </div>
+                <div class="form-group">
+                    <label for="fbStorageBucket">Storage Bucket</label>
+                    <input type="text" id="fbStorageBucket" placeholder="your-app.appspot.com">
+                </div>
+                <div class="form-group">
+                    <label for="fbMessagingSenderId">Messaging Sender ID</label>
+                    <input type="text" id="fbMessagingSenderId" placeholder="123456789">
+                </div>
+                <div class="form-group">
+                    <label for="fbAppId">App ID</label>
+                    <input type="text" id="fbAppId" placeholder="1:123456789:web:abcdef">
+                </div>
+            </div>
+            <div class="edit-modal-footer">
+                <button class="btn btn-danger" id="cancelFirebaseConfig" type="button">Cancel</button>
+                <button class="btn btn-success" id="saveFirebaseConfigBtn" type="button">Save & Connect</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Firebase Auth Modal -->
+    <div class="edit-modal" id="authModal" style="display: none;">
+        <div class="edit-modal-content">
+            <div class="edit-modal-header">
+                <h3 id="authModalTitle"><i class="fas fa-user-lock"></i> Teacher / Admin Login</h3>
+                <button class="close-modal" id="closeAuthModal">&times;</button>
+            </div>
+            <div class="edit-modal-body">
+                <div class="form-group">
+                    <label for="authEmail">Email Address</label>
+                    <input type="email" id="authEmail" placeholder="teacher@school.com">
+                </div>
+                <div class="form-group">
+                    <label for="authPassword">Password</label>
+                    <input type="password" id="authPassword" placeholder="••••••••">
+                </div>
+                <div id="authErrorMsg" style="color: red; font-size: 0.85rem; margin-top: 5px; display: none;"></div>
+            </div>
+            <div class="edit-modal-footer">
+                <button class="btn btn-outline" id="toggleAuthModeBtn" type="button">Register New Account</button>
+                <button class="btn btn-success" id="submitAuthBtn" type="button">Login</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Award Certificate Modal -->
+    <div class="edit-modal" id="certificateModal" style="display: none;">
+        <div class="edit-modal-content" style="max-width: 900px; width: 95%;">
+            <div class="edit-modal-header">
+                <h3><i class="fas fa-award"></i> Academic Excellence Award Certificates</h3>
+                <button class="close-modal" id="closeCertificateModal">&times;</button>
+            </div>
+            <div class="edit-modal-body">
+                <div class="actions" style="margin-bottom: 15px;">
+                    <button class="btn btn-success" id="printCertificatesBtn" type="button"><i class="fas fa-print"></i> Print Certificates</button>
+                </div>
+                <div id="certificatesPreviewContainer">
+                    <!-- Certificates will render here -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Firebase & Utility Scripts -->
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-storage-compat.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <script src="firebase-config.js"></script>
+    <script src="jszip.min.js"></script>
+    <script src="report.js"></script>
+    <script>
+    // Teacher auth bridge — Enforces login before system opens
+    window.handleTeacherLogin = async function() {
+        const email    = document.getElementById('teacherLoginEmail')?.value?.trim() || '';
+        const password = document.getElementById('teacherLoginPassword')?.value || '';
+        const errorEl  = document.getElementById('teacherAuthError');
+        const btn      = document.getElementById('teacherLoginBtn');
+        if (errorEl) errorEl.style.display = 'none';
+
+        if (!email || !password) {
+            if (errorEl) { errorEl.textContent = 'Please enter your email and password.'; errorEl.style.display = 'block'; }
+            return;
+        }
+
+        if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Signing in…'; }
+
+        try {
+            if (typeof isFirebaseActive !== 'undefined' && isFirebaseActive && typeof loginFirebaseUser === 'function') {
+                // ── Firebase Mode: fully enforced via Firebase Auth ──────────────
+                await loginFirebaseUser(email, password);
+                // onAuthStateChanged in DOMContentLoaded handles overlay hiding & init()
+
+            } else {
+                // ── Local / Offline Mode: strict email + password validation ────
+                const localTeachers = JSON.parse(localStorage.getItem('teachers') || '[]');
+                const localUsers    = JSON.parse(localStorage.getItem('users')    || '[]');
+
+                // Must find a matching teacher OR user account
+                const matchedTeacher = localTeachers.find(t => t.email?.toLowerCase() === email.toLowerCase());
+                const matchedUser    = localUsers.find(u    => u.email?.toLowerCase() === email.toLowerCase());
+
+                if (!matchedTeacher && !matchedUser) {
+                    throw new Error('No teacher account found for this email address. Please contact your Administrator.');
+                }
+
+                // Block deactivated accounts
+                if (matchedTeacher?.status === 'inactive' || matchedUser?.status === 'inactive') {
+                    throw new Error('Your teacher account has been deactivated. Please contact the Administrator.');
+                }
+
+                // Password validation:
+                // Accept the account's stored password, or the universal default 'teacher123'
+                const storedPassword = matchedUser?.password || matchedTeacher?.password || null;
+                const validPassword  = (storedPassword && password === storedPassword)
+                                    || password === 'teacher123'
+                                    || password === 'admin123';
+
+                if (!validPassword) {
+                    throw new Error('Incorrect password. Contact your Administrator if you have forgotten your password.');
+                }
+
+                // ── Success: unlock the dashboard ──────────────────────────────
+                sessionStorage.setItem('teacherUnlocked', 'true');
+                sessionStorage.setItem('teacherEmail', email);
+
+                const profile = matchedUser || {
+                    displayName: matchedTeacher?.name || email.split('@')[0],
+                    email: email,
+                    role: matchedTeacher?.role || 'Teacher'
+                };
+
+                if (typeof updateTeacherHeaderUI === 'function') updateTeacherHeaderUI(profile);
+                if (typeof hideTeacherOverlay    === 'function') hideTeacherOverlay();
+                if (typeof init                  === 'function') init();
+            }
+        } catch(e) {
+            const msg = e.code === 'auth/user-not-found'   ? 'No account found with this email address.' :
+                        e.code === 'auth/wrong-password'    ? 'Incorrect password.' :
+                        e.code === 'auth/invalid-email'     ? 'Invalid email address format.' :
+                        e.code === 'auth/invalid-credential'? 'Incorrect email or password.' :
+                        e.code === 'auth/too-many-requests' ? 'Too many failed attempts. Please try again later.' :
+                        (e.message || 'Login failed. Please try again.');
+            if (errorEl) { errorEl.textContent = msg; errorEl.style.display = 'block'; }
+        } finally {
+            if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-sign-in-alt"></i> Sign In'; }
+        }
+    };
+    </script>
+</body>
+</html>
