@@ -23,7 +23,6 @@ function initDb() {
             terms:          [],
             results:        [],
             reports:        [],
-            users:          [],
             gradingScales:  [],
             schoolSettings: {},
             scores:         {},
@@ -61,7 +60,7 @@ function readDb() {
 function initBlankDb() {
     return {
         students: [], teachers: [], classes: [], subjects: [],
-        academicYears: [], terms: [], results: [], reports: [], users: [],
+        academicYears: [], terms: [], results: [], reports: [],
         gradingScales: [], schoolSettings: {}, scores: {}, schoolInfo: {},
         studentReportDetails: {}, parentContacts: {},
         attendanceMarks: {}, attendanceSettings: {}, auditLogs: []
@@ -405,7 +404,7 @@ const server = http.createServer(async (req, res) => {
             try {
                 const payload = await readBody(req);
                 const db = readDb();
-                const allowed = ['students','scores','schoolInfo','studentReportDetails','parentContacts','attendanceMarks','attendanceSettings','reports','classes','teachers','subjects','users','schoolSettings'];
+                const allowed = ['students','scores','schoolInfo','studentReportDetails','parentContacts','attendanceMarks','attendanceSettings','reports','classes','teachers','subjects','schoolSettings'];
                 allowed.forEach(k => { if (payload[k] !== undefined) db[k] = payload[k]; });
                 writeDb(db);
                 sendJson(res, 200, { success: true, timestamp: new Date().toISOString() });
@@ -1008,7 +1007,7 @@ const server = http.createServer(async (req, res) => {
                     return;
                 }
                 const db = readDb();
-                const collections = ['students','teachers','classes','subjects','academicYears','terms','results','reports','users','gradingScales','schoolSettings','scores','schoolInfo','studentReportDetails','parentContacts','attendanceMarks','attendanceSettings'];
+                const collections = ['students','teachers','classes','subjects','academicYears','terms','results','reports','gradingScales','schoolSettings','scores','schoolInfo','studentReportDetails','parentContacts','attendanceMarks','attendanceSettings'];
                 collections.forEach(col => {
                     if (payload[col] !== undefined) db[col] = payload[col];
                 });
@@ -1023,7 +1022,7 @@ const server = http.createServer(async (req, res) => {
         const importMatch = pathname.match(/^\/api\/import\/([a-z]+)$/);
         if (importMatch && method === 'POST') {
             const colName = importMatch[1];
-            const validCols = ['students','teachers','classes','subjects','results','reports','users','gradingScales'];
+            const validCols = ['students','teachers','classes','subjects','results','reports','gradingScales'];
             if (!validCols.includes(colName)) { sendJson(res, 400, { error: 'Invalid collection' }); return; }
             try {
                 const payload = await readBody(req);

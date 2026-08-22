@@ -82,14 +82,34 @@ function currentTeacherRecord() {
     if (!email) return null;
     const teachers = loadJSON('teachers', []);
     const users = loadJSON('users', []);
-    return teachers.find(t => (t.email || '').toLowerCase() === email)
-        || users.find(u => (u.email || '').toLowerCase() === email)
-        || null;
+    const userProfile = (typeof getCurrentUserProfile === 'function') ? getCurrentUserProfile() : null;
+
+    const t = teachers.find(t => (t.email || '').toLowerCase() === email);
+    const u = users.find(u => (u.email || '').toLowerCase() === email);
+
+    const assignedClasses = (Array.isArray(t?.assignedClasses) && t.assignedClasses.length)
+        ? t.assignedClasses
+        : (Array.isArray(u?.assignedClasses) && u.assignedClasses.length ? u.assignedClasses : (userProfile?.assignedClasses || []));
+
+    const assignedSubjects = (Array.isArray(t?.assignedSubjects) && t.assignedSubjects.length)
+        ? t.assignedSubjects
+        : (Array.isArray(u?.assignedSubjects) && u.assignedSubjects.length ? u.assignedSubjects : (userProfile?.assignedSubjects || []));
+
+    return {
+        id: t?.id || u?.uid || u?.id || 'teacher',
+        userId: t?.userId || u?.uid || null,
+        name: t?.name || u?.displayName || u?.name || sessionStorage.getItem('teacherName') || email,
+        email: email,
+        role: t?.role || u?.role || userProfile?.role || 'Teacher',
+        status: t?.status || u?.status || 'active',
+        assignedClasses: assignedClasses,
+        assignedSubjects: assignedSubjects
+    };
 }
 
 // ── Class access control ────────────────────────────────────────────────────
 // A teacher only sees classes the admin assigned to them. Admin-role accounts
-// (Administrator / Headteacher) keep access to every class.
+// (Administrator / Headteacher / Super Admin) keep access to every class.
 const ADMIN_LEVEL_ROLES = ['super admin', 'administrator', 'headteacher', 'head teacher', 'admin'];
 
 function teacherAllowedClasses() {
@@ -98,42 +118,85 @@ function teacherAllowedClasses() {
     if (!rec) return [];
     const role = String(rec.role || '').toLowerCase();
     if (ADMIN_LEVEL_ROLES.includes(role)) return all;
-    const assigned = Array.isArray(rec.assignedClasses) ? rec.assignedClasses : [];
-    if (!assigned.length) return [];
+
     const classes = loadJSON('classes', []);
+    const assignedRefs = Array.isArray(rec.assignedClasses) ? rec.assignedClasses.map(String) : [];
     const names = [];
-    assigned.forEach(ref => {
-        const c = classes.find(c => String(c.id) === String(ref) || c.name === ref);
-        const name = c ? c.name : String(ref);
-        if (name && all.includes(name) && !names.includes(name)) names.push(name);
+
+    classes.forEach(c => {
+        if (c.status === 'inactive') return;
+        const cId = String(c.id);
+        const cName = String(c.name || '');
+
+        const isClassTeacher = String(c.classTeacherId) === String(rec.id) || (rec.userId && String(c.classTeacherId) === String(rec.userId));
+        const isAssignedTeacher = Array.isArray(c.assignedTeacherIds) && (
+            c.assignedTeacherIds.includes(rec.id) ||
+            c.assignedTeacherIds.includes(String(rec.id)) ||
+            (rec.userId && c.assignedTeacherIds.includes(rec.userId))
+        );
+        const inAssignedClasses = assignedRefs.includes(cId) || assignedRefs.includes(cName);
+
+        if (isClassTeacher || isAssignedTeacher || inAssignedClasses) {
+            if (cName && all.includes(cName) && !names.includes(cName)) {
+                names.push(cName);
+            }
+        }
     });
+
+    assignedRefs.forEach(ref => {
+        if (all.includes(ref) && !names.includes(ref)) {
+            names.push(ref);
+        }
+    });
+
     return names;
 }
 // ─────────────────────────────────────────────────────────────────────────────
 
 function subjectAssignedToTeacher(doc, teacher) {
-    const assigned = Array.isArray(teacher?.assignedSubjects) ? teacher.assignedSubjects : [];
-    if (!assigned.length) return true; // nothing assigned → teacher sees the class subjects
-    return assigned.includes(doc.id) || assigned.includes(doc.name);
+    const assigned = Array.isArray(teacher?.assignedSubjects) ? teacher.assignedSubjects.map(String) : [];
+    if (!assigned.length) return true;
+    const docId = String(doc.id || '');
+    const docName = String(doc.name || '');
+    const docCode = String(doc.code || '');
+    return assigned.includes(docId) || assigned.includes(docName) || assigned.includes(docCode);
 }
 
 function subjectAssignedToClass(doc, className) {
-    const ids = Array.isArray(doc.classIds) ? doc.classIds : [];
+    const ids = Array.isArray(doc.classIds) ? doc.classIds.map(String) : [];
     if (!ids.length) return true; // no classes ticked → treated as offered everywhere
-    const cid = classIdForName(className);
-    return ids.includes(cid) || ids.includes(className);
+    const cid = String(classIdForName(className) || '');
+    const cName = String(className || '');
+    return ids.includes(cid) || ids.includes(cName);
+}
+
+function allClassSubjects(className) {
+    const docs = adminSubjects();
+    const allDocs = docs.length ? docs : LEGACY_SUBJECTS.map(name => ({ id: name, name }));
+    const forClass = allDocs.filter(d => subjectAssignedToClass(d, className || currentClass));
+    return forClass.map(d => d.name);
 }
 
 // Subjects for the class currently open, filtered by the teacher's assignment.
 function classSubjects() {
     const docs = adminSubjects();
-    if (!docs.length) return LEGACY_SUBJECTS.slice(); // until the admin creates subjects
-    const forClass = docs.filter(d => subjectAssignedToClass(d, currentClass));
+    const allDocs = docs.length ? docs : LEGACY_SUBJECTS.map(name => ({ id: name, name }));
+    const forClass = allDocs.filter(d => subjectAssignedToClass(d, currentClass));
     const teacher = currentTeacherRecord();
-    const forTeacher = forClass.filter(d => subjectAssignedToTeacher(d, teacher));
-    const list = forTeacher.length ? forTeacher : forClass;
-    if (!list.length) return docs.map(d => d.name);
-    return list.map(d => d.name);
+    const role = String(teacher?.role || '').toLowerCase();
+
+    // Admin-level roles see all class subjects
+    if (ADMIN_LEVEL_ROLES.includes(role)) {
+        return forClass.map(d => d.name);
+    }
+
+    const assigned = Array.isArray(teacher?.assignedSubjects) ? teacher.assignedSubjects : [];
+    if (assigned.length > 0) {
+        const forTeacher = forClass.filter(d => subjectAssignedToTeacher(d, teacher));
+        return forTeacher.map(d => d.name);
+    }
+
+    return forClass.map(d => d.name);
 }
 // ─────────────────────────────────────────────────────────────────────────────
 function classList() {
@@ -242,19 +305,62 @@ function getGrade(total) {
 function approvalKey(id) {
     return String(id) + '|' + (schoolInfo.academicYear || '') + '|' + (schoolInfo.term || '');
 }
+
 function reportRecord(id) {
-    const key = approvalKey(id);
-    return reports.find(r => r.approvalKey === key || (String(r.studentId) === String(id) && String(r.termId) === String(schoolInfo.term || '') && String(r.academicYearId) === String(schoolInfo.academicYear || '')));
+    const stuId = String(id);
+    const years = loadJSON('academicYears', []);
+    const terms = loadJSON('terms', []);
+    const activeYear = years.find(x => x.isActive) || loadJSON('activeAcademicYear', null);
+    const activeTerm = terms.find(x => x.isActive) || loadJSON('activeTerm', null);
+
+    const yearNamesOrIds = [
+        schoolInfo.academicYear,
+        activeYear?.name,
+        activeYear?.id
+    ].filter(Boolean).map(String);
+
+    const termNamesOrIds = [
+        schoolInfo.term,
+        activeTerm?.termNumber != null ? String(activeTerm.termNumber) : null,
+        activeTerm?.name,
+        activeTerm?.id
+    ].filter(Boolean).map(String);
+
+    const match = reports.find(r => {
+        if (String(r.studentId) !== stuId) return false;
+
+        if (r.approvalKey) {
+            const parts = String(r.approvalKey).split('|');
+            if (parts[0] === stuId) {
+                if (parts.length === 1) return true;
+                const kYear = parts[1];
+                const kTerm = parts[2];
+                const yearMatch = !kYear || yearNamesOrIds.includes(kYear);
+                const termMatch = !kTerm || termNamesOrIds.includes(kTerm);
+                if (yearMatch && termMatch) return true;
+            }
+        }
+
+        const rYear = r.academicYearId || r.academicYear || '';
+        const rTerm = r.termId || r.term || '';
+        const yearOk = !rYear || yearNamesOrIds.length === 0 || yearNamesOrIds.includes(String(rYear));
+        const termOk = !rTerm || termNamesOrIds.length === 0 || termNamesOrIds.includes(String(rTerm));
+
+        return yearOk && termOk;
+    });
+
+    return match || reports.find(r => String(r.studentId) === stuId);
 }
+
 function isApproved(id) {
     const rec = reportRecord(id);
     const st = String(rec?.status || '').toLowerCase();
     return st === 'approved' || st === 'published';
 }
+
 function upsertPending(list) {
     list.forEach(stu => {
-        const key = approvalKey(stu.id);
-        const existing = reports.find(r => r.approvalKey === key);
+        const existing = reportRecord(stu.id);
         if (existing) {
             if (!['approved', 'published'].includes(String(existing.status).toLowerCase())) {
                 existing.status = 'Pending';
@@ -263,10 +369,11 @@ function upsertPending(list) {
                 existing.classId = stu.class;
             }
         } else {
+            const key = approvalKey(stu.id);
             reports.push({
                 id: 'rpt_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5),
                 approvalKey: key,
-                studentId: stu.id,
+                studentId: String(stu.id),
                 studentName: stu.name,
                 classId: stu.class,
                 academicYearId: schoolInfo.academicYear || '',
@@ -421,14 +528,14 @@ async function openApp() {
     if (typeof Attendance !== 'undefined' && Attendance.hydrateFromServer) Attendance.hydrateFromServer().catch(() => {});
 }
 
-// Pull admin-managed data (subjects, classes, teachers, students, settings)
+// Pull admin-managed data (subjects, classes, teachers, students, settings, reports)
 // from the local server so portals stay in sync even without Firebase.
 function hydrateSchoolFromServer() {
     if (typeof isFirebaseConnected === 'function' && isFirebaseConnected()) return Promise.resolve(false);
     return fetch('/api/db').then(function (res) { return res.ok ? res.json() : null; }).then(function (db) {
         if (!db) return false;
         let changed = false;
-        ['classes', 'subjects', 'teachers', 'students', 'schoolSettings', 'schoolInfo'].forEach(function (k) {
+        ['classes', 'subjects', 'teachers', 'students', 'schoolSettings', 'schoolInfo', 'reports', 'academicYears', 'terms', 'gradingScales'].forEach(function (k) {
             const remote = db[k];
             if (remote == null) return;
             try {
@@ -584,8 +691,8 @@ function renderStudents() {
                     <div class="list-item">
                         <div><strong>${esc(s.name)}</strong><div class="muted">${esc(s.admissionNo || '')} · ${esc(s.class)}</div></div>
                         <div class="actions">
-                            <button class="btn btn-ghost btn-sm" onclick="editStudent(${s.id})">Edit</button>
-                            <button class="btn btn-ghost btn-sm danger" onclick="deleteStudent(${s.id})">Delete</button>
+                            <button class="btn btn-ghost btn-sm" onclick="editStudent('${s.id}')">Edit</button>
+                            <button class="btn btn-ghost btn-sm danger" onclick="deleteStudent('${s.id}')">Delete</button>
                         </div>
                     </div>`).join('') || '<div class="empty">No students in this class yet.</div>'}
             </div>
@@ -651,7 +758,12 @@ function scoredCount(subject) {
 
 function renderScores() {
     const subs = classSubjects();
-    if (currentSubject && !subs.includes(currentSubject)) currentSubject = '';
+    if (subs.length && (!currentSubject || !subs.includes(currentSubject))) {
+        currentSubject = subs[0];
+    } else if (!subs.length) {
+        currentSubject = '';
+    }
+
     document.getElementById('tab-scores').innerHTML = `
         <div class="card">
             <p class="hint"><strong>How to enter marks:</strong> Type class and exam scores <em>out of 100</em>. Each is converted to 50% and added for a total out of 100. Example: class 80 → 40, exam 90 → 45, total 85. Autosaves.</p>
@@ -660,18 +772,22 @@ function renderScores() {
                     <strong>${esc(sub)}</strong>
                     <small>${scoredCount(sub)} / ${classStudents().length} entered</small>
                 </button>`).join('')}
-            </div>` : '<div class="empty">No subjects assigned to this class yet. Ask the admin to create subjects and assign them to this class.</div>'}
-            <div style="margin-top:14px;">
+            </div>` : `<div class="empty" style="text-align:center;padding:24px 12px;">
+                <i class="fas fa-lock" style="font-size:28px;opacity:0.6;margin-bottom:8px;display:block;"></i>
+                <strong>No subjects assigned to you for ${esc(currentClass)}</strong><br>
+                <span class="muted">Ask the school administrator in the Admin Portal to assign subjects to your teacher profile.</span>
+            </div>`}
+            ${subs.length ? `<div style="margin-top:14px;">
                 <input type="file" id="marksFile" accept=".xlsx,.xls,.csv" style="display:none" onchange="importMarks(event)">
                 <button type="button" class="btn btn-ghost btn-sm" onclick="document.getElementById('marksFile').click()"><i class="fas fa-file-excel"></i> Import spreadsheet</button>
                 <a class="btn btn-ghost btn-sm" id="downloadTemplateBtn" href="/open?src=/api/templates/marks.xlsx"><i class="fas fa-file-excel"></i> Excel template</a>
             </div>
-            <div id="scoreSheet" style="margin-top:16px;"></div>
+            <div id="scoreSheet" style="margin-top:16px;"></div>` : ''}
         </div>`;
     const tpl = document.getElementById('downloadTemplateBtn');
-    if (tpl) {
+    if (tpl && subs.length) {
         const cls = currentClass || '';
-        const subject = currentSubject || classSubjects()[0] || 'Mathematics';
+        const subject = currentSubject || subs[0] || 'Mathematics';
         const name = (cls || 'class').replace(/\s/g, '_') + '_' + subject.replace(/\s/g, '_') + '_marks_template.csv';
         tpl.href = '/open?src=' + encodeURIComponent('/api/templates/marks.xlsx?class=' + encodeURIComponent(cls) + '&subject=' + encodeURIComponent(subject));
         tpl.setAttribute('download', name.replace(/\.csv$/i, '.xlsx'));
@@ -889,7 +1005,7 @@ function importMarks(ev) {
 
 function studentPerf(id) {
     const items = [];
-    classSubjects().forEach(sub => {
+    allClassSubjects(currentClass).forEach(sub => {
         const e = getScoreEntry(sub, id);
         if (e && e.classScore !== '' && e.examScore !== '') {
             const tot = totalScore(e.classScore, e.examScore);
@@ -904,7 +1020,7 @@ function studentPerf(id) {
 }
 
 function renderBroadsheet() {
-    const subs = classSubjects();
+    const subs = allClassSubjects(currentClass);
     const list = classStudents().map(s => {
         const p = studentPerf(s.id);
         const map = {};
@@ -944,6 +1060,7 @@ function exportBroadsheet() {
 }
 
 function renderReports() {
+    loadAll();
     const list = classStudents();
     const approved = list.filter(s => isApproved(s.id)).length;
     document.getElementById('tab-reports').innerHTML = `
@@ -962,9 +1079,9 @@ function renderReports() {
                         <div class="muted">${p ? p.avg.toFixed(1) + '% · ' + p.grade : 'No complete scores'}</div>
                         <div style="margin-top:8px;"><span class="badge ${ok ? 'ok' : 'wait'}">${ok ? 'Approved' : 'Awaiting admin'}</span></div>
                         <div class="actions">
-                            <button class="btn btn-ghost btn-sm" onclick="openRemarks(${s.id})">Remarks</button>
-                            <button class="btn btn-ghost btn-sm" onclick="previewReport(${s.id})">Preview</button>
-                            <button class="btn btn-ok btn-sm" ${ok ? '' : 'disabled'} onclick="downloadReport(${s.id})">${ok ? 'Download' : 'Locked'}</button>
+                            <button class="btn btn-ghost btn-sm" onclick="openRemarks('${s.id}')">Remarks</button>
+                            <button class="btn btn-ghost btn-sm" onclick="previewReport('${s.id}')">Preview</button>
+                            <button class="btn btn-ok btn-sm" ${ok ? '' : 'disabled'} onclick="downloadReport('${s.id}')">${ok ? 'Download' : 'Locked'}</button>
                         </div>
                     </div>`;
                 }).join('') || '<div class="empty">Add students first.</div>'}
@@ -1244,8 +1361,8 @@ function renderWhatsApp() {
                             <span class="badge ${ok ? 'ok' : 'wait'}">${ok ? 'Approved' : 'Locked'}</span>
                         </div>
                         <div class="actions">
-                            <button class="btn btn-ghost btn-sm" onclick="editParent(${s.id})">Parent</button>
-                            <button class="btn btn-wa btn-sm" ${ok && p.phone ? '' : 'disabled'} onclick="sendWa(${s.id})">Send</button>
+                            <button class="btn btn-ghost btn-sm" onclick="editParent('${s.id}')">Parent</button>
+                            <button class="btn btn-wa btn-sm" ${ok && p.phone ? '' : 'disabled'} onclick="sendWa('${s.id}')">Send</button>
                         </div>
                     </div>`;
                 }).join('')}
@@ -1254,13 +1371,14 @@ function renderWhatsApp() {
 }
 
 function editParent(id) {
-    const s = students.find(x => x.id === id);
-    const p = parentContacts[id] || {};
+    const s = students.find(x => String(x.id) === String(id));
+    if (!s) return;
+    const p = parentContacts[id] || parentContacts[String(id)] || {};
     openModal(`<h3>Parent — ${esc(s.name)}</h3>
         <div class="field"><label>Name</label><input id="pName" value="${esc(p.name || '')}"></div>
         <div class="field"><label>WhatsApp</label><input id="pPhone" value="${esc(p.phone || '+233')}"></div>
         <div class="actions"><button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
-        <button class="btn btn-primary" onclick="saveParent(${id})">Save</button></div>`);
+        <button class="btn btn-primary" onclick="saveParent('${id}')">Save</button></div>`);
 }
 function saveParent(id) {
     parentContacts[id] = { name: document.getElementById('pName').value.trim(), phone: document.getElementById('pPhone').value.trim(), sent: false };
@@ -1271,8 +1389,9 @@ function saveParent(id) {
 }
 function sendWa(id) {
     if (!isApproved(id)) return toast('Not approved yet.', 'bad');
-    const s = students.find(x => x.id === id);
-    const p = parentContacts[id];
+    const s = students.find(x => String(x.id) === String(id));
+    if (!s) return;
+    const p = parentContacts[id] || parentContacts[String(id)];
     if (!p?.phone) return toast('Add a parent number first.', 'bad');
     const perf = studentPerf(id);
     const msg = encodeURIComponent(
@@ -1464,14 +1583,19 @@ function toggleDark() {
     localStorage.setItem('teacherDark', document.body.classList.contains('dark') ? '1' : '0');
 }
 
-document.addEventListener('DOMContentLoaded', () => {
-    // Access is strictly by login: a page refresh always starts logged out.
-    sessionStorage.removeItem('teacherUnlocked');
-    sessionStorage.removeItem('teacherEmail');
-    sessionStorage.removeItem('teacherName');
-    sessionStorage.removeItem('teacherClass');
+document.addEventListener('DOMContentLoaded', async () => {
     if (localStorage.getItem('teacherDark') === '1') document.body.classList.add('dark');
     loadAll();
+
+    const isUnlocked = sessionStorage.getItem('teacherUnlocked') === 'true';
+    const teacherEmail = sessionStorage.getItem('teacherEmail');
+
+    if (isUnlocked && teacherEmail) {
+        await openApp();
+    } else {
+        document.getElementById('app').style.display = 'none';
+        document.getElementById('teacherAuthOverlay').style.display = 'flex';
+    }
 });
 
 ;

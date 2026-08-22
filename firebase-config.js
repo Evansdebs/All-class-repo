@@ -130,23 +130,37 @@ function initFirebase(config = getStoredFirebaseConfig()) {
 async function loadUserProfile(uid) {
     if (!db) return null;
     try {
-        const doc = await db.collection('users').doc(uid).get();
+        let doc = await db.collection('teachers').doc(uid).get();
         if (doc.exists) {
-            currentUserProfile = { uid, ...doc.data() };
+            currentUserProfile = { uid, ...doc.data(), displayName: doc.data().name || doc.data().displayName };
         } else {
-            // Create a basic profile if none exists (first-time login)
-            currentUserProfile = {
-                uid,
-                email: auth.currentUser?.email || '',
-                displayName: auth.currentUser?.displayName || '',
-                role: 'Teacher',
-                assignedClasses: [],
-                assignedSubjects: [],
-                status: 'active'
-            };
+            const email = auth.currentUser?.email || '';
+            let foundByEmail = null;
+            if (email) {
+                const snap = await db.collection('teachers')
+                    .where('email', '==', email)
+                    .limit(1).get();
+                if (!snap.empty) {
+                    foundByEmail = { uid, ...snap.docs[0].data(), id: snap.docs[0].id, displayName: snap.docs[0].data().name || snap.docs[0].data().displayName };
+                }
+            }
+            if (foundByEmail) {
+                currentUserProfile = foundByEmail;
+                try { await db.collection('teachers').doc(uid).set({ ...foundByEmail, uid }, { merge: true }); } catch (e) {}
+            } else {
+                currentUserProfile = {
+                    uid,
+                    email: auth.currentUser?.email || '',
+                    displayName: auth.currentUser?.displayName || '',
+                    role: 'Teacher',
+                    assignedClasses: [],
+                    assignedSubjects: [],
+                    status: 'active'
+                };
+            }
         }
 
-        // Check if teacher account has been deactivated by administrator
+        // Check if account has been deactivated by administrator
         if (currentUserProfile.status === 'inactive') {
             await auth.signOut();
             currentUserProfile = null;
@@ -220,21 +234,23 @@ async function registerFirebaseUser(email, password, displayName, role = 'Teache
     try {
         const creds = await secondary.auth().createUserWithEmailAndPassword(email, password);
 
-        // Create user profile in Firestore
+        // Create staff profile in Firestore teachers collection
         if (db) {
-            await db.collection('users').doc(creds.user.uid).set({
+            await db.collection('teachers').doc(creds.user.uid).set({
+                id: creds.user.uid,
                 uid: creds.user.uid,
                 email,
+                name: displayName || email,
                 displayName: displayName || email,
                 role,
                 assignedClasses: [],
                 assignedSubjects: [],
                 status: 'active',
                 createdAt: firebase.firestore.FieldValue.serverTimestamp()
-            });
+            }, { merge: true });
         }
 
-        await logActivity('User Registration', `Created account ${email} with role ${role}`);
+        await logActivity('Staff Registration', `Created staff account ${email} with role ${role}`);
         await secondary.auth().signOut();
         return creds;
     } finally {
@@ -669,59 +685,129 @@ async function getCollection(collectionName) {
     if (!isFirebaseActive || !db) {
         return JSON.parse(localStorage.getItem(collectionName) || '[]');
     }
-    const snap = await db.collection(collectionName).get();
-    const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-    localStorage.setItem(collectionName, JSON.stringify(data));
-    return data;
+    try {
+        const snap = await db.collection(collectionName).get();
+        if (!snap.empty) {
+            const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+            localStorage.setItem(collectionName, JSON.stringify(data));
+            return data;
+        }
+    } catch (e) {
+        console.warn(`Could not get collection ${collectionName} directly:`, e);
+    }
+    return JSON.parse(localStorage.getItem(collectionName) || '[]');
 }
 
 async function addDocument(collectionName, data) {
+    let newItem;
+    const docId = data.id || data.uid;
+
     if (!isFirebaseActive || !db) {
         const items = JSON.parse(localStorage.getItem(collectionName) || '[]');
-        const newItem = { id: `local_${Date.now()}`, ...data, createdAt: new Date().toISOString() };
+        newItem = { id: docId || `local_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`, ...data, createdAt: new Date().toISOString() };
         items.push(newItem);
         localStorage.setItem(collectionName, JSON.stringify(items));
         syncCollectionToServer(collectionName);
         return newItem;
     }
-    const ref = await db.collection(collectionName).add({
-        ...data,
-        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-    });
-    return { id: ref.id, ...data };
+
+    if (docId) {
+        await db.collection(collectionName).doc(String(docId)).set({
+            ...data,
+            id: String(docId),
+            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+        }, { merge: true });
+        newItem = { ...data, id: String(docId) };
+    } else {
+        const ref = await db.collection(collectionName).add({
+            ...data,
+            createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+        newItem = { id: ref.id, ...data };
+    }
+
+    // Always update local cache & server
+    const items = JSON.parse(localStorage.getItem(collectionName) || '[]');
+    const idx = items.findIndex(i => String(i.id) === String(newItem.id) || (newItem.uid && String(i.uid) === String(newItem.uid)));
+    if (idx >= 0) items[idx] = newItem;
+    else items.push(newItem);
+    localStorage.setItem(collectionName, JSON.stringify(items));
+    syncCollectionToServer(collectionName);
+
+    // Sync to school doc payload in Firebase
+    try {
+        const schoolId = localStorage.getItem('schoolId') || 'default_school';
+        await db.collection('schools').doc(schoolId).collection(collectionName).doc('main_data').set({
+            payload: JSON.stringify(items),
+            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+    } catch (e) {}
+
+    return newItem;
 }
 
 async function updateDocument(collectionName, docId, data) {
-    if (!isFirebaseActive || !db) {
-        const items = JSON.parse(localStorage.getItem(collectionName) || '[]');
-        const idx = items.findIndex(i => i.id === docId);
-        if (idx >= 0) { items[idx] = { ...items[idx], ...data }; localStorage.setItem(collectionName, JSON.stringify(items)); syncCollectionToServer(collectionName); }
-        return;
+    const items = JSON.parse(localStorage.getItem(collectionName) || '[]');
+    const idx = items.findIndex(i => String(i.id) === String(docId) || String(i.uid) === String(docId));
+    if (idx >= 0) {
+        items[idx] = { ...items[idx], ...data, id: docId };
+        localStorage.setItem(collectionName, JSON.stringify(items));
+        syncCollectionToServer(collectionName);
     }
-    await db.collection(collectionName).doc(docId).update({
-        ...data,
-        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-    });
+
+    if (!isFirebaseActive || !db) return;
+
+    try {
+        await db.collection(collectionName).doc(String(docId)).set({
+            ...data,
+            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+        }, { merge: true });
+
+        const schoolId = localStorage.getItem('schoolId') || 'default_school';
+        await db.collection('schools').doc(schoolId).collection(collectionName).doc('main_data').set({
+            payload: JSON.stringify(items),
+            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+    } catch (e) {
+        console.warn(`Firestore update error on ${collectionName}/${docId}:`, e);
+    }
 }
 
 async function deleteDocument(collectionName, docId) {
-    if (!isFirebaseActive || !db) {
-        const items = JSON.parse(localStorage.getItem(collectionName) || '[]').filter(i => i.id !== docId);
-        localStorage.setItem(collectionName, JSON.stringify(items));
-        syncCollectionToServer(collectionName);
-        return;
+    const items = JSON.parse(localStorage.getItem(collectionName) || '[]').filter(i => String(i.id) !== String(docId) && String(i.uid) !== String(docId));
+    localStorage.setItem(collectionName, JSON.stringify(items));
+    syncCollectionToServer(collectionName);
+
+    if (!isFirebaseActive || !db) return;
+
+    try {
+        await db.collection(collectionName).doc(String(docId)).delete();
+    } catch (e) {
+        console.warn(`Firestore delete error on ${collectionName}/${docId}:`, e);
     }
-    await db.collection(collectionName).doc(docId).delete();
+
+    try {
+        const schoolId = localStorage.getItem('schoolId') || 'default_school';
+        await db.collection('schools').doc(schoolId).collection(collectionName).doc('main_data').set({
+            payload: JSON.stringify(items),
+            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+    } catch (e) {}
 }
 
 async function getDocument(collectionName, docId) {
     if (!isFirebaseActive || !db) {
         const items = JSON.parse(localStorage.getItem(collectionName) || '[]');
-        return items.find(i => i.id === docId) || null;
+        return items.find(i => String(i.id) === String(docId) || String(i.uid) === String(docId)) || null;
     }
-    const doc = await db.collection(collectionName).doc(docId).get();
-    return doc.exists ? { id: doc.id, ...doc.data() } : null;
+    try {
+        const doc = await db.collection(collectionName).doc(String(docId)).get();
+        return doc.exists ? { id: doc.id, ...doc.data() } : null;
+    } catch (e) {
+        const items = JSON.parse(localStorage.getItem(collectionName) || '[]');
+        return items.find(i => String(i.id) === String(docId) || String(i.uid) === String(docId)) || null;
+    }
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -764,6 +850,20 @@ async function syncSaveCollection(collectionName, data) {
             payload: JSON.stringify(data),
             updatedAt: firebase.firestore.FieldValue.serverTimestamp()
         });
+
+        // Also write individual docs to Firestore root collection
+        if (Array.isArray(data)) {
+            const batch = db.batch();
+            let count = 0;
+            for (const item of data) {
+                const docId = String(item.id || item.uid || ('id_' + Date.now()));
+                const ref = db.collection(collectionName).doc(docId);
+                batch.set(ref, { ...item, id: docId }, { merge: true });
+                count++;
+                if (count >= 450) break;
+            }
+            if (count > 0) await batch.commit();
+        }
     } catch (err) {
         console.error(`Firebase Sync Error on ${collectionName}:`, err);
     }
@@ -824,11 +924,15 @@ async function uploadImageToCloud(file, path) {
 // ──────────────────────────────────────────────────────────────────────────────
 
 async function logActivity(action, details = '', affectedRecord = '') {
-    const user = auth?.currentUser?.email || 'System';
-    const role = getCurrentUserRole();
+    const user = (typeof getCurrentUserProfile === 'function' && (getCurrentUserProfile()?.displayName || getCurrentUserProfile()?.name || getCurrentUserProfile()?.email))
+        || (typeof auth !== 'undefined' && (auth?.currentUser?.displayName || auth?.currentUser?.email))
+        || sessionStorage.getItem('adminEmail')
+        || sessionStorage.getItem('teacherName')
+        || 'School Admin';
+    const role = (typeof getCurrentUserRole === 'function' ? getCurrentUserRole() : null) || 'Super Admin';
 
     const logEntry = {
-        id: `${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+        id: `log_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
         user,
         role,
         action,
@@ -843,6 +947,19 @@ async function logActivity(action, details = '', affectedRecord = '') {
     logs.unshift(logEntry);
     if (logs.length > 500) logs = logs.slice(0, 500);
     localStorage.setItem('auditLogs', JSON.stringify(logs));
+
+    if (typeof adminState !== 'undefined' && adminState && Array.isArray(adminState.auditLogs)) {
+        adminState.auditLogs = logs;
+    }
+
+    // Sync to Node REST server
+    try {
+        fetch('/api/sync', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ auditLogs: logs })
+        }).catch(() => {});
+    } catch (e) {}
 
     // Firestore log
     if (isFirebaseActive && db) {
@@ -925,7 +1042,7 @@ function setupAdminRealtimeListeners(collectionsConfig, onUpdate) {
 
 const SCHOOL_PAYLOAD_KEYS = [
     'students', 'teachers', 'classes', 'subjects', 'academicYears', 'terms',
-    'results', 'reports', 'users', 'gradingScales', 'scores', 'schoolInfo',
+    'results', 'reports', 'gradingScales', 'scores', 'schoolInfo',
     'schoolSettings', 'studentReportDetails', 'parentContacts',
     'attendanceMarks', 'attendanceSettings', 'auditLogs'
 ];
@@ -962,7 +1079,7 @@ async function pushSchoolToFirebase() {
             })
         );
     }
-    const arrays = ['students', 'teachers', 'classes', 'subjects', 'academicYears', 'terms', 'results', 'reports', 'users', 'gradingScales'];
+    const arrays = ['students', 'teachers', 'classes', 'subjects', 'academicYears', 'terms', 'results', 'reports', 'gradingScales'];
     for (const col of arrays) {
         const items = JSON.parse(localStorage.getItem(col) || '[]');
         if (!Array.isArray(items)) continue;
@@ -998,7 +1115,7 @@ async function pullSchoolFromFirebase() {
         })().catch(() => false));
     });
 
-    const arrays = ['students', 'teachers', 'classes', 'subjects', 'academicYears', 'terms', 'results', 'reports', 'users', 'gradingScales'];
+    const arrays = ['students', 'teachers', 'classes', 'subjects', 'academicYears', 'terms', 'results', 'reports', 'gradingScales'];
     arrays.forEach(col => {
         jobs.push((async () => {
             const snap = await db.collection(col).get();
@@ -1035,9 +1152,11 @@ async function provisionAuthUser(email, password, displayName, role) {
     const secondary = firebase.initializeApp(getStoredFirebaseConfig(), 'provision_' + Date.now());
     try {
         const creds = await secondary.auth().createUserWithEmailAndPassword(email, password);
-        await db.collection('users').doc(creds.user.uid).set({
+        await db.collection('teachers').doc(creds.user.uid).set({
+            id: creds.user.uid,
             uid: creds.user.uid,
             email,
+            name: displayName || email,
             displayName: displayName || email,
             role: role || 'Teacher',
             assignedClasses: [],
@@ -1055,7 +1174,6 @@ async function provisionAuthUser(email, password, displayName, role) {
 async function provisionStaffFromLocal() {
     if (!isFirebaseConnected()) throw new Error('Firebase is not connected.');
     const teachers = JSON.parse(localStorage.getItem('teachers') || '[]');
-    const users = JSON.parse(localStorage.getItem('users') || '[]');
     const created = [];
     const skipped = [];
     const people = [];
@@ -1063,10 +1181,6 @@ async function provisionStaffFromLocal() {
     teachers.forEach(t => {
         if (t.email && t.password) people.push({ email: t.email, name: t.name, role: t.role || 'Teacher', password: t.password });
         else if (t.email) skipped.push(t.email + ' (no password set)');
-    });
-    users.forEach(u => {
-        if (u.email && u.password && !people.some(p => p.email.toLowerCase() === u.email.toLowerCase())) people.push({ email: u.email, name: u.displayName || u.name, role: u.role || 'Teacher', password: u.password });
-        else if (u.email && !u.password) skipped.push(u.email + ' (no password set)');
     });
     for (const p of people) {
         try {
@@ -1085,7 +1199,7 @@ function startSchoolRealtime(onChange) {
         if (typeof onChange === 'function') onChange(name, data);
     });
     setupAdminRealtimeListeners(
-        ['students', 'teachers', 'classes', 'subjects', 'reports', 'results', 'academicYears', 'terms'].map(name => ({ name })),
+        ['students', 'teachers', 'classes', 'subjects', 'reports', 'results', 'academicYears', 'terms', 'users', 'gradingScales'].map(name => ({ name })),
         function (name, data) {
             if (typeof onChange === 'function') onChange(name, data);
         }

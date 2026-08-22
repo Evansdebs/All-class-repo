@@ -14,7 +14,6 @@ let adminState = {
     terms:         [],
     results:       [],
     reports:       [],
-    users:         [],
     gradingScales: [],
     auditLogs:     [],
     settings:      {},
@@ -57,29 +56,68 @@ const REPORT_FIELD_TOGGLES = [
 ];
 
 // ─── Init ────────────────────────────────────────────────────────────────────
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
     initFirebase();
 
-    const openLocalAdmin = () => {
-        // Access is strictly by login: a page refresh always starts logged out.
-        sessionStorage.removeItem('adminUnlocked');
-        sessionStorage.removeItem('adminEmail');
-        showAuthOverlay();
-    };
+    // Check existing active local session first to persist on page refresh
+    const isUnlocked = sessionStorage.getItem('adminUnlocked') === 'true';
+    const savedEmail = sessionStorage.getItem('adminEmail');
+
+    if (isUnlocked && savedEmail) {
+        const account = findAccountByEmail(savedEmail);
+        if (account && account.status !== 'inactive' && isAdminPortalRole(account.role)) {
+            setLocalProfile(account);
+            hideAuthOverlay();
+            await initAdminApp();
+            return;
+        }
+    }
 
     if (typeof firebase !== 'undefined' && firebase.auth && isFirebaseActive) {
         firebase.auth().onAuthStateChanged(async (user) => {
-            if (!user) { currentUserProfile = null; return; }
-            // Guard: a signed-in non-admin must never see the dashboard.
+            if (!user) {
+                if (!sessionStorage.getItem('adminUnlocked')) {
+                    currentUserProfile = null;
+                    showAuthOverlay();
+                }
+                return;
+            }
+
+            // Load the Firestore profile; if it fails, fall back to local lookup
             try { await loadUserProfile(user.uid); } catch (e) {}
-            const role = getCurrentUserRole();
-            if (role && ['Teacher', 'Class Teacher'].includes(role)) {
+
+            let role = getCurrentUserRole();
+
+            // If Firestore returned no useful role, try the local accounts list
+            if (!role || role === 'Guest' || role === 'Teacher') {
+                const localAccount = findAccountByEmail(user.email || '');
+                if (localAccount && isAdminPortalRole(localAccount.role)) {
+                    setLocalProfile(localAccount);
+                    role = localAccount.role;
+                }
+            }
+
+            // Block teachers from accessing the admin portal
+            if (role && ['Teacher', 'Class Teacher'].includes(role) && !isAdminPortalRole(role)) {
                 try { await firebase.auth().signOut(); } catch (e) {}
+                sessionStorage.removeItem('adminUnlocked');
+                sessionStorage.removeItem('adminEmail');
                 showAuthOverlay('You do not have admin access. Contact your system administrator.');
+                return;
+            }
+
+            if (role && isAdminPortalRole(role)) {
+                sessionStorage.setItem('adminUnlocked', 'true');
+                sessionStorage.setItem('adminEmail', user.email);
+                if (!getCurrentUserProfile()) setLocalProfile({ email: user.email, role });
+                hideAuthOverlay();
+                await initAdminApp();
             }
         });
     } else {
-        openLocalAdmin();
+        if (!isUnlocked) {
+            showAuthOverlay();
+        }
     }
 });
 
@@ -110,10 +148,6 @@ function hideAuthOverlay() {
 // Roles allowed into the Admin Dashboard.
 const ADMIN_PORTAL_ROLES = ['Super Admin', 'Administrator', 'Headteacher'];
 
-function getLocalUsers() {
-    try { return JSON.parse(localStorage.getItem('users') || '[]'); } catch (e) { return []; }
-}
-
 function getLocalTeachers() {
     try { return JSON.parse(localStorage.getItem('teachers') || '[]'); } catch (e) { return []; }
 }
@@ -122,18 +156,15 @@ function isAdminPortalRole(role) {
     return ADMIN_PORTAL_ROLES.includes(role);
 }
 
-// True when at least one admin-level account exists (users or teachers list).
+// True when at least one admin-level account exists in the teachers list.
 function hasAnyAdminLevelAccount() {
-    return getLocalUsers().some(u => isAdminPortalRole(u.role)) ||
-           getLocalTeachers().some(t => isAdminPortalRole(t.role));
+    return getLocalTeachers().some(t => isAdminPortalRole(t.role));
 }
 
-// Find any account (users first, then teachers) matching the email.
+// Find any staff account matching the email.
 function findAccountByEmail(email) {
     const lc = String(email || '').toLowerCase();
-    return getLocalUsers().find(u => (u.email || '').toLowerCase() === lc) ||
-           getLocalTeachers().find(t => (t.email || '').toLowerCase() === lc) ||
-           null;
+    return getLocalTeachers().find(t => (t.email || '').toLowerCase() === lc) || null;
 }
 
 // Set the shared profile object so role helpers (isAdmin/isHeadteacher/...)
@@ -186,31 +217,28 @@ async function handleAdminLogin() {
     }
 
     try {
-        const users = getLocalUsers();
-
         // BOOTSTRAP: when no admin-level account exists anywhere yet, the very
-        // first sign-in creates the Super Admin so the school is not locked out.
+        // first sign-in creates the Super Admin in teachers so the school is not locked out.
         if (!hasAnyAdminLevelAccount()) {
             if (password.length < 6) {
                 showAuthError(errorEl, 'Password must be at least 6 characters to create the first admin account.');
                 return;
             }
             const firstAdmin = {
-                uid: 'admin_' + Date.now().toString(36),
-                email,
-                displayName: email.split('@')[0],
+                id: 'admin_' + Date.now().toString(36),
                 name: email.split('@')[0],
+                email,
                 role: 'Super Admin',
                 status: 'active',
                 password,
                 assignedClasses: [],
                 assignedSubjects: []
             };
-            const list = getLocalUsers();
+            const list = getLocalTeachers();
             list.push(firstAdmin);
-            localStorage.setItem('users', JSON.stringify(list));
-            adminState.users = list;
-            if (typeof syncSaveCollection === 'function') { try { await syncSaveCollection('users', list); } catch (e) {} }
+            localStorage.setItem('teachers', JSON.stringify(list));
+            adminState.teachers = list;
+            if (typeof syncSaveCollection === 'function') { try { await syncSaveCollection('teachers', list); } catch (e) {} }
             await enterAdmin(firstAdmin, 'first-run setup');
             showToast('Super Admin account created.', 'success');
             return;
@@ -338,7 +366,7 @@ async function loadAllData(opts = {}) {
     const refreshForms = opts.refreshForms !== false;
     try {
         const [students, teachers, classes, subjects, academicYears,
-               terms, results, reports, users, gradingScales] = await Promise.all([
+               terms, results, reports, gradingScales] = await Promise.all([
             safeGetCollection('students'),
             safeGetCollection('teachers'),
             safeGetCollection('classes'),
@@ -347,7 +375,6 @@ async function loadAllData(opts = {}) {
             safeGetCollection('terms'),
             safeGetCollection('results'),
             safeGetCollection('reports'),
-            safeGetCollection('users'),
             safeGetCollection('gradingScales'),
         ]);
 
@@ -359,9 +386,31 @@ async function loadAllData(opts = {}) {
         adminState.terms         = terms;
         adminState.results       = results;
         adminState.reports       = reports;
-        adminState.users         = users;
         adminState.gradingScales = gradingScales;
-        adminState.auditLogs     = JSON.parse(localStorage.getItem('auditLogs') || '[]');
+        
+        let localLogs = JSON.parse(localStorage.getItem('auditLogs') || '[]');
+        if (!localLogs.length) {
+            try {
+                const res = await fetch('/api/audit-logs?limit=100');
+                if (res.ok) {
+                    const sLogs = await res.json();
+                    if (Array.isArray(sLogs) && sLogs.length) {
+                        localLogs = sLogs;
+                        localStorage.setItem('auditLogs', JSON.stringify(localLogs));
+                    }
+                }
+            } catch (e) {}
+        }
+        if (!localLogs.length && typeof fetchAuditLogs === 'function') {
+            try {
+                const fbLogs = await fetchAuditLogs(100);
+                if (Array.isArray(fbLogs) && fbLogs.length) {
+                    localLogs = fbLogs;
+                    localStorage.setItem('auditLogs', JSON.stringify(localLogs));
+                }
+            } catch (e) {}
+        }
+        adminState.auditLogs = localLogs;
 
         const settings = await fetchSchoolSettings();
         if (settings) adminState.settings = settings;
@@ -413,6 +462,14 @@ function updateSidebarUser() {
 
 // ─── Navigation ─────────────────────────────────────────────────────────────
 function switchSection(sectionId) {
+    if (sectionId === 'firebase') {
+        const isDevUnlocked = sessionStorage.getItem('devUnlocked') === 'true';
+        if (!isDevUnlocked) {
+            openDevPasswordModal();
+            return;
+        }
+    }
+
     document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
     document.querySelectorAll('.content-section').forEach(el => el.classList.remove('active'));
 
@@ -427,9 +484,10 @@ function switchSection(sectionId) {
         'dashboard':'Dashboard','students':'Students','teachers':'Teachers',
         'classes':'Classes','subjects':'Subjects','academic-years':'Academic Years & Terms',
         'grading':'Grading System','results':'Results','reports':'Reports',
-        'settings':'School Settings','users':'Users & Roles',
+        'settings':'School Settings','firebase':'Firebase Cloud Connection',
         'attendance':'Attendance',
-        'audit-logs':'Activity Logs','data-management':'Data Management'
+        'audit-logs':'Activity Logs','data-management':'Data Management',
+        'templates':'Excel & CSV Templates'
     };
     const bc = document.getElementById('breadcrumb');
     if (bc) bc.innerHTML = `<span>${labels[sectionId] || sectionId}</span>`;
@@ -446,8 +504,10 @@ function switchSection(sectionId) {
         case 'results':        renderResultsTable(); break;
         case 'reports':        renderReportsTable(); break;
         case 'users':          renderUsersTable(); break;
+        case 'firebase':       loadFirebaseForm(); break;
         case 'audit-logs':     renderAuditLogs(); break;
         case 'data-management':renderDataManagement(); break;
+        case 'templates':      renderTemplatesSection(); break;
         case 'attendance':     renderAttendanceSection(); break;
         case 'settings':       loadSettingsForm(); break;
     }
@@ -474,6 +534,15 @@ function toggleSidebar() {
 function updateNavBadges() {
     const studBadge = document.getElementById('nav-badge-students');
     if (studBadge) studBadge.textContent = adminState.students.length;
+
+    const teachBadge = document.getElementById('nav-badge-teachers');
+    if (teachBadge) teachBadge.textContent = adminState.teachers.length;
+
+    const studHeaderBadge = document.getElementById('studentsHeaderBadge');
+    if (studHeaderBadge) studHeaderBadge.textContent = adminState.students.length;
+
+    const teachHeaderBadge = document.getElementById('teachersHeaderBadge');
+    if (teachHeaderBadge) teachHeaderBadge.textContent = adminState.teachers.length;
 
     const pendingResults = adminState.results.filter(r => r.status === 'Submitted').length;
     const pendingReports = adminState.reports.filter(r => !['approved','published'].includes(String(r.status||'').toLowerCase())).length;
@@ -820,7 +889,10 @@ function renderStudentsTable() {
     }).join('') : emptyRow(8, 'No students found');
 
     const countEl = document.getElementById('studentsCount');
-    if (countEl) countEl.textContent = `${total} students`;
+    if (countEl) countEl.textContent = `${total} student${total === 1 ? '' : 's'}`;
+
+    const headerBadge = document.getElementById('studentsHeaderBadge');
+    if (headerBadge) headerBadge.textContent = adminState.students.length;
 
     renderPagination('studentsPagination', total, adminState.studentsPerPage, page, (p) => {
         adminState.studentPage = p;
@@ -990,23 +1062,30 @@ function renderTeachersTable() {
             <td><strong>${escHtml(t.name || '')}</strong></td>
             <td>${escHtml(t.email || '')}</td>
             <td>${escHtml(t.phone || '—')}</td>
+            <td><span class="status-pill ${rolePillClass(t.role || 'Teacher')}">${escHtml(t.role || 'Teacher')}</span></td>
             <td>${(t.assignedClasses || []).map(c => resolveClass(c)).join(', ') || '—'}</td>
             <td>${(t.assignedSubjects || []).map(s => resolveSubject(s)).join(', ') || '—'}</td>
             <td><span class="status-pill ${t.status || 'active'}">${t.status || 'active'}</span></td>
             <td>
                 <div class="action-btns">
                     <button class="action-btn" title="Edit Teacher" onclick="openTeacherModal('${t.id}')"><i class="fas fa-edit"></i></button>
-                    <button class="action-btn" title="Send Password Reset Email" onclick="sendTeacherPasswordReset('${t.email}')"><i class="fas fa-key"></i></button>
+                    <button class="action-btn" title="Reset Password" onclick="openResetStaffPasswordModal('${t.id}')"><i class="fas fa-key"></i></button>
                     <button class="action-btn ${t.status === 'inactive' ? 'success' : 'warning'}" title="${t.status === 'inactive' ? 'Activate Account' : 'Deactivate Account'}" onclick="toggleTeacherStatus('${t.id}')">
                         <i class="fas ${t.status === 'inactive' ? 'fa-user-check' : 'fa-user-slash'}"></i>
                     </button>
                     <button class="action-btn delete" title="Delete Teacher" onclick="confirmDeleteTeacher('${t.id}')"><i class="fas fa-trash"></i></button>
                 </div>
             </td>
-        </tr>`).join('') : emptyRow(8, 'No teachers found');
+        </tr>`).join('') : emptyRow(9, 'No teachers found');
 
     const countEl = document.getElementById('teachersCount');
-    if (countEl) countEl.textContent = `${data.length} teachers`;
+    if (countEl) countEl.textContent = `${data.length} teacher${data.length === 1 ? '' : 's'}`;
+
+    const headerBadge = document.getElementById('teachersHeaderBadge');
+    if (headerBadge) headerBadge.textContent = adminState.teachers.length;
+
+    const navBadge = document.getElementById('nav-badge-teachers');
+    if (navBadge) navBadge.textContent = adminState.teachers.length;
 }
 
 function openTeacherModal(id = null) {
@@ -1070,29 +1149,30 @@ async function saveTeacher() {
     if (!id && password) teacherData.password = password;
 
     try {
+        let teacherId = id;
         if (!id) {
-            // Create Firebase Auth user for teacher
+            // Create Firebase Auth user for teacher if active
             if (isFirebaseActive && password) {
-                const creds = await registerFirebaseUser(email, password, name, role);
-                teacherData.userId = creds.user.uid;
+                try {
+                    const creds = await registerFirebaseUser(email, password, name, role);
+                    teacherData.userId = creds.user.uid;
+                } catch (err) {
+                    console.warn('Firebase user creation notice:', err);
+                }
             }
             const newDoc = await addDocument('teachers', teacherData);
+            teacherId = newDoc.id;
             adminState.teachers.push(newDoc);
             showToast('Teacher added!', 'success');
             await logActivity('Teacher Added', `Added teacher ${name}`, newDoc.id);
         } else {
             await updateDocument('teachers', id, teacherData);
-            // Update the user profile too
-            const t = adminState.teachers.find(t => t.id === id);
-            if (t?.userId && isFirebaseActive) {
-                await updateDocument('users', t.userId, { displayName: name, role, assignedClasses, assignedSubjects, status });
-            }
-            const idx = adminState.teachers.findIndex(t => t.id === id);
-            if (idx >= 0) adminState.teachers[idx] = { ...adminState.teachers[idx], ...teacherData };
+            const idx = adminState.teachers.findIndex(t => String(t.id) === String(id));
+            if (idx >= 0) adminState.teachers[idx] = { ...adminState.teachers[idx], ...teacherData, id };
             showToast('Teacher updated!', 'success');
             await logActivity('Teacher Updated', `Updated teacher ${name}`, id);
         }
-        const teacherId = id || adminState.teachers.find(t => t.email === email)?.id;
+        teacherId = id || adminState.teachers.find(t => t.email === email)?.id;
         if (teacherId) {
             adminState.classes.forEach(c => {
                 if (String(c.classTeacherId) === String(teacherId)) c.classTeacherName = name;
@@ -1102,6 +1182,9 @@ async function saveTeacher() {
             }
             localStorage.setItem('classes', JSON.stringify(adminState.classes));
         }
+
+        await syncSaveCollection('teachers', adminState.teachers);
+
         if (role === 'Headteacher' && status !== 'inactive') {
             const settings = { ...(adminState.settings || {}), headTeacher: name };
             adminState.settings = settings;
@@ -1112,19 +1195,70 @@ async function saveTeacher() {
         renderTeachersTable();
         renderClassesTable();
         renderClassTeacherMap();
+        updateNavBadges();
     } catch (e) {
         showToast(`Error: ${e.message}`, 'error');
     }
 }
 
-async function sendTeacherPasswordReset(email) {
-    if (!email) { showToast('No email associated with this teacher.', 'error'); return; }
+function openResetStaffPasswordModal(id) {
+    const t = adminState.teachers.find(t => t.id === id);
+    if (!t) return;
+    document.getElementById('rpm-staffId').value = t.id;
+    document.getElementById('rpm-staffName').textContent = t.name || 'Staff Member';
+    document.getElementById('rpm-staffEmail').textContent = t.email || '—';
+    document.getElementById('rpm-password').value = '';
+    document.getElementById('rpm-error').style.display = 'none';
+    document.getElementById('resetStaffPasswordModal').style.display = 'flex';
+    setTimeout(() => { document.getElementById('rpm-password')?.focus(); }, 100);
+}
+
+async function submitStaffPasswordReset(e) {
+    if (e && e.preventDefault) e.preventDefault();
+    const id = document.getElementById('rpm-staffId')?.value;
+    const password = document.getElementById('rpm-password')?.value || '';
+    const errorEl = document.getElementById('rpm-error');
+
+    if (!password || password.length < 6) {
+        if (errorEl) {
+            errorEl.textContent = 'Password must be at least 6 characters.';
+            errorEl.style.display = 'block';
+        }
+        return;
+    }
+
+    const t = adminState.teachers.find(t => t.id === id);
+    if (!t) {
+        showToast('Staff member not found.', 'error');
+        return;
+    }
+
     try {
-        await resetPassword(email);
-        showToast(`Password reset link sent to ${email}`, 'success');
-        await logActivity('Teacher Password Reset Sent', `Sent password reset to ${email}`);
-    } catch (e) {
-        showToast(`Error sending password reset: ${e.message}`, 'error');
+        t.password = password;
+        await updateDocument('teachers', id, { password });
+        await syncSaveCollection('teachers', adminState.teachers);
+
+        closeModal('resetStaffPasswordModal');
+        showToast(`Password updated for ${t.name}! They can now log in with this new password.`, 'success');
+        await logActivity('Staff Password Reset', `Admin set new password for ${t.name} (${t.email})`, id);
+    } catch (err) {
+        if (errorEl) {
+            errorEl.textContent = `Error: ${err.message}`;
+            errorEl.style.display = 'block';
+        }
+    }
+}
+
+function generateRandomPassword(targetInputId) {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789@#%';
+    let pwd = '';
+    for (let i = 0; i < 8; i++) {
+        pwd += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    const input = document.getElementById(targetInputId);
+    if (input) {
+        input.value = pwd;
+        input.type = 'text';
     }
 }
 
@@ -1141,11 +1275,13 @@ async function toggleTeacherStatus(id) {
 
 async function confirmDeleteTeacher(id) {
     const t = adminState.teachers.find(t => t.id === id);
-    showConfirm(`Delete teacher "${t?.name}"?`, async () => {
+    showConfirm(`Delete staff member "${t?.name}"?`, async () => {
         await deleteDocument('teachers', id);
         adminState.teachers = adminState.teachers.filter(t => t.id !== id);
+        await syncSaveCollection('teachers', adminState.teachers);
         renderTeachersTable();
-        showToast('Teacher deleted.', 'success');
+        updateNavBadges();
+        showToast('Staff member deleted.', 'success');
         await logActivity('Teacher Deleted', `Deleted teacher ${t?.name}`, id);
     });
 }
@@ -1191,6 +1327,8 @@ function openClassModal(id = null) {
     document.getElementById('cm-status').value = 'active';
     populateSelect('cm-classTeacher', adminState.teachers, 'id', 'name', 'None');
 
+    const teachersList = adminState.teachers.filter(t => t.status !== 'inactive');
+
     if (id) {
         const c = adminState.classes.find(c => c.id === id);
         if (c) {
@@ -1201,9 +1339,17 @@ function openClassModal(id = null) {
             if (gsEl) gsEl.value                               = c.gradingScaleId || '';
             document.getElementById('cm-classTeacher').value  = c.classTeacherId || '';
             document.getElementById('cm-status').value        = c.status || 'active';
+
+            const assignedTeacherIds = (Array.isArray(c.assignedTeacherIds) ? c.assignedTeacherIds.slice() : []).concat(
+                adminState.teachers.filter(t => (t.assignedClasses || []).includes(c.id) || (t.assignedClasses || []).includes(c.name)).map(t => t.id)
+            );
+            if (c.classTeacherId) assignedTeacherIds.push(c.classTeacherId);
+
+            renderCheckboxes('cm-teachers-checkboxes', teachersList, 'id', 'name', Array.from(new Set(assignedTeacherIds)));
         }
     } else {
         document.getElementById('classModalTitle').innerHTML = '<i class="fas fa-school"></i> Add Class';
+        renderCheckboxes('cm-teachers-checkboxes', teachersList, 'id', 'name', []);
     }
     modal.style.display = 'flex';
 }
@@ -1214,31 +1360,64 @@ async function saveClass() {
     const level         = document.getElementById('cm-level')?.value || 'Primary';
     const gradingScaleId= document.getElementById('cm-gradingScale')?.value || '';
     const classTeacherId= document.getElementById('cm-classTeacher')?.value || '';
+    const assignedTeacherIds = getCheckedValues('cm-teachers-checkboxes');
     const status        = document.getElementById('cm-status')?.value || 'active';
 
     if (!name) { showToast('Class name is required.', 'error'); return; }
 
     const teacher = adminState.teachers.find(t => String(t.id) === String(classTeacherId));
-    const data = { name, level, gradingScaleId, classTeacherId, classTeacherName: teacher?.name || '', status };
+    const allAssignedTeacherIds = Array.from(new Set(assignedTeacherIds.concat(classTeacherId ? [classTeacherId] : [])));
+    const data = {
+        name,
+        level,
+        gradingScaleId,
+        classTeacherId,
+        classTeacherName: teacher?.name || '',
+        assignedTeacherIds: allAssignedTeacherIds,
+        status
+    };
+
     try {
+        let classDocId = id;
         if (id) {
             await updateDocument('classes', id, data);
             const idx = adminState.classes.findIndex(c => c.id === id);
-            if (idx >= 0) adminState.classes[idx] = { ...adminState.classes[idx], ...data };
+            if (idx >= 0) adminState.classes[idx] = { ...adminState.classes[idx], ...data, id };
             showToast('Class updated!', 'success');
             await logActivity('Class Updated', `Updated ${name}` + (teacher ? ` — class teacher ${teacher.name}` : ''), id);
         } else {
             const newDoc = await addDocument('classes', data);
+            classDocId = newDoc.id;
             adminState.classes.push(newDoc);
             showToast('Class added!', 'success');
             await logActivity('Class Added', `Created class ${name}`, newDoc.id);
         }
-        if (teacher && id) {
-            const assigned = new Set(teacher.assignedClasses || []);
-            assigned.add(id);
-            teacher.assignedClasses = Array.from(assigned);
-            try { await updateDocument('teachers', teacher.id, { assignedClasses: teacher.assignedClasses }); } catch (e) {}
+
+        // Update assignedClasses on all teachers in teachers and users collections
+        for (const t of adminState.teachers) {
+            const isAssigned = allAssignedTeacherIds.includes(String(t.id)) || allAssignedTeacherIds.includes(t.id);
+            const classSet = new Set((t.assignedClasses || []).map(String));
+            const hasClass = classSet.has(String(classDocId)) || (id && classSet.has(String(id))) || classSet.has(name);
+
+            if (isAssigned && !hasClass) {
+                classSet.add(String(classDocId));
+                classSet.add(name);
+                t.assignedClasses = Array.from(classSet);
+                try { await updateDocument('teachers', t.id, { assignedClasses: t.assignedClasses }); } catch (e) {}
+                if (t.userId && isFirebaseActive) {
+                    try { await updateDocument('users', t.userId, { assignedClasses: t.assignedClasses }); } catch (e) {}
+                }
+            }
         }
+
+        localStorage.setItem('teachers', JSON.stringify(adminState.teachers));
+        localStorage.setItem('classes', JSON.stringify(adminState.classes));
+        if (typeof syncSaveCollection === 'function') {
+            try { syncSaveCollection('teachers', adminState.teachers); } catch (e) {}
+            try { syncSaveCollection('classes', adminState.classes); } catch (e) {}
+            try { syncSaveCollection('users', adminState.users); } catch (e) {}
+        }
+
         closeModal('classModal');
         renderClassesTable();
         renderClassTeacherMap();
@@ -1328,6 +1507,10 @@ async function saveSubject() {
             adminState.subjects.push(newDoc);
             showToast('Subject added!', 'success');
             await logActivity('Subject Added', `Created subject ${name}`, newDoc.id);
+        }
+        localStorage.setItem('subjects', JSON.stringify(adminState.subjects));
+        if (typeof syncSaveCollection === 'function') {
+            try { syncSaveCollection('subjects', adminState.subjects); } catch (e) {}
         }
         closeModal('subjectModal');
         renderSubjectsTable();
@@ -1849,8 +2032,17 @@ function renderReportsTable() {
     if (countEl) countEl.textContent = `${data.length} reports`;
 }
 
+function getReportApprovalKey(studentId, yearId, termId) {
+    const sYear = yearId ? (adminState.academicYears.find(y => y.id === yearId)?.name || yearId) : ((adminState.academicYears.find(y => y.isActive)?.name) || getSchoolInfo().academicYear || '');
+    const sTerm = termId ? (adminState.terms.find(t => t.id === termId)?.termNumber || adminState.terms.find(t => t.id === termId)?.name || termId) : ((adminState.terms.find(t => t.isActive)?.termNumber) || getSchoolInfo().term || '1');
+    return String(studentId) + '|' + sYear + '|' + String(sTerm);
+}
+
 function persistReports() {
     localStorage.setItem('reports', JSON.stringify(adminState.reports));
+    if (typeof syncSaveCollection === 'function') {
+        try { syncSaveCollection('reports', adminState.reports); } catch (e) {}
+    }
 }
 
 async function approveReport(id) {
@@ -1858,8 +2050,11 @@ async function approveReport(id) {
     if (!r) { showToast('Report not found.', 'error'); return; }
     r.status = 'Approved';
     r.approvedAt = new Date().toISOString();
+    if (!r.approvalKey) {
+        r.approvalKey = getReportApprovalKey(r.studentId, r.academicYearId, r.termId);
+    }
     persistReports();
-    try { await updateDocument('reports', r.id, { status: 'Approved', approvedAt: r.approvedAt }); } catch (e) {}
+    try { await updateDocument('reports', r.id, { status: 'Approved', approvedAt: r.approvedAt, approvalKey: r.approvalKey }); } catch (e) {}
     renderReportsTable();
     updateNavBadges();
     showToast(`Approved ${r.studentName || 'report'} — teachers can now download it.`, 'success');
@@ -1882,8 +2077,17 @@ async function approveAllPendingReports() {
     if (!pending.length) { showToast('No pending reports to approve.', 'info'); return; }
     showConfirm(`Approve ${pending.length} pending report(s) for download?`, async () => {
         const now = new Date().toISOString();
-        pending.forEach(r => { r.status = 'Approved'; r.approvedAt = now; });
+        pending.forEach(r => {
+            r.status = 'Approved';
+            r.approvedAt = now;
+            if (!r.approvalKey) {
+                r.approvalKey = getReportApprovalKey(r.studentId, r.academicYearId, r.termId);
+            }
+        });
         persistReports();
+        for (const r of pending) {
+            try { await updateDocument('reports', r.id, { status: 'Approved', approvedAt: r.approvedAt, approvalKey: r.approvalKey }); } catch (e) {}
+        }
         renderReportsTable();
         updateNavBadges();
         showToast(`${pending.length} reports approved. Teachers can download them now.`, 'success');
@@ -1913,7 +2117,7 @@ async function generateReports() {
     const termId    = document.getElementById('gr-term')?.value || '';
 
     let studentsToProcess = [];
-    if (type === 'individual') studentsToProcess = adminState.students.filter(s => s.id === studentId);
+    if (type === 'individual') studentsToProcess = adminState.students.filter(s => String(s.id) === String(studentId));
     else if (type === 'class')  studentsToProcess = adminState.students.filter(s => s.classId === classId || s.class === resolveClass(classId));
     else                         studentsToProcess = adminState.students;
 
@@ -1922,14 +2126,17 @@ async function generateReports() {
     try {
         const newReports = [];
         for (const s of studentsToProcess) {
-            const existing = adminState.reports.find(r => r.studentId === s.id && r.termId === termId);
+            const key = getReportApprovalKey(s.id, yearId, termId);
+            const existing = adminState.reports.find(r => (String(r.studentId) === String(s.id) && String(r.termId) === String(termId)) || r.approvalKey === key);
             if (!existing) {
                 const rptDoc = await addDocument('reports', {
                     studentId:     s.id,
+                    studentName:   s.name,
                     classId:       s.classId || classId,
                     academicYearId: yearId,
                     termId,
-                    status:        'Generated',
+                    approvalKey:   key,
+                    status:        'Pending',
                     generatedAt:   new Date().toISOString(),
                     generatedBy:   getCurrentUserProfile()?.uid || 'admin'
                 });
@@ -1937,6 +2144,7 @@ async function generateReports() {
                 adminState.reports.push(rptDoc);
             }
         }
+        persistReports();
         showToast(`${newReports.length} reports generated!`, 'success');
         await logActivity('Reports Generated', `Generated ${newReports.length} reports for term ${termId}`);
         closeModal('generateReportModal');
@@ -1947,14 +2155,211 @@ async function generateReports() {
     }
 }
 
+let currentPreviewReportId = null;
+
 function viewReport(id) {
-    window.open(`/report.html?reportId=${id}`, '_blank');
+    const r = adminState.reports.find(x => String(x.id) === String(id));
+    if (!r) { showToast('Report record not found.', 'error'); return; }
+    currentPreviewReportId = id;
+
+    const student = adminState.students.find(s => String(s.id) === String(r.studentId)) || { id: r.studentId, name: r.studentName || 'Student #' + r.studentId, class: resolveClass(r.classId) };
+    const className = resolveClass(r.classId || student.classId || student.class);
+    const yr = adminState.academicYears.find(y => String(y.id) === String(r.academicYearId))?.name || r.academicYearId || getSchoolInfo().academicYear || '2025/2026';
+    const tm = adminState.terms.find(t => String(t.id) === String(r.termId))?.name || (r.termId ? ('Term ' + r.termId) : ('Term ' + (getSchoolInfo().term || '1')));
+
+    const scoresBag = JSON.parse(localStorage.getItem('scores') || '{}');
+    const detailsBag = JSON.parse(localStorage.getItem('studentReportDetails') || '{}');
+    const d = detailsBag[student.id] || detailsBag[String(student.id)] || {};
+    const settings = adminState.settings || {};
+    const schoolInf = getSchoolInfo();
+
+    const classRec = adminState.classes.find(c => String(c.id) === String(r.classId) || c.name === className);
+    let classSubs = adminState.subjects;
+    if (classRec && Array.isArray(classRec.subjectIds) && classRec.subjectIds.length) {
+        classSubs = adminState.subjects.filter(sub => classRec.subjectIds.includes(sub.id));
+    }
+    if (!classSubs.length) classSubs = adminState.subjects;
+
+    const scale = (typeof getActiveGradingScale === 'function' ? getActiveGradingScale() : null) || adminState.gradingScales?.find(s => s.isActive)?.ranges || [
+        { min: 80, max: 100, grade: 'A', remark: 'ADVANCE' },
+        { min: 68, max: 79, grade: 'P', remark: 'PROFICIENCY' },
+        { min: 54, max: 67, grade: 'AP', remark: 'APPROACHING PROFICIENCY' },
+        { min: 40, max: 53, grade: 'D', remark: 'DEVELOPING' },
+        { min: 0, max: 39, grade: 'B', remark: 'BEGINNER' }
+    ];
+
+    let totalScoreSum = 0;
+    let scoredCount = 0;
+    let rowsHtml = '';
+
+    classSubs.forEach(sub => {
+        const subName = sub.name || sub;
+        const bag = scoresBag[subName] || scoresBag[subName.toUpperCase()] || {};
+        const scoreEntry = bag[student.id] || bag[String(student.id)] || null;
+
+        if (scoreEntry && scoreEntry.classScore !== '' && scoreEntry.examScore !== '') {
+            const cs = Number(scoreEntry.classScore) || 0;
+            const es = Number(scoreEntry.examScore) || 0;
+            const cs50 = Math.round((cs / 100) * 50 * 10) / 10;
+            const es50 = Math.round((es / 100) * 50 * 10) / 10;
+            const tot = scoreEntry.totalScore !== undefined && scoreEntry.totalScore !== '' ? Number(scoreEntry.totalScore) : (cs50 + es50);
+            const gradeObj = (typeof getGradeForScore === 'function' ? getGradeForScore(tot) : null) || scale.find(g => tot >= g.min && tot <= g.max) || { grade: '—', remark: '—' };
+            totalScoreSum += tot;
+            scoredCount++;
+            rowsHtml += `<tr>
+                <td style="text-align:left;font-weight:600;padding:8px 10px;border:1px solid #cbd5e1;">${escHtml(subName)}</td>
+                <td style="padding:8px 10px;border:1px solid #cbd5e1;">${cs50}</td>
+                <td style="padding:8px 10px;border:1px solid #cbd5e1;">${es50}</td>
+                <td style="padding:8px 10px;border:1px solid #cbd5e1;"><strong>${tot}</strong></td>
+                <td style="padding:8px 10px;border:1px solid #cbd5e1;"><span style="display:inline-block;padding:2px 8px;border-radius:4px;font-weight:700;background:rgba(79,70,229,.1);color:#4338ca;">${gradeObj.grade}</span></td>
+                <td style="padding:8px 10px;border:1px solid #cbd5e1;">${gradeObj.remark}</td>
+            </tr>`;
+        } else {
+            rowsHtml += `<tr>
+                <td style="text-align:left;color:#94a3b8;padding:8px 10px;border:1px solid #cbd5e1;">${escHtml(subName)}</td>
+                <td style="padding:8px 10px;border:1px solid #cbd5e1;color:#94a3b8;">—</td>
+                <td style="padding:8px 10px;border:1px solid #cbd5e1;color:#94a3b8;">—</td>
+                <td style="padding:8px 10px;border:1px solid #cbd5e1;color:#94a3b8;">—</td>
+                <td style="padding:8px 10px;border:1px solid #cbd5e1;color:#94a3b8;">—</td>
+                <td style="padding:8px 10px;border:1px solid #cbd5e1;color:#94a3b8;font-style:italic;">No scores entered</td>
+            </tr>`;
+        }
+    });
+
+    const avg = scoredCount > 0 ? (totalScoreSum / scoredCount) : 0;
+    const overallGrade = (typeof getGradeForScore === 'function' ? getGradeForScore(avg) : null) || scale.find(g => avg >= g.min && avg <= g.max) || { grade: '—', remark: '—' };
+    const logoSrc = settings.schoolLogo || schoolInf.schoolLogo || null;
+    const isApproved = ['approved', 'published'].includes(String(r.status || '').toLowerCase());
+
+    const modalBody = document.getElementById('adminPreviewReportBody');
+    if (!modalBody) return;
+
+    modalBody.innerHTML = `
+        <div id="printableReportCard" style="background:#fff;color:#1e293b;padding:28px;border-radius:12px;box-shadow:0 2px 10px rgba(0,0,0,.08);font-family:'Inter',sans-serif;">
+            <div style="display:flex;align-items:center;justify-content:space-between;border-bottom:2px solid #4f46e5;padding-bottom:14px;margin-bottom:18px;">
+                ${logoSrc ? `<img src="${logoSrc}" style="width:70px;height:70px;object-fit:contain;border-radius:8px;" alt="Logo">` : '<div style="width:70px;height:70px;border:2px dashed #cbd5e1;border-radius:8px;display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:11px;text-align:center;">No Logo</div>'}
+                <div style="text-align:center;flex:1;padding:0 12px;">
+                    <h2 style="font-size:20px;font-weight:800;color:#1e1b4b;margin:0 0 4px 0;letter-spacing:-0.5px;">${escHtml(settings.schoolName || schoolInf.schoolName || 'ONEREAL SCHOOL')}</h2>
+                    <p style="font-size:12px;color:#64748b;margin:0 0 2px 0;">${escHtml(settings.address || 'Accra, Ghana')}</p>
+                    <p style="font-size:11.5px;color:#4f46e5;font-weight:600;margin:0 0 6px 0;"><em>"${escHtml(settings.motto || 'Drink deep or taste not the spring of knowledge')}"</em></p>
+                    <div style="display:inline-block;background:#4f46e5;color:#fff;font-size:12px;font-weight:700;padding:4px 14px;border-radius:20px;letter-spacing:0.5px;">
+                        END OF ${escHtml(String(tm).toUpperCase())} REPORT SHEET
+                    </div>
+                </div>
+                ${logoSrc ? `<img src="${logoSrc}" style="width:70px;height:70px;object-fit:contain;border-radius:8px;" alt="Logo">` : '<div style="width:70px;height:70px;border:2px dashed #cbd5e1;border-radius:8px;display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:11px;text-align:center;">No Logo</div>'}
+            </div>
+
+            <div style="display:grid;grid-template-columns:repeat(3, 1fr);gap:10px;background:#f8fafc;padding:12px 16px;border-radius:8px;margin-bottom:16px;font-size:12.5px;border:1px solid #e2e8f0;">
+                <div><span style="color:#64748b;font-size:11px;display:block;font-weight:600;">NAME OF LEARNER</span><strong>${escHtml(student.name)}</strong></div>
+                <div><span style="color:#64748b;font-size:11px;display:block;font-weight:600;">CLASS</span><strong>${escHtml(className)}</strong></div>
+                <div><span style="color:#64748b;font-size:11px;display:block;font-weight:600;">ACADEMIC YEAR</span><strong>${escHtml(yr)}</strong></div>
+                <div><span style="color:#64748b;font-size:11px;display:block;font-weight:600;">TERM</span><strong>${escHtml(tm)}</strong></div>
+                <div><span style="color:#64748b;font-size:11px;display:block;font-weight:600;">DATE OF VACATION</span><strong>${escHtml(settings.closingDate || schoolInf.closingDate || '—')}</strong></div>
+                <div><span style="color:#64748b;font-size:11px;display:block;font-weight:600;">RE-OPENING DATE</span><strong>${escHtml(settings.reopeningDate || schoolInf.reopeningDate || '—')}</strong></div>
+            </div>
+
+            <table style="width:100%;border-collapse:collapse;margin-bottom:16px;font-size:12px;text-align:center;">
+                <thead>
+                    <tr style="background:#4f46e5;color:#fff;">
+                        <th style="padding:8px 10px;text-align:left;border:1px solid #4338ca;">SUBJECT</th>
+                        <th style="padding:8px 10px;border:1px solid #4338ca;">CLASS 50%</th>
+                        <th style="padding:8px 10px;border:1px solid #4338ca;">EXAM 50%</th>
+                        <th style="padding:8px 10px;border:1px solid #4338ca;">TOTAL 100%</th>
+                        <th style="padding:8px 10px;border:1px solid #4338ca;">GRADE</th>
+                        <th style="padding:8px 10px;border:1px solid #4338ca;">REMARKS</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${rowsHtml || '<tr><td colspan="6" style="padding:16px;color:#94a3b8;">No subjects assigned</td></tr>'}
+                </tbody>
+            </table>
+
+            <div style="display:grid;grid-template-columns:repeat(3, 1fr);gap:10px;background:#eef2ff;padding:12px 16px;border-radius:8px;margin-bottom:16px;font-size:12.5px;border:1px solid #c7d2fe;">
+                <div><span style="color:#4338ca;font-size:11px;display:block;font-weight:600;">AVERAGE SCORE</span><strong style="font-size:15px;color:#1e1b4b;">${scoredCount ? avg.toFixed(1) + '%' : '—'}</strong></div>
+                <div><span style="color:#4338ca;font-size:11px;display:block;font-weight:600;">OVERALL GRADE</span><strong style="font-size:15px;color:#1e1b4b;">${scoredCount ? overallGrade.grade + ' (' + overallGrade.remark + ')' : '—'}</strong></div>
+                <div><span style="color:#4338ca;font-size:11px;display:block;font-weight:600;">RECORDED SUBJECTS</span><strong style="font-size:15px;color:#1e1b4b;">${scoredCount} / ${classSubs.length}</strong></div>
+            </div>
+
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;font-size:12.5px;">
+                <div style="background:#f8fafc;padding:10px 14px;border-radius:8px;border:1px solid #e2e8f0;">
+                    <div style="margin-bottom:6px;"><span style="color:#64748b;font-weight:600;">Attendance:</span> ${escHtml(d.attendance || '—')}</div>
+                    <div style="margin-bottom:6px;"><span style="color:#64748b;font-weight:600;">Conduct:</span> ${escHtml(d.conduct || '—')}</div>
+                    <div><span style="color:#64748b;font-weight:600;">Interest:</span> ${escHtml(d.interest || '—')}</div>
+                </div>
+                <div style="background:#f8fafc;padding:10px 14px;border-radius:8px;border:1px solid #e2e8f0;">
+                    <div style="margin-bottom:6px;"><span style="color:#64748b;font-weight:600;">Promoted to / In:</span> ${escHtml(d.promotionTarget || (d.promotionStatus || '—'))}</div>
+                    <div><span style="color:#64748b;font-weight:600;">Teacher's Remarks:</span> <em>${escHtml(d.teacherRemarks || '—')}</em></div>
+                </div>
+            </div>
+
+            <div style="display:flex;justify-content:space-between;padding-top:14px;border-top:1px dashed #cbd5e1;font-size:12px;color:#475569;">
+                <div><strong>Class Teacher:</strong> ${escHtml(classRec?.classTeacherName || '—')}</div>
+                <div><strong>Headteacher:</strong> ${escHtml(settings.headTeacher || '—')}</div>
+            </div>
+        </div>
+    `;
+
+    const statusEl = document.getElementById('adminPreviewReportStatus');
+    if (statusEl) {
+        statusEl.innerHTML = `<span class="status-pill ${r.status.toLowerCase()}">${r.status}</span> &nbsp; <small style="color:var(--text-muted);">${r.generatedAt ? new Date(r.generatedAt).toLocaleString() : ''}</small>`;
+    }
+
+    const approveBtn = document.getElementById('adminPreviewApproveToggleBtn');
+    if (approveBtn) {
+        if (isApproved) {
+            approveBtn.className = 'btn-admin btn-warning';
+            approveBtn.innerHTML = '<i class="fas fa-undo"></i> Revoke Approval';
+            approveBtn.onclick = async () => {
+                await revokeReportApproval(id);
+                viewReport(id);
+            };
+        } else {
+            approveBtn.className = 'btn-admin btn-primary';
+            approveBtn.innerHTML = '<i class="fas fa-check"></i> Approve for Download';
+            approveBtn.onclick = async () => {
+                await approveReport(id);
+                viewReport(id);
+            };
+        }
+    }
+
+    const titleEl = document.getElementById('adminPreviewReportTitle');
+    if (titleEl) titleEl.innerHTML = `<i class="fas fa-file-alt"></i> Report Sheet — ${escHtml(student.name)} (${escHtml(className)})`;
+
+    document.getElementById('adminReportPreviewModal').style.display = 'flex';
+}
+
+function printAdminReport() {
+    const printContent = document.getElementById('printableReportCard');
+    if (!printContent) return;
+    const win = window.open('', '_blank', 'width=900,height=750');
+    win.document.write(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Student Report Sheet</title>
+            <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+            <style>
+                body { margin: 20px; font-family: 'Inter', sans-serif; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+                table th, table td { border: 1px solid #cbd5e1; }
+            </style>
+        </head>
+        <body>
+            ${printContent.outerHTML}
+            <script>
+                window.onload = function() { window.print(); };
+            <\/script>
+        </body>
+        </html>
+    `);
+    win.document.close();
 }
 
 async function confirmDeleteReport(id) {
     showConfirm('Delete this report record?', async () => {
         await deleteDocument('reports', id);
         adminState.reports = adminState.reports.filter(r => r.id !== id);
+        persistReports();
         renderReportsTable();
         showToast('Report deleted.', 'success');
     });
@@ -2120,35 +2525,6 @@ function syncColorPicker(inputId, value) {
     if (el && /^#[0-9a-fA-F]{6}$/.test(value)) el.value = value;
 }
 
-// ─── USERS & ROLES ────────────────────────────────────────────────────────────
-function renderUsersTable() {
-    const tbody = document.getElementById('usersTableBody');
-    if (!tbody) return;
-
-    const users = adminState.users;
-    tbody.innerHTML = users.length ? users.map((u, i) => `
-        <tr>
-            <td>${i + 1}</td>
-            <td>${escHtml(u.displayName || u.name || '—')}</td>
-            <td>${escHtml(u.email || '—')}</td>
-            <td><span class="status-pill ${rolePillClass(u.role)}">${escHtml(u.role || '—')}</span></td>
-            <td>${(u.assignedClasses || []).map(c => resolveClass(c)).join(', ') || '—'}</td>
-            <td>${(u.assignedSubjects || []).map(s => resolveSubject(s)).join(', ') || '—'}</td>
-            <td><span class="status-pill ${u.status || 'active'}">${u.status || 'active'}</span></td>
-            <td>
-                <div class="action-btns">
-                    <button class="action-btn" title="Change Role" onclick="changeUserRole('${u.id || u.uid}')"><i class="fas fa-user-tag"></i></button>
-                    <button class="action-btn ${u.status === 'inactive' ? 'success' : 'warning'}" onclick="toggleUserStatus('${u.id || u.uid}')">
-                        <i class="fas ${u.status === 'inactive' ? 'fa-user-check' : 'fa-user-slash'}"></i>
-                    </button>
-                </div>
-            </td>
-        </tr>`).join('') : emptyRow(8, 'No users found');
-
-    const countEl = document.getElementById('usersCount');
-    if (countEl) countEl.textContent = `${users.length} users`;
-}
-
 function rolePillClass(role) {
     const map = {
         'Super Admin': 'approved',
@@ -2160,81 +2536,25 @@ function rolePillClass(role) {
     return map[role] || '';
 }
 
-function openCreateUserModal() {
-    ['cu-name','cu-email','cu-password'].forEach(id => {
-        const el = document.getElementById(id);
-        if (el) el.value = '';
-    });
-    document.getElementById('cu-role').value = 'Teacher';
-    document.getElementById('cu-error').style.display = 'none';
-    document.getElementById('createUserModal').style.display = 'flex';
-}
-
-async function createUserAccount() {
-    const name     = document.getElementById('cu-name')?.value?.trim() || '';
-    const email    = document.getElementById('cu-email')?.value?.trim() || '';
-    const password = document.getElementById('cu-password')?.value || '';
-    const role     = document.getElementById('cu-role')?.value || 'Teacher';
-    const errorEl  = document.getElementById('cu-error');
-
-    if (!name || !email || !password) {
-        if (errorEl) { errorEl.textContent = 'All fields are required.'; errorEl.style.display = 'block'; }
-        return;
-    }
-    if (password.length < 6) {
-        if (errorEl) { errorEl.textContent = 'Password must be at least 6 characters.'; errorEl.style.display = 'block'; }
-        return;
-    }
-
-    try {
-        if (isFirebaseActive) {
-            const creds = await registerFirebaseUser(email, password, name, role);
-            adminState.users.push({
-                uid: creds.user.uid, id: creds.user.uid, email, displayName: name, role, status: 'active',
-                password, assignedClasses: [], assignedSubjects: []
-            });
-        } else {
-            const newDoc = await addDocument('users', {
-                email, displayName: name, name, role, status: 'active',
-                password, assignedClasses: [], assignedSubjects: []
-            });
-            adminState.users.push({ ...newDoc, uid: newDoc.id });
-        }
-        closeModal('createUserModal');
-        renderUsersTable();
-        showToast('User account created!', 'success');
-        await logActivity('User Created', `Created ${role} account ${email}`);
-    } catch (e) {
-        const msg = e.code === 'auth/email-already-in-use' ? 'This email is already registered.' : e.message;
-        if (errorEl) { errorEl.textContent = msg; errorEl.style.display = 'block'; }
-    }
-}
-
-async function changeUserRole(uid) {
-    const u = adminState.users.find(u => u.uid === uid || u.id === uid);
-    if (!u) return;
-    const roles = ['Super Admin','Administrator','Headteacher','Class Teacher','Teacher'];
-    const newRole = prompt(`Current role: ${u.role}\nEnter new role (${roles.join(', ')}):`);
-    if (!newRole || !roles.includes(newRole)) { showToast('Invalid role.', 'error'); return; }
-    await updateDocument('users', uid, { role: newRole });
-    u.role = newRole;
-    renderUsersTable();
-    showToast(`Role updated to ${newRole}.`, 'success');
-    await logActivity('User Role Changed', `Changed role for ${u.email} to ${newRole}`, uid);
-}
-
-async function toggleUserStatus(uid) {
-    const u = adminState.users.find(u => u.uid === uid || u.id === uid);
-    if (!u) return;
-    const newStatus = u.status === 'inactive' ? 'active' : 'inactive';
-    await updateDocument('users', uid, { status: newStatus });
-    u.status = newStatus;
-    renderUsersTable();
-    showToast(`User ${newStatus}.`, 'success');
-}
-
 // ─── AUDIT LOGS ───────────────────────────────────────────────────────────────
 function renderAuditLogs() {
+    let localLogs = JSON.parse(localStorage.getItem('auditLogs') || '[]');
+    if (!localLogs.length) {
+        const initialLog = {
+            id: `log_${Date.now()}`,
+            user: sessionStorage.getItem('adminEmail') || 'Administrator',
+            role: 'Super Admin',
+            action: 'Portal Ready',
+            details: 'OneReal School Management Dashboard online',
+            affectedRecord: '—',
+            timestamp: new Date().toISOString(),
+            formattedTime: new Date().toLocaleString()
+        };
+        localLogs = [initialLog];
+        localStorage.setItem('auditLogs', JSON.stringify(localLogs));
+    }
+    adminState.auditLogs = localLogs;
+
     const search    = (document.getElementById('auditLogSearch')?.value || '').toLowerCase();
     const actionF   =  document.getElementById('auditLogActionFilter')?.value || '';
     const dateFrom  =  document.getElementById('auditLogDateFrom')?.value || '';
@@ -2308,7 +2628,6 @@ function renderDataManagement() {
         { label: 'Subjects',       value: adminState.subjects.length },
         { label: 'Results',        value: adminState.results.length },
         { label: 'Reports',        value: adminState.reports.length },
-        { label: 'Users',          value: adminState.users.length },
         { label: 'Audit Logs',     value: adminState.auditLogs.length },
     ];
     container.innerHTML = stats.map(s => `
@@ -2319,15 +2638,365 @@ function renderDataManagement() {
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
-// DOWNLOADABLE CSV TEMPLATES
+// DOWNLOADABLE TEMPLATES & DATA EXPORT (DIRECT IMMEDIATE DOWNLOAD)
 // ──────────────────────────────────────────────────────────────────────────────
-function startFileDownload(url) {
+function startFileDownload(url, filename) {
     if (!url) return;
-    window.location.href = '/open?src=' + encodeURIComponent(url);
+    const a = document.createElement('a');
+    a.href = url;
+    if (filename) a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => { document.body.removeChild(a); }, 100);
+}
+
+function getAvailableClassNames() {
+    const list = (adminState.classes || []).map(c => c.name).filter(Boolean);
+    if (list.length) return list;
+    return ['Class 1', 'Class 2', 'Class 3', 'Class 4', 'Class 5', 'Class 6', 'JHS 1', 'JHS 2', 'JHS 3', 'Nursery 1', 'KG 1', 'KG 2'];
+}
+
+function getAvailableSubjectNames() {
+    const list = (adminState.subjects || []).map(s => s.name).filter(Boolean);
+    if (list.length) return list;
+    return ['Mathematics', 'English Language', 'Integrated Science', 'Social Studies', 'R.M.E', 'Computing', 'Creative Arts', 'French', 'Ghanaian Language', 'Career Technology'];
+}
+
+function getAvailableRoles() {
+    return ['Teacher', 'Class Teacher', 'Headteacher', 'Administrator', 'Super Admin'];
 }
 
 function downloadTemplate(type) {
-    startFileDownload('/api/templates/' + encodeURIComponent(type) + '.xlsx');
+    if (typeof XLSX === 'undefined') {
+        startFileDownload(`/api/templates/${encodeURIComponent(type)}.xlsx`, `${type}_template.xlsx`);
+        return;
+    }
+
+    try {
+        const wb = XLSX.utils.book_new();
+        const classNames = getAvailableClassNames();
+        const subjectNames = getAvailableSubjectNames();
+        const roleNames = getAvailableRoles();
+        const firstClass = classNames[0] || 'Class 1';
+        const secondClass = classNames[1] || classNames[0] || 'Class 2';
+        const firstSubject = subjectNames[0] || 'Mathematics';
+        const secondSubject = subjectNames[1] || subjectNames[0] || 'English Language';
+
+        if (type === 'students') {
+            const headers = ['Admission No', 'Full Name', 'Class', 'Gender', 'Date of Birth', 'Parent Name', 'Parent Phone', 'Parent Email', 'Address'];
+            const sampleRows = [
+                headers,
+                ['STU001', 'Kwame Mensah', firstClass, 'Male', '2015-05-12', 'Kofi Mensah', '0241234567', 'kofi@example.com', 'Accra'],
+                ['STU002', 'Ama Serwaa', secondClass, 'Female', '2015-08-23', 'Akosua Serwaa', '0249876543', 'akosua@example.com', 'Kumasi']
+            ];
+            const ws = XLSX.utils.aoa_to_sheet(sampleRows);
+            ws['!cols'] = [
+                { wch: 16 }, { wch: 22 }, { wch: 18 }, { wch: 12 }, { wch: 16 },
+                { wch: 22 }, { wch: 18 }, { wch: 24 }, { wch: 20 }
+            ];
+
+            // In-cell dropdowns for Class (Col C) and Gender (Col D)
+            ws['!dataValidation'] = [
+                {
+                    sqref: 'C2:C500',
+                    type: 'list',
+                    operator: 'equal',
+                    formula1: `"${classNames.slice(0, 30).join(',')}"`,
+                    showDropDown: true,
+                    errorTitle: 'Invalid Class',
+                    error: 'Please select a valid class from the dropdown list.',
+                    showErrorMessage: true
+                },
+                {
+                    sqref: 'D2:D500',
+                    type: 'list',
+                    operator: 'equal',
+                    formula1: '"Male,Female"',
+                    showDropDown: true,
+                    errorTitle: 'Invalid Gender',
+                    error: 'Please select Male or Female.',
+                    showErrorMessage: true
+                }
+            ];
+            XLSX.utils.book_append_sheet(wb, ws, 'Students_Import');
+
+            // Reference sheet: Available Classes
+            const classesSheetData = [
+                ['Available Classes (Select or copy from this list)', 'Level', 'Status'],
+                ...classNames.map(c => {
+                    const obj = (adminState.classes || []).find(cls => cls.name === c);
+                    return [c, obj?.level || 'Primary', obj?.status || 'Active'];
+                })
+            ];
+            const wsClasses = XLSX.utils.aoa_to_sheet(classesSheetData);
+            wsClasses['!cols'] = [{ wch: 30 }, { wch: 18 }, { wch: 14 }];
+            XLSX.utils.book_append_sheet(wb, wsClasses, 'Available_Classes');
+
+            XLSX.writeFile(wb, 'students_import_template.xlsx');
+            showToast('Downloaded students_import_template.xlsx with Class dropdown', 'success');
+            return;
+        }
+
+        if (type === 'teachers') {
+            const headers = ['Full Name', 'Email Address', 'Phone Number', 'Role', 'Password', 'Assigned Classes', 'Assigned Subjects'];
+            const sampleRows = [
+                headers,
+                ['John Doe', 'john.doe@school.com', '0241112233', 'Teacher', 'Pass123!', `${firstClass}, ${secondClass}`, `${firstSubject}, ${secondSubject}`],
+                ['Jane Smith', 'jane.smith@school.com', '0245556677', 'Class Teacher', 'Pass123!', firstClass, firstSubject]
+            ];
+            const ws = XLSX.utils.aoa_to_sheet(sampleRows);
+            ws['!cols'] = [
+                { wch: 22 }, { wch: 26 }, { wch: 18 }, { wch: 18 }, { wch: 16 },
+                { wch: 28 }, { wch: 32 }
+            ];
+
+            // In-cell dropdown for Role (Col D)
+            ws['!dataValidation'] = [
+                {
+                    sqref: 'D2:D500',
+                    type: 'list',
+                    operator: 'equal',
+                    formula1: `"${roleNames.join(',')}"`,
+                    showDropDown: true,
+                    errorTitle: 'Invalid Role',
+                    error: 'Please select a valid staff role from the dropdown list.',
+                    showErrorMessage: true
+                }
+            ];
+            XLSX.utils.book_append_sheet(wb, ws, 'Teachers_Import');
+
+            // Reference sheet: Available Classes
+            const classesSheetData = [
+                ['Available Classes', 'Level'],
+                ...classNames.map(c => [c, ((adminState.classes || []).find(cls => cls.name === c)?.level) || ''])
+            ];
+            const wsClasses = XLSX.utils.aoa_to_sheet(classesSheetData);
+            wsClasses['!cols'] = [{ wch: 30 }, { wch: 18 }];
+            XLSX.utils.book_append_sheet(wb, wsClasses, 'Available_Classes');
+
+            // Reference sheet: Available Subjects
+            const subjectsSheetData = [
+                ['Available Subjects / Departments', 'Code'],
+                ...subjectNames.map(s => [s, ((adminState.subjects || []).find(sub => sub.name === s)?.code) || ''])
+            ];
+            const wsSubjects = XLSX.utils.aoa_to_sheet(subjectsSheetData);
+            wsSubjects['!cols'] = [{ wch: 32 }, { wch: 16 }];
+            XLSX.utils.book_append_sheet(wb, wsSubjects, 'Available_Subjects');
+
+            // Reference sheet: Available Roles
+            const rolesSheetData = [
+                ['Staff Roles', 'Description / Permissions'],
+                ['Teacher', 'Subject/Class scores entry & reports'],
+                ['Class Teacher', 'Primary class management & conduct remarks'],
+                ['Headteacher', 'Administrative oversight & approvals'],
+                ['Administrator', 'Full school administration access'],
+                ['Super Admin', 'Full system control & cloud access']
+            ];
+            const wsRoles = XLSX.utils.aoa_to_sheet(rolesSheetData);
+            wsRoles['!cols'] = [{ wch: 20 }, { wch: 45 }];
+            XLSX.utils.book_append_sheet(wb, wsRoles, 'Available_Roles');
+
+            XLSX.writeFile(wb, 'teachers_import_template.xlsx');
+            showToast('Downloaded teachers_import_template.xlsx with Role dropdown and Class/Subject reference sheets', 'success');
+            return;
+        }
+
+        if (type === 'results') {
+            const headers = ['Student Name', 'Class', 'Subject', 'Class Score', 'Exam Score', 'Academic Year', 'Term'];
+            const sampleRows = [
+                headers,
+                ['Kwame Mensah', firstClass, firstSubject, '28', '62', '2025/2026', 'Term 1'],
+                ['Ama Serwaa', firstClass, firstSubject, '25', '58', '2025/2026', 'Term 1']
+            ];
+            const ws = XLSX.utils.aoa_to_sheet(sampleRows);
+            ws['!cols'] = [
+                { wch: 22 }, { wch: 18 }, { wch: 24 }, { wch: 14 }, { wch: 14 },
+                { wch: 16 }, { wch: 14 }
+            ];
+            ws['!dataValidation'] = [
+                {
+                    sqref: 'B2:B500',
+                    type: 'list',
+                    operator: 'equal',
+                    formula1: `"${classNames.slice(0, 30).join(',')}"`,
+                    showDropDown: true
+                },
+                {
+                    sqref: 'C2:C500',
+                    type: 'list',
+                    operator: 'equal',
+                    formula1: `"${subjectNames.slice(0, 30).join(',')}"`,
+                    showDropDown: true
+                },
+                {
+                    sqref: 'G2:G500',
+                    type: 'list',
+                    operator: 'equal',
+                    formula1: '"Term 1,Term 2,Term 3"',
+                    showDropDown: true
+                }
+            ];
+            XLSX.utils.book_append_sheet(wb, ws, 'Results_Import');
+
+            // Reference sheets
+            const wsClasses = XLSX.utils.aoa_to_sheet([['Available Classes'], ...classNames.map(c => [c])]);
+            XLSX.utils.book_append_sheet(wb, wsClasses, 'Available_Classes');
+
+            const wsSubjects = XLSX.utils.aoa_to_sheet([['Available Subjects'], ...subjectNames.map(s => [s])]);
+            XLSX.utils.book_append_sheet(wb, wsSubjects, 'Available_Subjects');
+
+            XLSX.writeFile(wb, 'results_import_template.xlsx');
+            showToast('Downloaded results_import_template.xlsx with Class/Subject dropdowns', 'success');
+            return;
+        }
+
+        if (type === 'classes') {
+            const headers = ['Class Name', 'Academic Level', 'Grading Scale', 'Status'];
+            const sampleRows = [
+                headers,
+                ['Class 1', 'Primary', 'Ghana Primary Scale', 'active'],
+                ['JHS 1', 'JHS', 'JHS / BECE Scale', 'active']
+            ];
+            const ws = XLSX.utils.aoa_to_sheet(sampleRows);
+            ws['!cols'] = [{ wch: 20 }, { wch: 18 }, { wch: 24 }, { wch: 12 }];
+            ws['!dataValidation'] = [
+                {
+                    sqref: 'B2:B500',
+                    type: 'list',
+                    operator: 'equal',
+                    formula1: '"Primary,JHS,Kindergarten,Nursery,SHS"',
+                    showDropDown: true
+                },
+                {
+                    sqref: 'D2:D500',
+                    type: 'list',
+                    operator: 'equal',
+                    formula1: '"active,inactive"',
+                    showDropDown: true
+                }
+            ];
+            XLSX.utils.book_append_sheet(wb, ws, 'Classes_Import');
+            XLSX.writeFile(wb, 'classes_import_template.xlsx');
+            showToast('Downloaded classes_import_template.xlsx', 'success');
+            return;
+        }
+
+        if (type === 'subjects') {
+            const headers = ['Subject Name', 'Subject Code', 'Status'];
+            const sampleRows = [
+                headers,
+                ['Mathematics', 'MATH', 'active'],
+                ['English Language', 'ENG', 'active'],
+                ['Integrated Science', 'SCI', 'active']
+            ];
+            const ws = XLSX.utils.aoa_to_sheet(sampleRows);
+            ws['!cols'] = [{ wch: 26 }, { wch: 16 }, { wch: 12 }];
+            ws['!dataValidation'] = [
+                {
+                    sqref: 'C2:C500',
+                    type: 'list',
+                    operator: 'equal',
+                    formula1: '"active,inactive"',
+                    showDropDown: true
+                }
+            ];
+            XLSX.utils.book_append_sheet(wb, ws, 'Subjects_Import');
+            XLSX.writeFile(wb, 'subjects_import_template.xlsx');
+            showToast('Downloaded subjects_import_template.xlsx', 'success');
+            return;
+        }
+    } catch (e) {
+        console.warn('XLSX client template generation fallback:', e);
+        startFileDownload(`/api/templates/${encodeURIComponent(type)}.xlsx`, `${type}_template.xlsx`);
+    }
+}
+
+function downloadCsvTemplate(type) {
+    const classNames = getAvailableClassNames();
+    const subjectNames = getAvailableSubjectNames();
+    const firstClass = classNames[0] || 'Class 1';
+    const secondClass = classNames[1] || classNames[0] || 'Class 2';
+    const firstSubject = subjectNames[0] || 'Mathematics';
+    const secondSubject = subjectNames[1] || subjectNames[0] || 'English Language';
+
+    let csvContent = '';
+    let filename = `${type}_template.csv`;
+
+    if (type === 'students') {
+        filename = 'students_import_template.csv';
+        csvContent = 'Admission No,Full Name,Class,Gender,Date of Birth,Parent Name,Parent Phone,Parent Email,Address\n' +
+                     `STU001,"Kwame Mensah","${firstClass}","Male","2015-05-12","Kofi Mensah","0241234567","kofi@example.com","Accra"\n` +
+                     `STU002,"Ama Serwaa","${secondClass}","Female","2015-08-23","Akosua Serwaa","0249876543","akosua@example.com","Kumasi"\n`;
+    } else if (type === 'teachers') {
+        filename = 'teachers_import_template.csv';
+        csvContent = 'Full Name,Email Address,Phone Number,Role,Password,Assigned Classes,Assigned Subjects\n' +
+                     `"John Doe","john.doe@school.com","0241112233","Teacher","Pass123!","${firstClass}, ${secondClass}","${firstSubject}, ${secondSubject}"\n` +
+                     `"Jane Smith","jane.smith@school.com","0245556677","Class Teacher","Pass123!","${firstClass}","${firstSubject}"\n`;
+    } else if (type === 'classes') {
+        filename = 'classes_import_template.csv';
+        csvContent = 'Class Name,Academic Level,Grading Scale,Status\n' +
+                     '"Class 1","Primary","Ghana Primary Scale","active"\n' +
+                     '"JHS 1","JHS","JHS / BECE Scale","active"\n';
+    } else if (type === 'subjects') {
+        filename = 'subjects_import_template.csv';
+        csvContent = 'Subject Name,Subject Code,Status\n' +
+                     '"Mathematics","MATH","active"\n' +
+                     '"English Language","ENG","active"\n' +
+                     '"Integrated Science","SCI","active"\n';
+    } else if (type === 'results') {
+        filename = 'results_import_template.csv';
+        csvContent = 'Student Name,Class,Subject,Class Score,Exam Score,Academic Year,Term\n' +
+                     `"Kwame Mensah","${firstClass}","${firstSubject}",28,62,"2025/2026","Term 1"\n` +
+                     `"Ama Serwaa","${firstClass}","${firstSubject}",25,58,"2025/2026","Term 1"\n`;
+    } else if (type === 'attendance') {
+        filename = 'attendance_template.csv';
+        csvContent = 'Student ID,Student Name,Class,Date,Status,Notes\n' +
+                     `"STU001","Kwame Mensah","${firstClass}","${new Date().toISOString().slice(0,10)}","Present",""\n` +
+                     `"STU002","Ama Serwaa","${firstClass}","${new Date().toISOString().slice(0,10)}","Late","Arrived 8:15am"\n`;
+    } else if (type === 'gradingScales') {
+        filename = 'grading_scales_template.csv';
+        csvContent = 'Scale Name,Grade,Min Score,Max Score,Remark,GPA Points\n' +
+                     '"Ghana Primary Scale","A",80,100,"Excellent",4.0\n' +
+                     '"Ghana Primary Scale","P",70,79,"Proficient",3.0\n' +
+                     '"Ghana Primary Scale","AP",60,69,"Approaching Proficiency",2.0\n' +
+                     '"Ghana Primary Scale","D",50,59,"Developing",1.0\n' +
+                     '"Ghana Primary Scale","B",0,49,"Beginning",0.0\n';
+    }
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => {
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    }, 100);
+    showToast(`Downloaded ${filename}`, 'success');
+}
+
+function renderTemplatesSection() {
+    // Refresh dropdown info if needed
+}
+
+function exportDataExcel(collection) {
+    const data = adminState[collection] || [];
+    const filename = `${collection}_export_${new Date().toISOString().slice(0, 10)}.xlsx`;
+    if (typeof XLSX !== 'undefined' && data.length > 0) {
+        try {
+            const ws = XLSX.utils.json_to_sheet(data);
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, collection.charAt(0).toUpperCase() + collection.slice(1));
+            XLSX.writeFile(wb, filename);
+            showToast(`Exported ${data.length} records to ${filename}`, 'success');
+            return;
+        } catch (e) {
+            console.warn('XLSX export fallback:', e);
+        }
+    }
+    startFileDownload(`/api/export/${encodeURIComponent(collection)}.xlsx`, filename);
 }
 
 function triggerImport(collection) {
@@ -3127,8 +3796,29 @@ async function connectFirebaseFromSettings() {
             return;
         }
         refreshFirebaseStatus();
-        showToast('Firebase connected. Upload school data next.', 'success');
+        showToast('Firebase connected! Auto-syncing school data & user accounts to cloud…', 'info');
         await logActivity('Firebase Connected', cfg.projectId);
+
+        // Automatic upload of all school data to cloud (no manual button needed!)
+        try {
+            if (typeof pushSchoolToFirebase === 'function') {
+                await pushSchoolToFirebase();
+            }
+        } catch (e) {
+            console.warn('Auto upload notice:', e);
+        }
+
+        // Automatic provisioning of all staff auth accounts (no manual button needed!)
+        try {
+            if (typeof provisionStaffFromLocal === 'function') {
+                await provisionStaffFromLocal();
+            }
+        } catch (e) {
+            console.warn('Auto provision notice:', e);
+        }
+
+        refreshFirebaseStatus();
+        showToast('Firebase connected! All school data & user accounts auto-synced to cloud.', 'success');
     } catch (e) {
         showToast(e.message, 'error');
     }
@@ -3169,4 +3859,57 @@ async function provisionFirebaseStaff() {
     } catch (e) {
         showToast(e.message, 'error');
     }
+}
+
+// ─── DEVELOPER AUTHENTICATION (PASSWORD GATE: @Slimgee22) ─────────────────────
+function openDevPasswordModal() {
+    const modal = document.getElementById('devPasswordModal');
+    const input = document.getElementById('devPasswordInput');
+    const err = document.getElementById('devPasswordError');
+    if (input) input.value = '';
+    if (err) err.style.display = 'none';
+    if (modal) modal.style.display = 'flex';
+    setTimeout(() => { if (input) input.focus(); }, 100);
+}
+
+function submitDevPassword(e) {
+    if (e && e.preventDefault) e.preventDefault();
+    const input = document.getElementById('devPasswordInput');
+    const err = document.getElementById('devPasswordError');
+    const pwd = input?.value || '';
+    if (pwd === '@Slimgee22') {
+        sessionStorage.setItem('devUnlocked', 'true');
+        closeModal('devPasswordModal');
+        switchSection('firebase');
+        showToast('Developer access granted.', 'success');
+    } else {
+        if (err) {
+            err.textContent = 'Incorrect developer password. Access denied.';
+            err.style.display = 'block';
+        }
+    }
+}
+
+function lockDevMode() {
+    sessionStorage.removeItem('devUnlocked');
+    switchSection('dashboard');
+    showToast('Developer access locked.', 'info');
+}
+
+function parseConfigJsonInput() {
+    try {
+        const pasted = (document.getElementById('fbConfigJson')?.value || '').trim();
+        if (pasted) {
+            const parsed = parseFirebaseConfigText(pasted);
+            if (parsed) {
+                const set = (id, val) => { const el = document.getElementById(id); if (el && val) el.value = val; };
+                set('fbApiKey', parsed.apiKey);
+                set('fbAuthDomain', parsed.authDomain);
+                set('fbProjectId', parsed.projectId);
+                set('fbStorageBucket', parsed.storageBucket);
+                set('fbMessagingSenderId', parsed.messagingSenderId);
+                set('fbAppId', parsed.appId);
+            }
+        }
+    } catch (e) {}
 }

@@ -20,8 +20,12 @@ let activeStudentData = null;
 let realtimeUnsubscribers = [];
 
 document.addEventListener('DOMContentLoaded', () => {
-    // Access is strictly by login: a page refresh always starts logged out.
-    sessionStorage.removeItem('studentAuthId');
+    const savedId = sessionStorage.getItem('studentAuthId');
+    if (savedId) {
+        loadStudentDashboard(savedId).catch(() => {
+            sessionStorage.removeItem('studentAuthId');
+        });
+    }
 });
 
 async function handleStudentLogin() {

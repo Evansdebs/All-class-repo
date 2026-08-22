@@ -1,296 +1,65 @@
 {
   "students": [],
-  "teachers": [],
-  "users": [],
-  "classes": [
+  "teachers": [
     {
-      "id": "cls1",
-      "name": "Class 1",
-      "level": "Primary",
-      "gradingScaleId": "preset_ghana_primary",
-      "classTeacherId": "",
-      "classTeacherName": "",
-      "status": "active"
+      "id": "admin_mt4zbtij",
+      "password": "admin123",
+      "displayName": "admin123",
+      "assignedSubjects": [],
+      "name": "admin123",
+      "assignedClasses": [],
+      "status": "active",
+      "role": "Super Admin",
+      "uid": "AwuLAQfIOCRwGBf9uFogoQAqTd33",
+      "email": "admin@school.com",
+      "phone": ""
     },
     {
-      "id": "cls2",
-      "name": "Class 2",
-      "level": "Primary",
-      "gradingScaleId": "preset_ghana_primary",
-      "classTeacherId": "",
-      "classTeacherName": "",
-      "status": "active"
+      "id": "ZGeiZGaGn25bDy5iE3Gn",
+      "assignedSubjects": [
+        "QEdtA5Hwjy7pU7F1ulyX"
+      ],
+      "phone": "123344232",
+      "password": "eva123",
+      "assignedClasses": [
+        "iPooVjMkWOUvEpY1UYDu"
+      ],
+      "name": "eva",
+      "updatedAt": {
+        "nanoseconds": 695000000,
+        "seconds": 1787439039
+      },
+      "status": "active",
+      "email": "evansdebrah111@gmail.com",
+      "role": "Teacher",
+      "userId": "iXKnkUPwxkhkp3mYXgKnDAvcI712",
+      "createdAt": {
+        "seconds": 1787439016,
+        "nanoseconds": 748000000
+      }
     },
     {
-      "id": "cls3",
-      "name": "Class 3",
-      "level": "Primary",
-      "gradingScaleId": "preset_ghana_primary",
-      "classTeacherId": "",
-      "classTeacherName": "",
-      "status": "active"
-    },
-    {
-      "id": "cls4",
-      "name": "Class 4",
-      "level": "Primary",
-      "gradingScaleId": "preset_ghana_primary",
-      "classTeacherId": "",
-      "classTeacherName": "",
-      "status": "active"
-    },
-    {
-      "id": "cls5",
-      "name": "Class 5",
-      "level": "Primary",
-      "gradingScaleId": "preset_ghana_primary",
-      "classTeacherId": "",
-      "classTeacherName": "",
-      "status": "active"
-    },
-    {
-      "id": "cls6",
-      "name": "Class 6",
-      "level": "Primary",
-      "gradingScaleId": "preset_ghana_primary",
-      "classTeacherId": "",
-      "classTeacherName": "",
-      "status": "active"
+      "id": "admin_mt4zbtij",
+      "email": "admin123@school.com",
+      "assignedSubjects": [],
+      "role": "Super Admin",
+      "assignedClasses": [],
+      "name": "admin123",
+      "status": "active",
+      "password": "admin123"
     }
   ],
-  "subjects": [
-    {
-      "id": "sub1",
-      "code": "ENGL",
-      "name": "English Language",
-      "classIds": [
-        "cls1",
-        "cls2",
-        "cls3",
-        "cls4",
-        "cls5",
-        "cls6"
-      ],
-      "status": "active"
-    },
-    {
-      "id": "sub2",
-      "code": "MATH",
-      "name": "Mathematics",
-      "classIds": [
-        "cls1",
-        "cls2",
-        "cls3",
-        "cls4",
-        "cls5",
-        "cls6"
-      ],
-      "status": "active"
-    },
-    {
-      "id": "sub3",
-      "code": "SCIE",
-      "name": "Science",
-      "classIds": [
-        "cls1",
-        "cls2",
-        "cls3",
-        "cls4",
-        "cls5",
-        "cls6"
-      ],
-      "status": "active"
-    },
-    {
-      "id": "sub4",
-      "code": "RME",
-      "name": "RME",
-      "classIds": [
-        "cls1",
-        "cls2",
-        "cls3",
-        "cls4",
-        "cls5",
-        "cls6"
-      ],
-      "status": "active"
-    },
-    {
-      "id": "sub5",
-      "code": "HIST",
-      "name": "History",
-      "classIds": [
-        "cls1",
-        "cls2",
-        "cls3",
-        "cls4",
-        "cls5",
-        "cls6"
-      ],
-      "status": "active"
-    },
-    {
-      "id": "sub6",
-      "code": "CREA",
-      "name": "Creative Arts",
-      "classIds": [
-        "cls1",
-        "cls2",
-        "cls3",
-        "cls4",
-        "cls5",
-        "cls6"
-      ],
-      "status": "active"
-    },
-    {
-      "id": "sub7",
-      "code": "COMP",
-      "name": "Computing",
-      "classIds": [
-        "cls1",
-        "cls2",
-        "cls3",
-        "cls4",
-        "cls5",
-        "cls6"
-      ],
-      "status": "active"
-    },
-    {
-      "id": "sub8",
-      "code": "FREN",
-      "name": "French",
-      "classIds": [
-        "cls1",
-        "cls2",
-        "cls3",
-        "cls4",
-        "cls5",
-        "cls6"
-      ],
-      "status": "active"
-    },
-    {
-      "id": "sub9",
-      "code": "ASAN",
-      "name": "Asante Twi",
-      "classIds": [
-        "cls1",
-        "cls2",
-        "cls3",
-        "cls4",
-        "cls5",
-        "cls6"
-      ],
-      "status": "active"
-    },
-    {
-      "id": "sub10",
-      "code": "CARE",
-      "name": "Career Technology",
-      "classIds": [
-        "cls1",
-        "cls2",
-        "cls3",
-        "cls4",
-        "cls5",
-        "cls6"
-      ],
-      "status": "active"
-    }
-  ],
-  "academicYears": [
-    {
-      "id": "ay2025",
-      "name": "2025/2026",
-      "isActive": true,
-      "isArchived": false
-    }
-  ],
-  "terms": [
-    {
-      "id": "term1",
-      "name": "First Term",
-      "yearId": "ay2025",
-      "termNumber": 1,
-      "isActive": true,
-      "isClosed": false
-    },
-    {
-      "id": "term2",
-      "name": "Second Term",
-      "yearId": "ay2025",
-      "termNumber": 2,
-      "isActive": false,
-      "isClosed": false
-    },
-    {
-      "id": "term3",
-      "name": "Third Term",
-      "yearId": "ay2025",
-      "termNumber": 3,
-      "isActive": false,
-      "isClosed": false
-    }
-  ],
-  "gradingScales": [
-    {
-      "id": "gs-primary",
-      "name": "Ghana Primary Grading System",
-      "isActive": true,
-      "items": [
-        {
-          "min": 80,
-          "max": 100,
-          "grade": "A",
-          "remark": "ADVANCE"
-        },
-        {
-          "min": 68,
-          "max": 79,
-          "grade": "P",
-          "remark": "PROFICIENCY"
-        },
-        {
-          "min": 54,
-          "max": 67,
-          "grade": "AP",
-          "remark": "APPROACHING PROFICIENCY"
-        },
-        {
-          "min": 40,
-          "max": 53,
-          "grade": "D",
-          "remark": "DEVELOPING"
-        },
-        {
-          "min": 0,
-          "max": 39,
-          "grade": "B",
-          "remark": "BEGINNER"
-        }
-      ]
-    }
-  ],
+  "classes": [],
+  "subjects": [],
+  "academicYears": [],
+  "terms": [],
+  "gradingScales": [],
   "results": [],
   "reports": [],
-  "scores": {
-    "COMPUTING": {
-      "D8n3h1m8MBbIt3obs9Mr": {
-        "classScore": 13,
-        "examScore": 32,
-        "totalScore": 22.5,
-        "classScore50": 6.5,
-        "examScore50": 16,
-        "grade": "B",
-        "remark": "BEGINNER"
-      }
-    }
-  },
+  "scores": {},
   "schoolInfo": {
-    "academicYear": "2025/2026",
-    "term": "1",
+    "academicYear": "",
+    "term": "",
     "closingDate": "",
     "reopeningDate": "",
     "classTeacher": "",
@@ -299,9 +68,9 @@
     "numberOnRollByClass": {}
   },
   "schoolSettings": {
-    "schoolName": "The Living Spring School",
-    "motto": "Drink deep or taste not the spring of knowledge",
-    "address": "P.O. Box 16493 K.I.A, Accra",
+    "schoolName": "",
+    "motto": "",
+    "address": "",
     "phone": "",
     "email": "",
     "reportTitle": "END OF TERM REPORT SHEET",
@@ -315,28 +84,14 @@
     "signature": null,
     "fieldToggles": {}
   },
-  "studentReportDetails": {
-    "D8n3h1m8MBbIt3obs9Mr": {
-      "attendance": "1 OUT OF —"
-    }
-  },
+  "studentReportDetails": {},
   "parentContacts": {},
   "auditLogs": [],
-  "attendanceMarks": {
-    "D8n3h1m8MBbIt3obs9Mr": {
-      "2026-08-21": {
-        "status": "present",
-        "className": "BASIC 9",
-        "termKey": "2026|1",
-        "by": "teacher@school.com",
-        "at": "2026-08-22T13:35:48.271Z"
-      }
-    }
-  },
+  "attendanceMarks": {},
   "attendanceSettings": {
     "defaultDays": {},
     "studentDays": {},
     "studentPresentOverride": {},
-    "updatedAt": "2026-08-22T13:13:37.914Z"
+    "updatedAt": ""
   }
 }

@@ -1490,11 +1490,15 @@ function loadReportRecords() {
 
 function saveReportRecords(list) {
     localStorage.setItem('reports', JSON.stringify(list));
+    if (typeof syncSaveCollection === 'function') {
+        try { syncSaveCollection('reports', list); } catch (e) {}
+    }
 }
 
 function getReportRecord(studentId) {
     const key = getReportApprovalKey(studentId);
-    return loadReportRecords().find(r => r.approvalKey === key || (String(r.studentId) === String(studentId) && (r.termId || '') === String((schoolInfo && schoolInfo.term) || '') && (r.academicYearId || '') === String((schoolInfo && schoolInfo.academicYear) || '')));
+    const stuId = String(studentId);
+    return loadReportRecords().find(r => r.approvalKey === key || String(r.studentId) === stuId);
 }
 
 function isReportApproved(studentId) {
