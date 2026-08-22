@@ -405,7 +405,7 @@ const server = http.createServer(async (req, res) => {
             try {
                 const payload = await readBody(req);
                 const db = readDb();
-                const allowed = ['students','scores','schoolInfo','studentReportDetails','parentContacts','attendanceMarks','attendanceSettings','reports','classes','teachers','schoolSettings'];
+                const allowed = ['students','scores','schoolInfo','studentReportDetails','parentContacts','attendanceMarks','attendanceSettings','reports','classes','teachers','subjects','users','schoolSettings'];
                 allowed.forEach(k => { if (payload[k] !== undefined) db[k] = payload[k]; });
                 writeDb(db);
                 sendJson(res, 200, { success: true, timestamp: new Date().toISOString() });
@@ -1077,7 +1077,8 @@ const server = http.createServer(async (req, res) => {
     // ─── Static file server ─────────────────────────────────────────────────
 
     let reqPath = pathname;
-    if (reqPath === '/') reqPath = '/excel.html';
+    // Root lands on the teacher portal login — never the Excel template page.
+    if (reqPath === '/') reqPath = '/report.html';
     // Convenience routes
     if (reqPath === '/admin') reqPath = '/admin.html';
     if (reqPath === '/student') reqPath = '/student.html';

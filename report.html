@@ -6,7 +6,7 @@
     <title>Teacher Portal — OneReal Report Generator</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="font-awesome.css">
-    <link rel="stylesheet" href="report.css?v=hub7">
+    <link rel="stylesheet" href="report.css?v=hub8">
 </head>
 <body>
 <div id="toastArea"></div>
@@ -15,9 +15,9 @@
     <div class="auth-card">
         <div class="auth-logo"><i class="fas fa-chalkboard-teacher"></i></div>
         <h1>Teacher Portal</h1>
-        <p>Sign in to work with one class at a time</p>
+        <p>Sign in with the account your administrator created for you</p>
         <label>Email</label>
-        <input type="email" id="teacherLoginEmail" placeholder="teacher@school.com" autocomplete="email">
+        <input type="email" id="teacherLoginEmail" placeholder="name@school.com" autocomplete="email">
         <label>Password</label>
         <div class="pw-wrap">
             <input type="password" id="teacherLoginPassword" placeholder="••••••••" autocomplete="current-password"
@@ -34,28 +34,53 @@
 </div>
 
 <div id="app" style="display:none;">
-    <header class="topbar">
-        <div class="brand">
-            <div class="brand-mark"><i class="fas fa-school"></i></div>
-            <div>
-                <strong id="schoolNameLabel">OneReal Teacher</strong>
-                <span id="termLabel">2025/2026 · Term 1</span>
+    <div class="app-layout" id="appLayout">
+        <aside class="sidebar" id="sidebar">
+            <div class="sidebar-head">
+                <div class="brand-mark"><i class="fas fa-school"></i></div>
+                <div class="sidebar-head-text">
+                    <strong id="schoolNameLabel">OneReal Teacher</strong>
+                    <span id="termLabel">2025/2026 · Term 1</span>
+                </div>
             </div>
-        </div>
-        <div class="topbar-mid" id="classSwitcherWrap" style="display:none;">
-            <label for="headerClassSelect">Class</label>
-            <select id="headerClassSelect" onchange="switchClass(this.value)"></select>
-            <button class="btn btn-ghost btn-sm" onclick="showHub()"><i class="fas fa-th-large"></i> All classes</button>
-        </div>
-        <div class="topbar-right">
-            <span id="teacherChip" class="chip"></span>
-            <button class="btn btn-ghost btn-sm" id="darkBtn" onclick="toggleDark()"><i class="fas fa-moon"></i></button>
-            <button class="btn btn-ghost btn-sm danger" onclick="teacherLogout()"><i class="fas fa-sign-out-alt"></i></button>
-        </div>
-    </header>
+            <div class="sidebar-teacher">
+                <div class="sidebar-avatar"><i class="fas fa-chalkboard-teacher"></i></div>
+                <div class="sidebar-who">
+                    <strong id="teacherChip">Teacher</strong>
+                    <span id="sidebarClassLabel">All classes</span>
+                </div>
+            </div>
+            <nav class="sidebar-nav" id="sidebarNav" aria-label="Class sections">
+                <span class="sidebar-section-label">Class sections</span>
+                <button class="side-link" data-tab="students" onclick="openTab('students')"><i class="fas fa-user-graduate"></i><span>Students</span></button>
+                <button class="side-link" data-tab="scores" onclick="openTab('scores')"><i class="fas fa-pen"></i><span>Scores</span></button>
+                <button class="side-link" data-tab="broadsheet" onclick="openTab('broadsheet')"><i class="fas fa-table"></i><span>Broadsheet</span></button>
+                <button class="side-link" data-tab="reports" onclick="openTab('reports')"><i class="fas fa-file-alt"></i><span>Reports</span></button>
+                <button class="side-link" data-tab="performance" onclick="openTab('performance')"><i class="fas fa-chart-bar"></i><span>Performance</span></button>
+                <button class="side-link" data-tab="attendance" onclick="openTab('attendance')"><i class="fas fa-user-check"></i><span>Attendance</span></button>
+                <button class="side-link" data-tab="whatsapp" onclick="openTab('whatsapp')"><i class="fab fa-whatsapp"></i><span>WhatsApp</span></button>
+                <button class="side-link" data-tab="info" onclick="openTab('info')"><i class="fas fa-cog"></i><span>Class info</span></button>
+            </nav>
+            <div class="sidebar-foot">
+                <button class="side-link" id="hubLink" onclick="showHub()"><i class="fas fa-th-large"></i><span>All classes</span></button>
+                <button class="side-link" id="darkBtn" onclick="toggleDark()"><i class="fas fa-moon"></i><span>Dark mode</span></button>
+                <button class="side-link danger" onclick="teacherLogout()"><i class="fas fa-sign-out-alt"></i><span>Log out</span></button>
+            </div>
+        </aside>
+        <div class="sidebar-backdrop" id="sidebarBackdrop" onclick="closeSidebar()"></div>
+        <div class="app-main">
+            <header class="topbar">
+                <button class="hamburger" id="hamburgerBtn" onclick="toggleSidebar()" aria-label="Open menu"><i class="fas fa-bars"></i></button>
+                <div class="topbar-mid" id="classSwitcherWrap" style="display:none;">
+                    <label for="headerClassSelect">Class</label>
+                    <select id="headerClassSelect" onchange="switchClass(this.value)"></select>
+                    <button class="btn btn-ghost btn-sm" onclick="showHub()"><i class="fas fa-th-large"></i> All classes</button>
+                </div>
+                <div class="topbar-title" id="topbarTitle">Your classes</div>
+            </header>
 
-    <main>
-        <section id="view-hub" class="view active">
+            <main>
+                <section id="view-hub" class="view active">
             <div class="page-head">
                 <h2>Your classes</h2>
                 <p>Pick a class once. Students, scores, broadsheet and reports all stay on that class.</p>
@@ -65,16 +90,6 @@
         </section>
 
         <section id="view-class" class="view">
-            <nav class="class-nav" id="classNav">
-                <button class="nav-pill active" data-tab="students" onclick="openTab('students')"><i class="fas fa-user-graduate"></i> Students</button>
-                <button class="nav-pill" data-tab="scores" onclick="openTab('scores')"><i class="fas fa-pen"></i> Scores</button>
-                <button class="nav-pill" data-tab="broadsheet" onclick="openTab('broadsheet')"><i class="fas fa-table"></i> Broadsheet</button>
-                <button class="nav-pill" data-tab="reports" onclick="openTab('reports')"><i class="fas fa-file-alt"></i> Reports</button>
-                <button class="nav-pill" data-tab="performance" onclick="openTab('performance')"><i class="fas fa-chart-bar"></i> Performance</button>
-                <button class="nav-pill" data-tab="attendance" onclick="openTab('attendance')"><i class="fas fa-user-check"></i> Attendance</button>
-                <button class="nav-pill" data-tab="whatsapp" onclick="openTab('whatsapp')"><i class="fab fa-whatsapp"></i> WhatsApp</button>
-                <button class="nav-pill" data-tab="info" onclick="openTab('info')"><i class="fas fa-cog"></i> Class info</button>
-            </nav>
             <div class="stats-row" id="classStats"></div>
             <div id="tab-students" class="tab-panel active"></div>
             <div id="tab-scores" class="tab-panel"></div>
@@ -86,6 +101,8 @@
             <div id="tab-info" class="tab-panel"></div>
         </section>
     </main>
+        </div>
+    </div>
 </div>
 
 <div class="modal" id="modal" style="display:none;" onclick="if(event.target===this) closeModal()">
@@ -104,11 +121,11 @@
 <script src="vendor/firebase-compat.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="seed-data.js?v=live1"></script>
-<script src="firebase-config.js?v=fb3"></script>
+<script src="firebase-config.js?v=fb7"></script>
 <script src="files.js?v=dl9"></script>
 <script src="attendance.js?v=hub4"></script>
 <script src="jspdf.umd.min.js"></script>
 <script src="jszip.min.js"></script>
-<script src="teacher-app.js?v=hub19"></script>
+<script src="teacher-app.js?v=hub22"></script>
 </body>
 </html>
