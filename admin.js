@@ -61,32 +61,22 @@ document.addEventListener('DOMContentLoaded', () => {
     initFirebase();
 
     const openLocalAdmin = () => {
-        const unlocked = sessionStorage.getItem('adminUnlocked') === 'true';
-        if (unlocked) {
-            hideAuthOverlay();
-            initAdminApp();
-        } else {
-            showAuthOverlay();
-        }
+        // Access is strictly by login: a page refresh always starts logged out.
+        sessionStorage.removeItem('adminUnlocked');
+        sessionStorage.removeItem('adminEmail');
+        showAuthOverlay();
     };
 
     if (typeof firebase !== 'undefined' && firebase.auth && isFirebaseActive) {
         firebase.auth().onAuthStateChanged(async (user) => {
-            if (user) {
-                try { await loadUserProfile(user.uid); } catch (e) {}
-                const role = getCurrentUserRole();
-                if (role && !['Super Admin','Administrator','Headteacher','Guest'].includes(role)) {
-                    // Teachers stay out of admin. Guest means no profile yet — allow if locally unlocked.
-                    if (['Teacher','Class Teacher'].includes(role)) {
-                        showAdminOverlay('You do not have admin access. Contact your system administrator.');
-                        return;
-                    }
-                }
-                hideAuthOverlay();
-                await initAdminApp();
-                return;
+            if (!user) { currentUserProfile = null; return; }
+            // Guard: a signed-in non-admin must never see the dashboard.
+            try { await loadUserProfile(user.uid); } catch (e) {}
+            const role = getCurrentUserRole();
+            if (role && ['Teacher', 'Class Teacher'].includes(role)) {
+                try { await firebase.auth().signOut(); } catch (e) {}
+                showAuthOverlay('You do not have admin access. Contact your system administrator.');
             }
-            openLocalAdmin();
         });
     } else {
         openLocalAdmin();
@@ -116,6 +106,57 @@ function hideAuthOverlay() {
     if (app) app.style.display = 'flex';
 }
 
+// ─── Strict admin access ─────────────────────────────────────────────────────
+// Roles allowed into the Admin Dashboard.
+const ADMIN_PORTAL_ROLES = ['Super Admin', 'Administrator', 'Headteacher'];
+
+function getLocalUsers() {
+    try { return JSON.parse(localStorage.getItem('users') || '[]'); } catch (e) { return []; }
+}
+
+function getLocalTeachers() {
+    try { return JSON.parse(localStorage.getItem('teachers') || '[]'); } catch (e) { return []; }
+}
+
+function isAdminPortalRole(role) {
+    return ADMIN_PORTAL_ROLES.includes(role);
+}
+
+// True when at least one admin-level account exists (users or teachers list).
+function hasAnyAdminLevelAccount() {
+    return getLocalUsers().some(u => isAdminPortalRole(u.role)) ||
+           getLocalTeachers().some(t => isAdminPortalRole(t.role));
+}
+
+// Find any account (users first, then teachers) matching the email.
+function findAccountByEmail(email) {
+    const lc = String(email || '').toLowerCase();
+    return getLocalUsers().find(u => (u.email || '').toLowerCase() === lc) ||
+           getLocalTeachers().find(t => (t.email || '').toLowerCase() === lc) ||
+           null;
+}
+
+// Set the shared profile object so role helpers (isAdmin/isHeadteacher/...)
+// work for locally-authenticated accounts, not just Firebase ones.
+function setLocalProfile(user) {
+    currentUserProfile = {
+        uid:           user.uid || user.id || 'local',
+        email:         user.email || '',
+        displayName:   user.displayName || user.name || user.email || 'Administrator',
+        role:          user.role || 'Administrator',
+        assignedClasses:  user.assignedClasses  || [],
+        assignedSubjects: user.assignedSubjects || [],
+        status:        user.status || 'active'
+    };
+    return currentUserProfile;
+}
+
+function showAuthError(errorEl, msg) {
+    if (!errorEl) return;
+    errorEl.textContent = msg;
+    errorEl.style.display = 'block';
+}
+
 async function handleAdminLogin() {
     const email    = document.getElementById('adminEmail')?.value?.trim() || '';
     const password = document.getElementById('adminPassword')?.value || '';
@@ -124,23 +165,8 @@ async function handleAdminLogin() {
 
     if (errorEl) errorEl.style.display = 'none';
 
-    const localAdminOk = password === 'admin123' || password === 'admin';
-
-    async function enterLocalAdmin() {
-        sessionStorage.setItem('adminUnlocked', 'true');
-        sessionStorage.setItem('adminEmail', email || 'admin@school.com');
-        hideAuthOverlay();
-        await initAdminApp();
-    }
-
-    // School local passcode always works, even after Firebase is connected.
-    if (localAdminOk) {
-        await enterLocalAdmin();
-        return;
-    }
-
     if (!email || !password) {
-        if (errorEl) { errorEl.textContent = 'Please enter email and password. Local admin password is admin123.'; errorEl.style.display = 'block'; }
+        showAuthError(errorEl, 'Please enter email and password.');
         return;
     }
 
@@ -150,25 +176,93 @@ async function handleAdminLogin() {
     if (btnLoader) btnLoader.style.display = 'inline-flex';
     if (btn) btn.disabled = true;
 
+    async function enterAdmin(user, source) {
+        setLocalProfile(user);
+        sessionStorage.setItem('adminUnlocked', 'true');
+        sessionStorage.setItem('adminEmail', user.email || email);
+        hideAuthOverlay();
+        await initAdminApp();
+        try { await logActivity('Admin Login', `Signed in as ${user.email} (${source})`); } catch (e) {}
+    }
+
     try {
-        if (isFirebaseActive && typeof loginFirebaseUser === 'function') {
-            await loginFirebaseUser(email, password);
-            return;
-        }
-        if (errorEl) { errorEl.textContent = 'Use password admin123, or create a Firebase account first.'; errorEl.style.display = 'block'; }
-    } catch (e) {
-        const code = e.code || '';
-        if (code === 'auth/invalid-credential' || code === 'auth/user-not-found' || code === 'auth/wrong-password') {
-            if (errorEl) {
-                errorEl.textContent = 'That email is not in Firebase yet. Use password admin123 to open Admin, then click Create Auth accounts.';
-                errorEl.style.display = 'block';
+        const users = getLocalUsers();
+
+        // BOOTSTRAP: when no admin-level account exists anywhere yet, the very
+        // first sign-in creates the Super Admin so the school is not locked out.
+        if (!hasAnyAdminLevelAccount()) {
+            if (password.length < 6) {
+                showAuthError(errorEl, 'Password must be at least 6 characters to create the first admin account.');
+                return;
             }
+            const firstAdmin = {
+                uid: 'admin_' + Date.now().toString(36),
+                email,
+                displayName: email.split('@')[0],
+                name: email.split('@')[0],
+                role: 'Super Admin',
+                status: 'active',
+                password,
+                assignedClasses: [],
+                assignedSubjects: []
+            };
+            const list = getLocalUsers();
+            list.push(firstAdmin);
+            localStorage.setItem('users', JSON.stringify(list));
+            adminState.users = list;
+            if (typeof syncSaveCollection === 'function') { try { await syncSaveCollection('users', list); } catch (e) {} }
+            await enterAdmin(firstAdmin, 'first-run setup');
+            showToast('Super Admin account created.', 'success');
             return;
         }
-        const msg = code === 'auth/invalid-email' ? 'Invalid email address.' :
-                    code === 'auth/too-many-requests' ? 'Too many attempts. Try again later.' :
-                    `Login failed: ${e.message}`;
-        if (errorEl) { errorEl.textContent = msg; errorEl.style.display = 'block'; }
+
+        // Find the account for this email.
+        const account = findAccountByEmail(email);
+
+        // Firebase sign-in (validates the real password), then enforce role.
+        if (isFirebaseActive && typeof loginFirebaseUser === 'function') {
+            try {
+                await loginFirebaseUser(email, password);
+                const profile = getCurrentUserProfile();
+                const role = profile?.role || account?.role || '';
+                if (!isAdminPortalRole(role)) {
+                    try { await logoutFirebaseUser(); } catch (e) {}
+                    currentUserProfile = null;
+                    showAuthError(errorEl, 'This account does not have admin access. Contact your system administrator.');
+                    return;
+                }
+                await enterAdmin(profile || account, 'cloud');
+                return;
+            } catch (e) {
+                const code = e.code || '';
+                const msg  = e.message || '';
+                if (/deactivated/i.test(msg)) { showAuthError(errorEl, msg); return; }
+                if (code === 'auth/invalid-email') { showAuthError(errorEl, 'Invalid email address.'); return; }
+                if (code === 'auth/too-many-requests') { showAuthError(errorEl, 'Too many attempts. Try again later.'); return; }
+                // Fall through to the local password check for offline/local accounts.
+            }
+        }
+
+        // Local account check.
+        if (!account) {
+            showAuthError(errorEl, 'No admin account found for this email. Only accounts created by the school can sign in.');
+            return;
+        }
+        if (account.status === 'inactive') {
+            showAuthError(errorEl, 'This account has been deactivated by the Administrator.');
+            return;
+        }
+        if (!isAdminPortalRole(account.role)) {
+            showAuthError(errorEl, 'This account does not have admin access. Contact your system administrator.');
+            return;
+        }
+        if (!account.password || account.password !== password) {
+            showAuthError(errorEl, 'Incorrect email or password.');
+            return;
+        }
+        await enterAdmin(account, 'local');
+    } catch (e) {
+        showAuthError(errorEl, `Login failed: ${e.message || e}`);
     } finally {
         if (btnText) btnText.style.display = 'inline-flex';
         if (btnLoader) btnLoader.style.display = 'none';
@@ -179,6 +273,7 @@ async function handleAdminLogin() {
 async function handleAdminLogout() {
     await logoutFirebaseUser();
     sessionStorage.removeItem('adminUnlocked');
+    sessionStorage.removeItem('adminEmail');
     currentUserProfile = null;
     showAuthOverlay();
     // Destroy charts
@@ -967,8 +1062,12 @@ async function saveTeacher() {
     const assignedSubjects = getCheckedValues('tm-subjects-checkboxes');
 
     if (!name || !email) { showToast('Name and email are required.', 'error'); return; }
+    if (!id && !password) { showToast('A password is required so the teacher can sign in.', 'error'); return; }
 
     const teacherData = { name, email, phone, role, status, assignedClasses, assignedSubjects };
+    // Store the password on the record so the teacher can sign in with the
+    // exact credentials the admin created (strict login).
+    if (!id && password) teacherData.password = password;
 
     try {
         if (!id) {
@@ -2038,8 +2137,8 @@ function renderUsersTable() {
             <td><span class="status-pill ${u.status || 'active'}">${u.status || 'active'}</span></td>
             <td>
                 <div class="action-btns">
-                    <button class="action-btn" title="Change Role" onclick="changeUserRole('${u.uid}')"><i class="fas fa-user-tag"></i></button>
-                    <button class="action-btn ${u.status === 'inactive' ? 'success' : 'warning'}" onclick="toggleUserStatus('${u.uid}')">
+                    <button class="action-btn" title="Change Role" onclick="changeUserRole('${u.id || u.uid}')"><i class="fas fa-user-tag"></i></button>
+                    <button class="action-btn ${u.status === 'inactive' ? 'success' : 'warning'}" onclick="toggleUserStatus('${u.id || u.uid}')">
                         <i class="fas ${u.status === 'inactive' ? 'fa-user-check' : 'fa-user-slash'}"></i>
                     </button>
                 </div>
@@ -2088,14 +2187,23 @@ async function createUserAccount() {
     }
 
     try {
-        const creds = await registerFirebaseUser(email, password, name, role);
-        adminState.users.push({
-            uid: creds.user.uid, email, displayName: name, role, status: 'active',
-            assignedClasses: [], assignedSubjects: []
-        });
+        if (isFirebaseActive) {
+            const creds = await registerFirebaseUser(email, password, name, role);
+            adminState.users.push({
+                uid: creds.user.uid, id: creds.user.uid, email, displayName: name, role, status: 'active',
+                password, assignedClasses: [], assignedSubjects: []
+            });
+        } else {
+            const newDoc = await addDocument('users', {
+                email, displayName: name, name, role, status: 'active',
+                password, assignedClasses: [], assignedSubjects: []
+            });
+            adminState.users.push({ ...newDoc, uid: newDoc.id });
+        }
         closeModal('createUserModal');
         renderUsersTable();
         showToast('User account created!', 'success');
+        await logActivity('User Created', `Created ${role} account ${email}`);
     } catch (e) {
         const msg = e.code === 'auth/email-already-in-use' ? 'This email is already registered.' : e.message;
         if (errorEl) { errorEl.textContent = msg; errorEl.style.display = 'block'; }
@@ -2103,7 +2211,7 @@ async function createUserAccount() {
 }
 
 async function changeUserRole(uid) {
-    const u = adminState.users.find(u => u.uid === uid);
+    const u = adminState.users.find(u => u.uid === uid || u.id === uid);
     if (!u) return;
     const roles = ['Super Admin','Administrator','Headteacher','Class Teacher','Teacher'];
     const newRole = prompt(`Current role: ${u.role}\nEnter new role (${roles.join(', ')}):`);
@@ -2116,7 +2224,7 @@ async function changeUserRole(uid) {
 }
 
 async function toggleUserStatus(uid) {
-    const u = adminState.users.find(u => u.uid === uid);
+    const u = adminState.users.find(u => u.uid === uid || u.id === uid);
     if (!u) return;
     const newStatus = u.status === 'inactive' ? 'active' : 'inactive';
     await updateDocument('users', uid, { status: newStatus });

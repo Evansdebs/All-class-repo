@@ -20,12 +20,8 @@ let activeStudentData = null;
 let realtimeUnsubscribers = [];
 
 document.addEventListener('DOMContentLoaded', () => {
-    // Pre-fill remembered student ID
-    const savedId = sessionStorage.getItem('studentAuthId');
-    if (savedId) {
-        document.getElementById('studentLoginId').value = savedId;
-        loadStudentDashboard(savedId);
-    }
+    // Access is strictly by login: a page refresh always starts logged out.
+    sessionStorage.removeItem('studentAuthId');
 });
 
 async function handleStudentLogin() {

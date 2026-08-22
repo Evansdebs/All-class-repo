@@ -91,6 +91,11 @@ function initFirebase(config = getStoredFirebaseConfig()) {
         if (firebase.storage) storage = firebase.storage();
 
         try {
+            // Sessions must not survive a page refresh — access is strictly by login.
+            auth.setPersistence(firebase.auth.Auth.Persistence.NONE).catch(() => {});
+        } catch (e) {}
+
+        try {
             db.enablePersistence({ synchronizeTabs: true }).catch(() => {});
         } catch (e) {}
 
@@ -195,37 +200,46 @@ function getAssignedSubjects() {
 
 async function loginFirebaseUser(email, password) {
     if (!auth) throw new Error('Firebase Auth not initialized.');
+    try { await auth.setPersistence(firebase.auth.Auth.Persistence.NONE); } catch (e) {}
     const creds = await auth.signInWithEmailAndPassword(email, password);
     const profile = await loadUserProfile(creds.user.uid);
     if (profile?.status === 'inactive') {
         await auth.signOut();
         throw new Error('Your account has been deactivated by the Administrator.');
     }
-    await logActivity('User Login', `Logged in as ${email}`);
+    // Fire-and-forget: the audit write must not delay the sign-in flow.
+    logActivity('User Login', `Logged in as ${email}`).catch(() => {});
     return creds;
 }
 
 async function registerFirebaseUser(email, password, displayName, role = 'Teacher') {
     if (!auth) throw new Error('Firebase Auth not initialized.');
-    const creds = await auth.createUserWithEmailAndPassword(email, password);
+    // Use a secondary app so creating a teacher account does not replace
+    // the administrator's own signed-in session.
+    const secondary = firebase.initializeApp(getStoredFirebaseConfig(), 'register_' + Date.now());
+    try {
+        const creds = await secondary.auth().createUserWithEmailAndPassword(email, password);
 
-    // Create user profile in Firestore
-    if (db) {
-        await db.collection('users').doc(creds.user.uid).set({
-            uid: creds.user.uid,
-            email,
-            displayName: displayName || email,
-            role,
-            assignedClasses: [],
-            assignedSubjects: [],
-            status: 'active',
-            createdAt: firebase.firestore.FieldValue.serverTimestamp()
-        });
+        // Create user profile in Firestore
+        if (db) {
+            await db.collection('users').doc(creds.user.uid).set({
+                uid: creds.user.uid,
+                email,
+                displayName: displayName || email,
+                role,
+                assignedClasses: [],
+                assignedSubjects: [],
+                status: 'active',
+                createdAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+        }
+
+        await logActivity('User Registration', `Created account ${email} with role ${role}`);
+        await secondary.auth().signOut();
+        return creds;
+    } finally {
+        try { await secondary.delete(); } catch (e) {}
     }
-
-    await loadUserProfile(creds.user.uid);
-    await logActivity('User Registration', `Created account ${email} with role ${role}`);
-    return creds;
 }
 
 async function logoutFirebaseUser() {
@@ -667,6 +681,7 @@ async function addDocument(collectionName, data) {
         const newItem = { id: `local_${Date.now()}`, ...data, createdAt: new Date().toISOString() };
         items.push(newItem);
         localStorage.setItem(collectionName, JSON.stringify(items));
+        syncCollectionToServer(collectionName);
         return newItem;
     }
     const ref = await db.collection(collectionName).add({
@@ -681,7 +696,7 @@ async function updateDocument(collectionName, docId, data) {
     if (!isFirebaseActive || !db) {
         const items = JSON.parse(localStorage.getItem(collectionName) || '[]');
         const idx = items.findIndex(i => i.id === docId);
-        if (idx >= 0) { items[idx] = { ...items[idx], ...data }; localStorage.setItem(collectionName, JSON.stringify(items)); }
+        if (idx >= 0) { items[idx] = { ...items[idx], ...data }; localStorage.setItem(collectionName, JSON.stringify(items)); syncCollectionToServer(collectionName); }
         return;
     }
     await db.collection(collectionName).doc(docId).update({
@@ -694,6 +709,7 @@ async function deleteDocument(collectionName, docId) {
     if (!isFirebaseActive || !db) {
         const items = JSON.parse(localStorage.getItem(collectionName) || '[]').filter(i => i.id !== docId);
         localStorage.setItem(collectionName, JSON.stringify(items));
+        syncCollectionToServer(collectionName);
         return;
     }
     await db.collection(collectionName).doc(docId).delete();
@@ -711,6 +727,20 @@ async function getDocument(collectionName, docId) {
 // ──────────────────────────────────────────────────────────────────────────────
 // LEGACY SYNC FUNCTIONS (backward-compatible with report.js)
 // ──────────────────────────────────────────────────────────────────────────────
+
+// Fire-and-forget mirror of a collection to the local Node server so other
+// portals (teacher/student) pick up admin changes even without Firebase.
+function syncCollectionToServer(collectionName) {
+    try {
+        const payload = {};
+        payload[collectionName] = JSON.parse(localStorage.getItem(collectionName) || '[]');
+        fetch('/api/sync', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        }).catch(() => {});
+    } catch (e) {}
+}
 
 async function syncSaveCollection(collectionName, data) {
     localStorage.setItem(collectionName, JSON.stringify(data));
@@ -951,35 +981,52 @@ async function pushSchoolToFirebase() {
 async function pullSchoolFromFirebase() {
     if (!isFirebaseConnected()) return false;
     const schoolId = schoolDocId();
-    let any = false;
-    for (const key of SCHOOL_PAYLOAD_KEYS) {
-        try {
+
+    // Fetch every collection in parallel. The old sequential loop made sign-in
+    // wait for ~28 network round trips one after another, which stalled the UI
+    // badly on slow or flaky connections.
+    const jobs = [];
+
+    SCHOOL_PAYLOAD_KEYS.forEach(key => {
+        jobs.push((async () => {
             const doc = await db.collection('schools').doc(schoolId).collection(key).doc('main_data').get();
             if (doc.exists && doc.data().payload) {
                 localStorage.setItem(key, doc.data().payload);
-                any = true;
+                return true;
             }
-        } catch (e) {}
-    }
+            return false;
+        })().catch(() => false));
+    });
+
     const arrays = ['students', 'teachers', 'classes', 'subjects', 'academicYears', 'terms', 'results', 'reports', 'users', 'gradingScales'];
-    for (const col of arrays) {
-        try {
+    arrays.forEach(col => {
+        jobs.push((async () => {
             const snap = await db.collection(col).get();
             if (!snap.empty) {
                 const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
                 localStorage.setItem(col, JSON.stringify(data));
-                any = true;
+                return true;
             }
-        } catch (e) {}
-    }
-    try {
+            return false;
+        })().catch(() => false));
+    });
+
+    jobs.push((async () => {
         const settingsDoc = await db.collection('schoolSettings').doc('main').get();
         if (settingsDoc.exists) {
             localStorage.setItem('schoolSettings', JSON.stringify(settingsDoc.data()));
-            any = true;
+            return true;
         }
-    } catch (e) {}
-    return any;
+        return false;
+    })().catch(() => false));
+
+    // Cap the whole sync so a dead or slow connection can never stall the UI.
+    const results = await Promise.race([
+        Promise.allSettled(jobs),
+        new Promise(resolve => setTimeout(() => resolve(null), 12000))
+    ]);
+    if (!results) return false;
+    return results.some(r => r.status === 'fulfilled' && r.value === true);
 }
 
 async function provisionAuthUser(email, password, displayName, role) {
@@ -1012,8 +1059,15 @@ async function provisionStaffFromLocal() {
     const created = [];
     const skipped = [];
     const people = [];
-    teachers.forEach(t => { if (t.email) people.push({ email: t.email, name: t.name, role: t.role || 'Teacher', password: t.password || 'teacher123' }); });
-    users.forEach(u => { if (u.email && !people.some(p => p.email.toLowerCase() === u.email.toLowerCase())) people.push({ email: u.email, name: u.displayName || u.name, role: u.role || 'Teacher', password: u.password || 'admin123' }); });
+    // Strict access: only accounts with a saved password are provisioned.
+    teachers.forEach(t => {
+        if (t.email && t.password) people.push({ email: t.email, name: t.name, role: t.role || 'Teacher', password: t.password });
+        else if (t.email) skipped.push(t.email + ' (no password set)');
+    });
+    users.forEach(u => {
+        if (u.email && u.password && !people.some(p => p.email.toLowerCase() === u.email.toLowerCase())) people.push({ email: u.email, name: u.displayName || u.name, role: u.role || 'Teacher', password: u.password });
+        else if (u.email && !u.password) skipped.push(u.email + ' (no password set)');
+    });
     for (const p of people) {
         try {
             await provisionAuthUser(p.email, p.password, p.name, p.role);

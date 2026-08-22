@@ -275,14 +275,26 @@
   ],
   "results": [],
   "reports": [],
-  "scores": {},
+  "scores": {
+    "COMPUTING": {
+      "D8n3h1m8MBbIt3obs9Mr": {
+        "classScore": 13,
+        "examScore": 32,
+        "totalScore": 22.5,
+        "classScore50": 6.5,
+        "examScore50": 16,
+        "grade": "B",
+        "remark": "BEGINNER"
+      }
+    }
+  },
   "schoolInfo": {
     "academicYear": "2025/2026",
     "term": "1",
-    "closingDate": "18th DEC, 2025",
-    "reopeningDate": "12th JAN, 2026",
+    "closingDate": "",
+    "reopeningDate": "",
     "classTeacher": "",
-    "headTeacher": "REV. DR. OSEI KOFI",
+    "headTeacher": "",
     "schoolLogo": null,
     "numberOnRollByClass": {}
   },
@@ -290,32 +302,18 @@
     "schoolName": "The Living Spring School",
     "motto": "Drink deep or taste not the spring of knowledge",
     "address": "P.O. Box 16493 K.I.A, Accra",
-    "phone": "0243438604",
-    "email": "info@livingspring.edu.gh",
+    "phone": "",
+    "email": "",
     "reportTitle": "END OF TERM REPORT SHEET",
-    "closingDate": "18th DEC, 2025",
-    "reopeningDate": "12th JAN, 2026",
-    "headTeacher": "REV. DR. OSEI KOFI",
+    "closingDate": "",
+    "reopeningDate": "",
+    "headTeacher": "",
     "primaryColor": "#1a56db",
-    "secondaryColor": "#3af2a3",
+    "secondaryColor": "#7e3af2",
     "headerTextColor": "#ffffff",
     "schoolLogo": null,
     "signature": null,
-    "fieldToggles": {
-      "showPosition": true,
-      "showSchoolMotto": true,
-      "showSchoolLogo": true,
-      "showAttendance": true,
-      "showNextTerm": true,
-      "showSignature": true,
-      "showConduct": true,
-      "showClassTeacherRemark": true,
-      "showGradingTable": true,
-      "showStudentPhoto": true,
-      "showHeadteacherRemark": true,
-      "showNumberOnRoll": true,
-      "showPromotionStatus": true
-    }
+    "fieldToggles": {}
   },
   "studentReportDetails": {
     "D8n3h1m8MBbIt3obs9Mr": {
@@ -326,18 +324,19 @@
   "auditLogs": [],
   "attendanceMarks": {
     "D8n3h1m8MBbIt3obs9Mr": {
-      "2026-08-19": {
+      "2026-08-21": {
         "status": "present",
-        "className": "",
-        "termKey": "2025/2026|1",
-        "by": "admin",
-        "at": "2026-08-19T22:01:44.153Z"
+        "className": "BASIC 9",
+        "termKey": "2026|1",
+        "by": "teacher@school.com",
+        "at": "2026-08-22T13:35:48.271Z"
       }
     }
   },
   "attendanceSettings": {
     "defaultDays": {},
     "studentDays": {},
-    "studentPresentOverride": {}
+    "studentPresentOverride": {},
+    "updatedAt": "2026-08-22T13:13:37.914Z"
   }
 }

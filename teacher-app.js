@@ -1,6 +1,7 @@
 'use strict';
 
-const SUBJECTS = [
+// Fallback only — subjects are created by the admin and synced to this portal.
+const LEGACY_SUBJECTS = [
     'English Language', 'Mathematics', 'Science', 'RME', 'History',
     'Creative Arts', 'Computing', 'French', 'Asante Twi', 'Career Technology'
 ];
@@ -59,6 +60,82 @@ function persistParents() { saveJSON('parentContacts', parentContacts); }
 function schoolName() {
     return schoolSettings.schoolName || 'The Living Spring School';
 }
+
+// ── Admin-managed subjects ──────────────────────────────────────────────────
+// Subjects are created in the Admin Dashboard and assigned to classes and
+// teachers there. This portal reads them from the synced `subjects`
+// collection instead of a hardcoded list.
+function adminSubjects() {
+    const docs = loadJSON('subjects', []);
+    if (!Array.isArray(docs)) return [];
+    return docs.filter(d => d && d.name && String(d.status || 'active').toLowerCase() !== 'inactive');
+}
+
+function classIdForName(name) {
+    const classes = loadJSON('classes', []);
+    const c = classes.find(c => c.name === name || String(c.id) === String(name));
+    return c ? c.id : name;
+}
+
+function currentTeacherRecord() {
+    const email = (sessionStorage.getItem('teacherEmail') || '').toLowerCase();
+    if (!email) return null;
+    const teachers = loadJSON('teachers', []);
+    const users = loadJSON('users', []);
+    return teachers.find(t => (t.email || '').toLowerCase() === email)
+        || users.find(u => (u.email || '').toLowerCase() === email)
+        || null;
+}
+
+// ── Class access control ────────────────────────────────────────────────────
+// A teacher only sees classes the admin assigned to them. Admin-role accounts
+// (Administrator / Headteacher) keep access to every class.
+const ADMIN_LEVEL_ROLES = ['super admin', 'administrator', 'headteacher', 'head teacher', 'admin'];
+
+function teacherAllowedClasses() {
+    const all = classList();
+    const rec = currentTeacherRecord();
+    if (!rec) return [];
+    const role = String(rec.role || '').toLowerCase();
+    if (ADMIN_LEVEL_ROLES.includes(role)) return all;
+    const assigned = Array.isArray(rec.assignedClasses) ? rec.assignedClasses : [];
+    if (!assigned.length) return [];
+    const classes = loadJSON('classes', []);
+    const names = [];
+    assigned.forEach(ref => {
+        const c = classes.find(c => String(c.id) === String(ref) || c.name === ref);
+        const name = c ? c.name : String(ref);
+        if (name && all.includes(name) && !names.includes(name)) names.push(name);
+    });
+    return names;
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
+function subjectAssignedToTeacher(doc, teacher) {
+    const assigned = Array.isArray(teacher?.assignedSubjects) ? teacher.assignedSubjects : [];
+    if (!assigned.length) return true; // nothing assigned → teacher sees the class subjects
+    return assigned.includes(doc.id) || assigned.includes(doc.name);
+}
+
+function subjectAssignedToClass(doc, className) {
+    const ids = Array.isArray(doc.classIds) ? doc.classIds : [];
+    if (!ids.length) return true; // no classes ticked → treated as offered everywhere
+    const cid = classIdForName(className);
+    return ids.includes(cid) || ids.includes(className);
+}
+
+// Subjects for the class currently open, filtered by the teacher's assignment.
+function classSubjects() {
+    const docs = adminSubjects();
+    if (!docs.length) return LEGACY_SUBJECTS.slice(); // until the admin creates subjects
+    const forClass = docs.filter(d => subjectAssignedToClass(d, currentClass));
+    const teacher = currentTeacherRecord();
+    const forTeacher = forClass.filter(d => subjectAssignedToTeacher(d, teacher));
+    const list = forTeacher.length ? forTeacher : forClass;
+    if (!list.length) return docs.map(d => d.name);
+    return list.map(d => d.name);
+}
+// ─────────────────────────────────────────────────────────────────────────────
 function classList() {
     const fromAdmin = loadJSON('classes', []);
     if (fromAdmin.length) return fromAdmin.filter(c => c.status !== 'inactive').map(c => c.name);
@@ -210,6 +287,23 @@ function togglePw(id, btn) {
     btn.innerHTML = input.type === 'password' ? '<i class="fas fa-eye"></i>' : '<i class="fas fa-eye-slash"></i>';
 }
 
+function setTeacherLoginLoading(on) {
+    const btn = document.getElementById('teacherLoginBtn');
+    if (!btn) return;
+    btn.disabled = on;
+    btn.innerHTML = on
+        ? '<i class="fas fa-spinner fa-spin"></i> Signing in…'
+        : '<i class="fas fa-sign-in-alt"></i> Sign In';
+}
+
+function withTimeout(promise, ms, label) {
+    let timer;
+    return Promise.race([
+        promise,
+        new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(label + ' timed out')), ms); })
+    ]).finally(() => clearTimeout(timer));
+}
+
 async function teacherLogin() {
     const email = document.getElementById('teacherLoginEmail').value.trim();
     const password = document.getElementById('teacherLoginPassword').value;
@@ -221,43 +315,50 @@ async function teacherLogin() {
         return;
     }
     if (typeof initFirebase === 'function') initFirebase();
-    const demoTeacher = /^(teacher@school\.com|ama@school\.com)$/i.test(email);
-    const localPassOk = password === 'teacher123' || password === 'admin123';
-    if (typeof isFirebaseActive !== 'undefined' && isFirebaseActive && typeof loginFirebaseUser === 'function' && !localPassOk) {
-        try {
-            const creds = await loginFirebaseUser(email, password);
-            sessionStorage.setItem('teacherUnlocked', 'true');
-            sessionStorage.setItem('teacherEmail', email);
-            sessionStorage.setItem('teacherName', getCurrentUserProfile()?.displayName || creds.user.email);
-            await openApp();
-            return;
-        } catch (e) {
-            /* fall through to local login */
-        }
-    }
+    setTeacherLoginLoading(true);
+
+    // Strict access: only accounts created by the administrator can log in.
     const teachers = loadJSON('teachers', []);
     const users = loadJSON('users', []);
     const t = teachers.find(x => (x.email || '').toLowerCase() === email.toLowerCase());
     const u = users.find(x => (x.email || '').toLowerCase() === email.toLowerCase());
-    if (!t && !u && !demoTeacher) {
-        err.textContent = 'No teacher account for this email. Ask admin to add you, or use teacher@school.com / teacher123.';
+    if (!t && !u) {
+        err.textContent = 'No account found for this email. Accounts are created by the school administrator.';
         err.style.display = 'block';
+        setTeacherLoginLoading(false);
         return;
     }
     if (t?.status === 'inactive' || u?.status === 'inactive') {
-        err.textContent = 'This account is deactivated.';
+        err.textContent = 'This account has been deactivated by the administrator.';
         err.style.display = 'block';
+        setTeacherLoginLoading(false);
         return;
     }
-    const stored = u?.password || t?.password || null;
-    if (!((stored && password === stored) || password === 'teacher123' || password === 'admin123')) {
-        err.textContent = 'Incorrect password.';
+
+    let ok = false;
+    if (typeof isFirebaseActive !== 'undefined' && isFirebaseActive && typeof loginFirebaseUser === 'function') {
+        try {
+            const creds = await withTimeout(loginFirebaseUser(email, password), 10000, 'Sign-in');
+            sessionStorage.setItem('teacherName', getCurrentUserProfile()?.displayName || creds.user.email);
+            ok = true;
+        } catch (e) {
+            /* fall through to the stored password check */
+        }
+    }
+    const stored = u?.password || t?.password || '';
+    if (!ok && stored && password === stored) ok = true;
+    if (!ok) {
+        err.textContent = 'Incorrect email or password. Use the credentials the administrator created for you.';
         err.style.display = 'block';
+        setTeacherLoginLoading(false);
         return;
     }
+
     sessionStorage.setItem('teacherUnlocked', 'true');
     sessionStorage.setItem('teacherEmail', email);
-    sessionStorage.setItem('teacherName', u?.displayName || t?.name || email.split('@')[0]);
+    if (!sessionStorage.getItem('teacherName')) {
+        sessionStorage.setItem('teacherName', u?.displayName || t?.name || email.split('@')[0]);
+    }
     await openApp();
 }
 
@@ -272,17 +373,8 @@ function teacherLogout() {
 
 async function openApp() {
     loadAll();
-    if (typeof pullSchoolFromFirebase === 'function') {
-        try { await pullSchoolFromFirebase(); loadAll(); } catch (e) {}
-    }
-    if (typeof startSchoolRealtime === 'function') {
-        startSchoolRealtime(function () {
-            loadAll();
-            if (currentClass) openTab(currentTab);
-            else renderHub();
-        });
-    }
-    if (typeof Attendance !== 'undefined' && Attendance.hydrateFromServer) Attendance.hydrateFromServer().catch(() => {});
+    // Show the app immediately with local data. Cloud sync keeps running in
+    // the background instead of holding the sign-in screen hostage.
     document.getElementById('teacherAuthOverlay').style.display = 'none';
     document.getElementById('app').style.display = 'block';
     document.getElementById('teacherChip').textContent = sessionStorage.getItem('teacherName') || 'Teacher';
@@ -290,13 +382,71 @@ async function openApp() {
     document.getElementById('termLabel').textContent = (schoolInfo.academicYear || '') + ' · ' + termHeading();
     fillHeaderClasses();
     const saved = sessionStorage.getItem('teacherClass');
-    if (saved && classList().includes(saved)) enterClass(saved);
+    const allowed = teacherAllowedClasses();
+    if (saved && allowed.includes(saved)) enterClass(saved);
     else showHub();
+    setTeacherLoginLoading(false);
+
+    const refreshFromSync = () => {
+        loadAll();
+        fillHeaderClasses();
+        document.getElementById('schoolNameLabel').textContent = schoolName();
+        document.getElementById('termLabel').textContent = (schoolInfo.academicYear || '') + ' · ' + termHeading();
+        updateSidebarState();
+        if (currentSubject && !classSubjects().includes(currentSubject)) currentSubject = '';
+        if (currentClass) openTab(currentTab);
+        else renderHub();
+    };
+
+    // Cloud (Firebase) and local-server sync run in the background.
+    const syncJobs = [];
+    if (typeof pullSchoolFromFirebase === 'function') {
+        syncJobs.push(pullSchoolFromFirebase().catch(() => false));
+    }
+    syncJobs.push(hydrateSchoolFromServer());
+    Promise.all(syncJobs).then(results => {
+        if (results.some(Boolean)) refreshFromSync();
+    }).catch(() => {});
+
+    if (typeof startSchoolRealtime === 'function') {
+        startSchoolRealtime(function () {
+            loadAll();
+            fillHeaderClasses();
+            updateSidebarState();
+            if (currentSubject && !classSubjects().includes(currentSubject)) currentSubject = '';
+            if (currentClass) openTab(currentTab);
+            else renderHub();
+        });
+    }
+    if (typeof Attendance !== 'undefined' && Attendance.hydrateFromServer) Attendance.hydrateFromServer().catch(() => {});
+}
+
+// Pull admin-managed data (subjects, classes, teachers, students, settings)
+// from the local server so portals stay in sync even without Firebase.
+function hydrateSchoolFromServer() {
+    if (typeof isFirebaseConnected === 'function' && isFirebaseConnected()) return Promise.resolve(false);
+    return fetch('/api/db').then(function (res) { return res.ok ? res.json() : null; }).then(function (db) {
+        if (!db) return false;
+        let changed = false;
+        ['classes', 'subjects', 'teachers', 'students', 'schoolSettings', 'schoolInfo'].forEach(function (k) {
+            const remote = db[k];
+            if (remote == null) return;
+            try {
+                const localRaw = localStorage.getItem(k);
+                const local = localRaw ? JSON.parse(localRaw) : null;
+                // Never wipe local data with an empty server collection.
+                if (Array.isArray(remote) && !remote.length && Array.isArray(local) && local.length) return;
+                const remoteStr = JSON.stringify(remote);
+                if (localRaw !== remoteStr) { localStorage.setItem(k, remoteStr); changed = true; }
+            } catch (e) {}
+        });
+        return changed;
+    }).catch(function () { return false; });
 }
 
 function fillHeaderClasses() {
     const sel = document.getElementById('headerClassSelect');
-    sel.innerHTML = classList().map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join('');
+    sel.innerHTML = teacherAllowedClasses().map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join('');
     if (currentClass) sel.value = currentClass;
 }
 
@@ -306,12 +456,22 @@ function showHub() {
     document.getElementById('view-hub').classList.add('active');
     document.getElementById('view-class').classList.remove('active');
     document.getElementById('classSwitcherWrap').style.display = 'none';
+    updateSidebarState();
+    closeSidebar();
     renderHub();
 }
 
 function renderHub() {
     const grid = document.getElementById('classHubGrid');
-    grid.innerHTML = classList().map(name => {
+    const allowed = teacherAllowedClasses();
+    if (!allowed.length) {
+        grid.innerHTML = `<div class="empty" style="grid-column:1/-1;">
+            No classes are assigned to your account yet.<br>
+            Ask the administrator to assign classes to you (Teachers → edit your account → Classes).
+        </div>`;
+        return;
+    }
+    grid.innerHTML = allowed.map(name => {
         const n = students.filter(s => s.class === name).length;
         const teacher = classTeacherName(name);
         return `<button class="hub-card" onclick="enterClass('${esc(name)}')">
@@ -325,21 +485,62 @@ function renderHub() {
 
 function switchClass(name) { enterClass(name); }
 
-function enterClass(name) {
+function enterClass(name, tab) {
+    if (!teacherAllowedClasses().includes(name)) {
+        toast('You are not assigned to that class.', 'bad');
+        showHub();
+        return;
+    }
     currentClass = name;
     sessionStorage.setItem('teacherClass', name);
+    if (currentSubject && !classSubjects().includes(currentSubject)) currentSubject = '';
     document.getElementById('view-hub').classList.remove('active');
     document.getElementById('view-class').classList.add('active');
     document.getElementById('classSwitcherWrap').style.display = 'flex';
     fillHeaderClasses();
-    openTab(currentTab || 'students');
+    updateSidebarState();
+    openTab(tab || currentTab || 'students');
+}
+
+function updateSidebarState() {
+    const classLabel = document.getElementById('sidebarClassLabel');
+    if (classLabel) classLabel.textContent = currentClass || 'All classes';
+    const title = document.getElementById('topbarTitle');
+    if (title) title.textContent = currentClass ? currentClass : 'Your classes';
+    document.querySelectorAll('.side-link[data-tab]').forEach(b => {
+        b.classList.toggle('active', !!currentClass && b.dataset.tab === currentTab);
+    });
+    const hub = document.getElementById('hubLink');
+    if (hub) hub.classList.toggle('active', !currentClass);
+}
+
+function toggleSidebar() {
+    const layout = document.getElementById('appLayout');
+    if (layout) layout.classList.toggle('sidebar-open');
+}
+
+function closeSidebar() {
+    const layout = document.getElementById('appLayout');
+    if (layout) layout.classList.remove('sidebar-open');
 }
 
 function openTab(tab) {
+    if (!currentClass) {
+        // Sidebar sections stay reachable from the hub — open the last class.
+        const allowed = teacherAllowedClasses();
+        const saved = sessionStorage.getItem('teacherClass');
+        const target = (saved && allowed.includes(saved)) ? saved : allowed[0];
+        if (!target) { toast('No classes are assigned to your account.', 'bad'); return; }
+        enterClass(target, tab);
+        return;
+    }
     currentTab = tab;
-    document.querySelectorAll('.nav-pill').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+    document.querySelectorAll('.nav-pill, .side-link[data-tab]').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
     document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
-    document.getElementById('tab-' + tab).classList.add('active');
+    const panel = document.getElementById('tab-' + tab);
+    if (panel) panel.classList.add('active');
+    updateSidebarState();
+    closeSidebar();
     renderStats();
     if (tab === 'students') renderStudents();
     if (tab === 'scores') renderScores();
@@ -353,7 +554,8 @@ function openTab(tab) {
 
 function renderStats() {
     const list = classStudents();
-    const scored = list.filter(s => SUBJECTS.some(sub => {
+    const subs = classSubjects();
+    const scored = list.filter(s => subs.some(sub => {
         const e = getScoreEntry(sub, s.id);
         return e.totalScore !== '';
     })).length;
@@ -406,7 +608,7 @@ function editStudent(id) {
     openModal(`<h3>Edit student</h3>
         <div class="field"><label>Name</label><input id="editName" value="${esc(s.name)}"></div>
         <div class="field" style="margin-top:10px;"><label>Move to class</label>
-            <select id="editClass">${classList().map(c => `<option ${c === s.class ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select>
+            <select id="editClass">${teacherAllowedClasses().map(c => `<option ${c === s.class ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select>
         </div>
         <div class="actions" style="margin-top:14px;">
             <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
@@ -428,7 +630,7 @@ function saveStudentEdit(id) {
 function deleteStudent(id) {
     if (!confirm('Delete this student and their scores?')) return;
     students = students.filter(s => s.id !== id);
-    SUBJECTS.forEach(sub => {
+    new Set([...Object.keys(scores || {}), ...classSubjects()]).forEach(sub => {
         if (!scores[sub]) return;
         delete scores[sub][id];
         delete scores[sub][String(id)];
@@ -448,15 +650,17 @@ function scoredCount(subject) {
 }
 
 function renderScores() {
+    const subs = classSubjects();
+    if (currentSubject && !subs.includes(currentSubject)) currentSubject = '';
     document.getElementById('tab-scores').innerHTML = `
         <div class="card">
             <p class="hint"><strong>How to enter marks:</strong> Type class and exam scores <em>out of 100</em>. Each is converted to 50% and added for a total out of 100. Example: class 80 → 40, exam 90 → 45, total 85. Autosaves.</p>
-            <div class="subject-grid">
-                ${SUBJECTS.map(sub => `<button class="subject-chip ${currentSubject === sub ? 'active' : ''}" onclick="openSubject('${sub.replace(/'/g, "\\'")}')">
+            ${subs.length ? `<div class="subject-grid">
+                ${subs.map(sub => `<button class="subject-chip ${currentSubject === sub ? 'active' : ''}" onclick="openSubject('${sub.replace(/'/g, "\\'")}')">
                     <strong>${esc(sub)}</strong>
                     <small>${scoredCount(sub)} / ${classStudents().length} entered</small>
                 </button>`).join('')}
-            </div>
+            </div>` : '<div class="empty">No subjects assigned to this class yet. Ask the admin to create subjects and assign them to this class.</div>'}
             <div style="margin-top:14px;">
                 <input type="file" id="marksFile" accept=".xlsx,.xls,.csv" style="display:none" onchange="importMarks(event)">
                 <button type="button" class="btn btn-ghost btn-sm" onclick="document.getElementById('marksFile').click()"><i class="fas fa-file-excel"></i> Import spreadsheet</button>
@@ -467,7 +671,7 @@ function renderScores() {
     const tpl = document.getElementById('downloadTemplateBtn');
     if (tpl) {
         const cls = currentClass || '';
-        const subject = currentSubject || 'Mathematics';
+        const subject = currentSubject || classSubjects()[0] || 'Mathematics';
         const name = (cls || 'class').replace(/\s/g, '_') + '_' + subject.replace(/\s/g, '_') + '_marks_template.csv';
         tpl.href = '/open?src=' + encodeURIComponent('/api/templates/marks.xlsx?class=' + encodeURIComponent(cls) + '&subject=' + encodeURIComponent(subject));
         tpl.setAttribute('download', name.replace(/\.csv$/i, '.xlsx'));
@@ -588,7 +792,7 @@ function autosaveScore(studentId, field, inputEl) {
 
 function marksTemplateRows() {
     const list = classStudents();
-    const subject = currentSubject || 'Mathematics';
+    const subject = currentSubject || classSubjects()[0] || 'Mathematics';
     return (list.length ? list : [
         { name: 'Ama Mensah (SAMPLE)', class: currentClass || 'Class 6' },
         { name: 'Kofi Asante (SAMPLE)', class: currentClass || 'Class 6' },
@@ -611,7 +815,7 @@ function downloadBlobFile(content, filename, mime) {
 
 function downloadMarksTemplate() {
     const cls = currentClass || '';
-    const subject = currentSubject || 'Mathematics';
+    const subject = currentSubject || classSubjects()[0] || 'Mathematics';
     const url = '/api/templates/marks.xlsx?class=' + encodeURIComponent(cls) + '&subject=' + encodeURIComponent(subject);
     window.location.href = '/open?src=' + encodeURIComponent(url);
 }
@@ -685,7 +889,7 @@ function importMarks(ev) {
 
 function studentPerf(id) {
     const items = [];
-    SUBJECTS.forEach(sub => {
+    classSubjects().forEach(sub => {
         const e = getScoreEntry(sub, id);
         if (e && e.classScore !== '' && e.examScore !== '') {
             const tot = totalScore(e.classScore, e.examScore);
@@ -700,10 +904,11 @@ function studentPerf(id) {
 }
 
 function renderBroadsheet() {
+    const subs = classSubjects();
     const list = classStudents().map(s => {
         const p = studentPerf(s.id);
         const map = {};
-        SUBJECTS.forEach(sub => {
+        subs.forEach(sub => {
             const e = getScoreEntry(sub, s.id);
             map[sub] = e && e.totalScore !== '' ? Number(e.totalScore) : null;
         });
@@ -717,12 +922,12 @@ function renderBroadsheet() {
                 <a class="btn btn-ghost btn-sm" id="exportBroadsheetBtn" href="/open?src=/api/export/broadsheet.xlsx"><i class="fas fa-file-excel"></i> Export Excel</a>
             </div>
             <div class="table-wrap"><table class="broadsheet">
-                <thead><tr><th>Pos</th><th>Student</th>${SUBJECTS.map(s => `<th>${esc(s.split(' ')[0])}</th>`).join('')}<th>Total</th><th>Avg</th></tr></thead>
+                <thead><tr><th>Pos</th><th>Student</th>${subs.map(s => `<th>${esc(s.split(' ')[0])}</th>`).join('')}<th>Total</th><th>Avg</th></tr></thead>
                 <tbody>
                     ${list.map(r => `<tr>
                         <td><span class="badge ${r.rank < 4 ? 'rank' + r.rank : ''}">${r.rank}</span></td>
                         <td class="name">${esc(r.s.name)}</td>
-                        ${SUBJECTS.map(sub => `<td>${r.map[sub] == null ? '—' : r.map[sub]}</td>`).join('')}
+                        ${subs.map(sub => `<td>${r.map[sub] == null ? '—' : r.map[sub]}</td>`).join('')}
                         <td><strong>${r.sum.toFixed(0)}</strong></td>
                         <td>${r.avg ? r.avg.toFixed(1) : '—'}</td>
                     </tr>`).join('') || '<tr><td colspan="20">No students</td></tr>'}
@@ -833,9 +1038,10 @@ function reportHTML(id) {
     if (!s) return '';
     const p = studentPerf(id);
     const d = studentReportDetails[id] || {};
+    const subs = classSubjects();
     const logo = schoolLogoSrc();
     const logoBox = logo ? `<img src="${logo}" alt="" style="width:100%;height:100%;object-fit:contain;">` : '';
-    let rows = SUBJECTS.map(sub => {
+    let rows = subs.map(sub => {
         const e = getScoreEntry(sub, id);
         if (e && e.classScore !== '' && e.examScore !== '') {
             const tot = totalScore(e.classScore, e.examScore);
@@ -866,7 +1072,7 @@ function reportHTML(id) {
             <div><span class="info-label">RE-OPENING DATE</span><div>${esc(schoolInfo.reopeningDate || '')}</div></div>
         </div>
         <table><thead><tr><th>SUBJECT</th><th>CLASS 50%</th><th>EXAM 50%</th><th>TOTAL</th><th>GRADE</th><th>REMARKS</th></tr></thead><tbody>${rows}</tbody></table>
-        ${p ? `<div class="student-info-grid"><div><span class="info-label">AVERAGE</span><div>${p.avg.toFixed(1)}%</div></div><div><span class="info-label">OVERALL</span><div>${p.grade} · ${p.remark}</div></div><div><span class="info-label">SUBJECTS</span><div>${p.items.length}/${SUBJECTS.length}</div></div></div>` : ''}
+        ${p ? `<div class="student-info-grid"><div><span class="info-label">AVERAGE</span><div>${p.avg.toFixed(1)}%</div></div><div><span class="info-label">OVERALL</span><div>${p.grade} · ${p.remark}</div></div><div><span class="info-label">SUBJECTS</span><div>${p.items.length}/${subs.length}</div></div></div>` : ''}
         <div class="attendance-section">
             <div><span class="info-label">ATTENDANCE</span><div>${esc(attendanceLabel(id, d))}</div></div>
             <div><span class="info-label">PROMOTED TO</span><div>${d.promotionStatus === 'Promoted' ? esc(d.promotionTarget || '') : '—'}</div></div>
@@ -916,7 +1122,7 @@ function generatePdfBlob(id) {
             let x = margin;
             heads.forEach((h, i) => { doc.text(h, x + 4, y + 12); x += cols[i]; });
             y += 18; doc.setFont('helvetica', 'normal'); doc.setTextColor(20, 20, 20);
-            SUBJECTS.forEach((sub, ri) => {
+            classSubjects().forEach((sub, ri) => {
                 const e = getScoreEntry(sub, id);
                 let vals = [sub, '—', '—', '—', '—', 'No scores'];
                 if (e && e.classScore !== '' && e.examScore !== '') {
@@ -1259,9 +1465,13 @@ function toggleDark() {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+    // Access is strictly by login: a page refresh always starts logged out.
+    sessionStorage.removeItem('teacherUnlocked');
+    sessionStorage.removeItem('teacherEmail');
+    sessionStorage.removeItem('teacherName');
+    sessionStorage.removeItem('teacherClass');
     if (localStorage.getItem('teacherDark') === '1') document.body.classList.add('dark');
     loadAll();
-    if (sessionStorage.getItem('teacherUnlocked') === 'true') openApp();
 });
 
 ;
