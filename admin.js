@@ -1487,6 +1487,8 @@ function openSubjectModal(id = null) {
     document.getElementById('subm-code').value = '';
     document.getElementById('subm-name').value = '';
     document.getElementById('subm-status').value = 'active';
+    const isCoreEl = document.getElementById('subm-isCore');
+    if (isCoreEl) isCoreEl.checked = false;
     renderCheckboxes('subm-classes-checkboxes', adminState.classes, 'id', 'name');
 
     if (id) {
@@ -1497,6 +1499,7 @@ function openSubjectModal(id = null) {
             document.getElementById('subm-code').value   = s.code || '';
             document.getElementById('subm-name').value   = s.name || '';
             document.getElementById('subm-status').value = s.status || 'active';
+            if (isCoreEl) isCoreEl.checked = !!s.isCore;
             renderCheckboxes('subm-classes-checkboxes', adminState.classes, 'id', 'name', s.classIds || []);
         }
     } else {
@@ -1510,11 +1513,12 @@ async function saveSubject() {
     const code   = document.getElementById('subm-code')?.value?.trim() || '';
     const name   = document.getElementById('subm-name')?.value?.trim() || '';
     const status = document.getElementById('subm-status')?.value || 'active';
+    const isCore = document.getElementById('subm-isCore')?.checked || false;
     const classIds = getCheckedValues('subm-classes-checkboxes');
 
     if (!name) { showToast('Subject name is required.', 'error'); return; }
 
-    const data = { code, name, status, classIds };
+    const data = { code, name, status, classIds, isCore };
     try {
         if (id) {
             await updateDocument('subjects', id, data);
@@ -2443,19 +2447,32 @@ function viewReport(id) {
     // JHS Aggregate
     let jhsAggregateHTML = '';
     if (isJHS) {
-        const coreKeywords = ['english','mathematics','science','social studies','integrated science'];
-        const coreResults = jhsSubjectResults.filter(r => r.tot !== null && coreKeywords.some(k => r.sub.toLowerCase().includes(k))).slice(0, 4);
-        const electiveResults = jhsSubjectResults.filter(r => r.tot !== null && !coreKeywords.some(k => r.sub.toLowerCase().includes(k)));
+        const adminCoreNames = new Set(
+            adminState.subjects.filter(s => s.isCore).map(s => s.name.toLowerCase())
+        );
+        const fallbackCoreKeywords = ['english','mathematics','science','social studies','integrated science'];
+        const useFallback = adminCoreNames.size === 0;
+
+        const isCoreSubject = (subName) => {
+            const lower = String(subName || '').toLowerCase();
+            if (!useFallback) return adminCoreNames.has(lower);
+            return fallbackCoreKeywords.some(k => lower.includes(k));
+        };
+
+        const coreResults = jhsSubjectResults.filter(r => r.tot !== null && isCoreSubject(r.sub)).slice(0, 4);
+        const electiveResults = jhsSubjectResults.filter(r => r.tot !== null && !isCoreSubject(r.sub));
         electiveResults.sort((a, b) => a.grade - b.grade);
         const bestTwo = electiveResults.slice(0, 2);
         const allAgg = [...coreResults, ...bestTwo];
         const totalAgg = allAgg.reduce((s, r) => s + r.grade, 0);
         const aggSubjects = allAgg.map(r => `${escHtml(r.sub)}: Grade ${r.grade}`).join(' | ');
+        const coreLabel = useFallback ? 'Core' : `Core (${coreResults.length}/4)`;
         jhsAggregateHTML = `
         <div style="background:#1e1b4b;color:#fff;padding:12px 16px;border-radius:8px;margin-bottom:16px;font-size:12.5px;">
             <div style="font-weight:700;font-size:14px;margin-bottom:6px;">JHS TOTAL AGGREGATE</div>
             <div style="font-size:22px;font-weight:800;letter-spacing:-1px;">${totalAgg} <span style="font-size:13px;font-weight:400;opacity:0.75;">(lower is better)</span></div>
             <div style="font-size:11px;margin-top:4px;opacity:0.85;">${aggSubjects}</div>
+            <div style="font-size:10.5px;margin-top:4px;opacity:0.65;">${coreLabel} + Best ${bestTwo.length} Elective(s)</div>
             ${allAgg.length < 6 ? '<div style="font-size:11px;margin-top:4px;color:#fbbf24;">&#9888; Not all 6 aggregate subjects have scores</div>' : ''}
         </div>`;
     }

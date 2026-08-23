@@ -1174,10 +1174,30 @@ function marksTemplateRows() {
 }
 
 function downloadBlobFile(content, filename, mime) {
-    if (window.OneRealFiles && OneRealFiles.download) {
-        return OneRealFiles.download(filename, content, mime);
+    try {
+        if (window.OneRealFiles && typeof OneRealFiles.download === 'function') {
+            const res = OneRealFiles.download(filename, content, mime);
+            if (res !== undefined) return res;
+        }
+    } catch (e) {}
+
+    try {
+        const blob = content instanceof Blob ? content : new Blob([content], { type: mime || 'application/octet-stream' });
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.style.display = 'none';
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => {
+            if (a.parentNode) document.body.removeChild(a);
+            window.URL.revokeObjectURL(url);
+        }, 3000);
+        return true;
+    } catch (err) {
+        console.error('Native downloadBlobFile failed:', err);
     }
-    toast('Open Save Excel from the sheet that appears.', 'ok');
 }
 
 function downloadMarksTemplate() {
@@ -1559,22 +1579,39 @@ function buildUnifiedReportHTML(id) {
     const yr = schoolInfo.academicYear || '';
     const tm = termHeading();
 
-    // JHS Aggregate: 4 core + 2 best electives
+    // JHS Aggregate: 4 core subjects (admin-marked) + 2 best electives
     let jhsAggregateHTML = '';
     if (isJHS) {
-        const coreKeywords = ['english','mathematics','science','social studies','integrated science'];
-        const coreResults = jhsSubjectResults.filter(r => r.tot !== null && coreKeywords.some(k => r.sub.toLowerCase().includes(k))).slice(0,4);
-        const electiveResults = jhsSubjectResults.filter(r => r.tot !== null && !coreKeywords.some(k => r.sub.toLowerCase().includes(k)));
-        electiveResults.sort((a,b) => a.grade - b.grade);
+        // Load subjects to check isCore flag set by admin
+        const allSubjects = loadJSON('subjects', []);
+        // Build a set of admin-marked core subject names (case-insensitive)
+        const adminCoreNames = new Set(
+            allSubjects.filter(s => s.isCore).map(s => s.name.toLowerCase())
+        );
+        // Fallback keyword list if admin hasn't configured core subjects yet
+        const fallbackCoreKeywords = ['english','mathematics','science','social studies','integrated science'];
+        const useFallback = adminCoreNames.size === 0;
+
+        const isCoreSubject = (subName) => {
+            const lower = subName.toLowerCase();
+            if (!useFallback) return adminCoreNames.has(lower);
+            return fallbackCoreKeywords.some(k => lower.includes(k));
+        };
+
+        const coreResults = jhsSubjectResults.filter(r => r.tot !== null && isCoreSubject(r.sub)).slice(0, 4);
+        const electiveResults = jhsSubjectResults.filter(r => r.tot !== null && !isCoreSubject(r.sub));
+        electiveResults.sort((a, b) => a.grade - b.grade);
         const bestTwo = electiveResults.slice(0, 2);
         const allAgg = [...coreResults, ...bestTwo];
         const totalAgg = allAgg.reduce((s, r) => s + r.grade, 0);
         const aggSubjects = allAgg.map(r => `${esc(r.sub)}: Grade ${r.grade}`).join(' | ');
+        const coreLabel = useFallback ? 'Core (keyword match — mark core subjects in Admin → Subjects for accuracy)' : `Core (${coreResults.length}/4)`;
         jhsAggregateHTML = `
         <div style="background:#1e1b4b;color:#fff;padding:12px 16px;border-radius:8px;margin-bottom:16px;font-size:12.5px;">
             <div style="font-weight:700;font-size:14px;margin-bottom:6px;">JHS TOTAL AGGREGATE</div>
             <div style="font-size:22px;font-weight:800;letter-spacing:-1px;">${totalAgg} <span style="font-size:13px;font-weight:400;opacity:0.75;">(lower is better)</span></div>
             <div style="font-size:11px;margin-top:4px;opacity:0.85;">${aggSubjects}</div>
+            <div style="font-size:10.5px;margin-top:4px;opacity:0.65;">${coreLabel} + Best ${bestTwo.length} Elective(s)</div>
             ${allAgg.length < 6 ? '<div style="font-size:11px;margin-top:4px;color:#fbbf24;">⚠ Not all 6 aggregate subjects have scores</div>' : ''}
         </div>`;
     }
@@ -1689,28 +1726,40 @@ function downloadPreviewReport() {
 
 function generatePdfBlob(id) {
     return new Promise(async (resolve, reject) => {
+        let container = null;
         try {
             const s = students.find(x => String(x.id) === String(id));
-            if (!s) return reject(new Error('Student not found'));
+            if (!s) return reject(new Error('Student record not found in active class'));
 
             const reportMarkup = buildUnifiedReportHTML(id);
-            if (!reportMarkup) return reject(new Error('No report content available'));
+            if (!reportMarkup) return reject(new Error('No report content could be generated'));
 
-            // Build a hidden container with the unified report HTML
-            const container = document.createElement('div');
-            container.style.cssText = 'position:fixed;left:-9999px;top:0;width:800px;background:#fff;font-family:Inter,sans-serif;padding:0;z-index:-1;';
+            // Build an offscreen container readable by html2canvas
+            container = document.createElement('div');
+            container.id = 'tempPdfRenderContainer';
+            container.style.cssText = 'position:fixed;top:0;left:0;width:800px;background:#fff;z-index:-9999;opacity:0.01;pointer-events:none;';
             container.innerHTML = reportMarkup;
             document.body.appendChild(container);
 
-            // Use html2canvas + jsPDF for pixel-perfect PDF
-            if (typeof html2canvas !== 'undefined' && window.jspdf) {
+            // Wait a moment for layout/fonts to settle
+            await new Promise(r => setTimeout(r, 80));
+
+            const jsPDFConstructor = (window.jspdf && window.jspdf.jsPDF) ? window.jspdf.jsPDF : window.jsPDF;
+
+            // 1. Primary path: html2canvas + jsPDF for exact design replication
+            if (typeof html2canvas !== 'undefined' && jsPDFConstructor) {
                 try {
-                    const canvas = await html2canvas(container.firstElementChild || container, {
-                        scale: 2, useCORS: true, backgroundColor: '#ffffff'
+                    const targetEl = container.querySelector('#printableReportCard') || container.firstElementChild || container;
+                    const canvas = await html2canvas(targetEl, {
+                        scale: 2,
+                        useCORS: true,
+                        allowTaint: true,
+                        backgroundColor: '#ffffff'
                     });
-                    if (container.parentNode) document.body.removeChild(container);
-                    const { jsPDF } = window.jspdf;
-                    const doc = new jsPDF('p', 'mm', 'a4');
+                    if (container && container.parentNode) document.body.removeChild(container);
+                    container = null;
+
+                    const doc = new jsPDFConstructor('p', 'mm', 'a4');
                     const W = doc.internal.pageSize.getWidth();
                     const H = doc.internal.pageSize.getHeight();
                     const imgData = canvas.toDataURL('image/png');
@@ -1729,17 +1778,19 @@ function generatePdfBlob(id) {
                     }
                     resolve(doc.output('blob'));
                     return;
-                } catch(e) {
-                    if (container.parentNode) document.body.removeChild(container);
+                } catch (canvasErr) {
+                    console.warn('html2canvas render error, falling back to direct jsPDF:', canvasErr);
                 }
-            } else if (container.parentNode) {
-                document.body.removeChild(container);
             }
 
-            // Fallback: standard jsPDF rendering
-            if (window.jspdf) {
-                const { jsPDF } = window.jspdf;
-                const doc = new jsPDF('p', 'pt', 'a4');
+            if (container && container.parentNode) {
+                document.body.removeChild(container);
+                container = null;
+            }
+
+            // 2. Secondary fallback: structured jsPDF document
+            if (jsPDFConstructor) {
+                const doc = new jsPDFConstructor('p', 'pt', 'a4');
                 const W = doc.internal.pageSize.getWidth();
                 const margin = 40;
                 let y = 48;
@@ -1759,46 +1810,49 @@ function generatePdfBlob(id) {
                 const p = studentPerf(id);
                 const cols = [140, 65, 65, 55, 50, 140];
                 const heads = ['SUBJECT', 'CLASS 50%', 'EXAM 50%', 'TOTAL', 'GRADE', 'REMARK'];
-                doc.setFillColor(79, 70, 229); doc.rect(margin, y, cols.reduce((a,b)=>a+b,0), 18, 'F');
-                doc.setTextColor(255,255,255); doc.setFont('helvetica','bold');
+                doc.setFillColor(79, 70, 229); doc.rect(margin, y, cols.reduce((a, b) => a + b, 0), 18, 'F');
+                doc.setTextColor(255, 255, 255); doc.setFont('helvetica', 'bold');
                 let x = margin;
-                heads.forEach((h,i) => { doc.text(h, x+4, y+12); x += cols[i]; });
-                y += 18; doc.setFont('helvetica','normal'); doc.setTextColor(20,20,20);
+                heads.forEach((h, i) => { doc.text(h, x + 4, y + 12); x += cols[i]; });
+                y += 18; doc.setFont('helvetica', 'normal'); doc.setTextColor(20, 20, 20);
                 const subs = allClassSubjects(s.class || currentClass);
                 subs.forEach((sub, ri) => {
                     const e = getScoreEntry(sub, id);
-                    let vals = [sub,'—','—','—','—','No scores'];
+                    let vals = [sub, '—', '—', '—', '—', 'No scores'];
                     if (e && e.classScore !== '' && e.examScore !== '') {
                         const tot = totalScore(e.classScore, e.examScore);
                         const g = getGrade(tot, s.class || currentClass);
                         vals = [sub, String(fifty(e.classScore)), String(fifty(e.examScore)), String(tot), g.grade, g.remark];
                     }
-                    if (ri%2) { doc.setFillColor(248,250,252); doc.rect(margin, y, cols.reduce((a,b)=>a+b,0), 16, 'F'); }
+                    if (ri % 2) { doc.setFillColor(248, 250, 252); doc.rect(margin, y, cols.reduce((a, b) => a + b, 0), 16, 'F'); }
                     x = margin;
-                    vals.forEach((v,i) => { doc.text(String(v).slice(0,24), x+4, y+12); x += cols[i]; });
+                    vals.forEach((v, i) => { doc.text(String(v).slice(0, 24), x + 4, y + 12); x += cols[i]; });
                     y += 16;
                 });
                 y += 14;
                 if (p) {
-                    doc.setFont('helvetica','bold');
-                    doc.text('Average: '+p.avg.toFixed(1)+'%   Overall: '+p.grade+' '+p.remark, margin, y); y += 16;
+                    doc.setFont('helvetica', 'bold');
+                    doc.text('Average: ' + p.avg.toFixed(1) + '%   Overall: ' + p.grade + ' ' + p.remark, margin, y); y += 16;
                 }
-                doc.setFont('helvetica','normal');
-                doc.text('Attendance: '+((typeof Attendance!=='undefined'&&Attendance.label(id))||d.attendance||'—'), margin, y); y += 14;
-                if (d.promotionStatus) { doc.text(d.promotionStatus+' to/in: '+(d.promotionTarget||''), margin, y); y += 14; }
-                doc.text('Conduct: '+(d.conduct||'—'), margin, y); y += 14;
-                doc.text('Interest: '+(d.interest||'—'), margin, y); y += 14;
-                const rem = doc.splitTextToSize('Teacher: '+(d.teacherRemarks||'—'), W-margin*2);
-                doc.text(rem, margin, y); y += rem.length*12+16;
-                doc.text('Class teacher: '+(classTeacherName(s.class)||'_______________'), margin, y);
-                doc.text('Headteacher: '+(headTeacherName()||'_______________'), W/2, y);
+                doc.setFont('helvetica', 'normal');
+                doc.text('Attendance: ' + ((typeof Attendance !== 'undefined' && Attendance.label(id)) || d.attendance || '—'), margin, y); y += 14;
+                if (d.promotionStatus) { doc.text(d.promotionStatus + ' to/in: ' + (d.promotionTarget || ''), margin, y); y += 14; }
+                doc.text('Conduct: ' + (d.conduct || '—'), margin, y); y += 14;
+                doc.text('Interest: ' + (d.interest || '—'), margin, y); y += 14;
+                const rem = doc.splitTextToSize('Teacher: ' + (d.teacherRemarks || '—'), W - margin * 2);
+                doc.text(rem, margin, y); y += rem.length * 12 + 16;
+                doc.text('Class teacher: ' + (classTeacherName(s.class) || '_______________'), margin, y);
+                doc.text('Headteacher: ' + (headTeacherName() || '_______________'), W / 2, y);
                 resolve(doc.output('blob'));
                 return;
             }
 
-            // HTML blob fallback
+            // 3. Fallback: HTML Document Blob
             resolve(new Blob([reportMarkup], { type: 'text/html' }));
-        } catch (err) { reject(err); }
+        } catch (err) {
+            if (container && container.parentNode) document.body.removeChild(container);
+            reject(err);
+        }
     });
 }
 

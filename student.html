@@ -104,13 +104,16 @@
         </div>
 
         <!-- Action Bar -->
-        <div class="student-action-bar">
-            <a class="btn-student-action primary" id="studentExcelBtn" href="/open?src=/api/export/student.xlsx">
-                <i class="fas fa-file-excel"></i> Download Excel
-            </a>
-            <button class="btn-student-action primary" onclick="window.print()">
+        <div class="student-action-bar" style="display:flex;gap:10px;flex-wrap:wrap;">
+            <button class="btn-student-action primary" onclick="downloadStudentReportFile()" style="background:#4f46e5;color:#fff;">
+                <i class="fas fa-file-pdf"></i> Download Official Report Card (PDF)
+            </button>
+            <button class="btn-student-action" onclick="printStudentReportSheet()" style="background:#4338ca;color:#fff;">
                 <i class="fas fa-print"></i> Print Official Report Sheet
             </button>
+            <a class="btn-student-action" id="studentExcelBtn" href="/open?src=/api/export/student.xlsx" style="background:#059669;color:#fff;">
+                <i class="fas fa-file-excel"></i> Download Excel
+            </a>
         </div>
 
         <!-- Subject Results Table -->
@@ -141,11 +144,11 @@
         <div class="student-profile-card" style="grid-template-columns: 1fr 1fr;">
             <div>
                 <label style="display:block;font-size:11px;color:var(--text-muted-light);font-weight:700;text-transform:uppercase;margin-bottom:6px;">Class Teacher Remark</label>
-                <p id="st-teacherRemark" style="font-size:14px;color:#fff;font-style:italic;">"An impressive academic effort this term. Keep aiming higher."</p>
+                <p id="st-teacherRemark" style="font-size:14px;color:#fff;font-style:italic;">—</p>
             </div>
             <div>
-                <label style="display:block;font-size:11px;color:var(--text-muted-light);font-weight:700;text-transform:uppercase;margin-bottom:6px;">Headteacher Remark</label>
-                <p id="st-headRemark" style="font-size:14px;color:#fff;font-style:italic;">"Promoted to the next class level. Congratulations."</p>
+                <label style="display:block;font-size:11px;color:var(--text-muted-light);font-weight:700;text-transform:uppercase;margin-bottom:6px;">Headteacher Remark / Promotion</label>
+                <p id="st-headRemark" style="font-size:14px;color:#fff;font-style:italic;">—</p>
             </div>
         </div>
 
@@ -153,11 +156,12 @@
 
     <!-- Firebase & Utility Scripts -->
     <script src="vendor/firebase-compat.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
     <script src="jspdf.umd.min.js"></script>
     <script src="seed-data.js?v=prod1"></script>
     <script src="firebase-config.js?v=fb10"></script>
     <script src="files.js?v=dl9"></script>
     <script src="attendance.js?v=hub4"></script>
-    <script src="student.js?v=dl7"></script>
+    <script src="student.js?v=dl8"></script>
 </body>
 </html>

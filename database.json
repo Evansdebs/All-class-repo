@@ -20,7 +20,12 @@
       "status": "active",
       "phone": "123344232",
       "assignedSubjects": [
-        "QEdtA5Hwjy7pU7F1ulyX"
+        "QEdtA5Hwjy7pU7F1ulyX",
+        "cgt2xbBwSElElQWu9P48",
+        "352qeuD45VdoqFGBYqrc",
+        "hQUyb6MuBXwarz7ULmT5",
+        "7IaKzwCfG5T9al0tOuwK",
+        "jWYE4s2vcfrEHoCFnPzd"
       ],
       "name": "eva",
       "updatedAt": {
@@ -36,41 +41,6 @@
         "iPooVjMkWOUvEpY1UYDu"
       ],
       "userId": "iXKnkUPwxkhkp3mYXgKnDAvcI712"
-    },
-    {
-      "id": "admin_mt4zbtij",
-      "status": "active",
-      "email": "admin123@school.com",
-      "uid": "AwuLAQfIOCRwGBf9uFogoQAqTd33",
-      "role": "Super Admin",
-      "updatedAt": {
-        "seconds": 1787441616,
-        "nanoseconds": 603000000
-      },
-      "displayName": "admin123",
-      "assignedSubjects": [],
-      "name": "admin123",
-      "password": "admin123",
-      "phone": "",
-      "assignedClasses": []
-    },
-    {
-      "id": "sMvund4D05hoBU4t7Sjx4JQxLo23",
-      "createdAt": {
-        "seconds": 1787475932,
-        "nanoseconds": 557000000
-      },
-      "status": "active",
-      "role": "Teacher",
-      "email": "evansdebrah111@gmail.com",
-      "displayName": "eva",
-      "assignedClasses": [
-        "iPooVjMkWOUvEpY1UYDu",
-        "BASIC 9"
-      ],
-      "name": "eva",
-      "uid": "sMvund4D05hoBU4t7Sjx4JQxLo23",
-      "assignedSubjects": []
     }
   ],
   "classes": [
@@ -96,28 +66,102 @@
       ]
     }
   ],
-  "subjects": [],
+  "subjects": [
+    {
+      "id": "QEdtA5Hwjy7pU7F1ulyX",
+      "createdAt": {
+        "nanoseconds": 579000000,
+        "seconds": 1787402852
+      },
+      "updatedAt": {
+        "nanoseconds": 579000000,
+        "seconds": 1787402852
+      },
+      "status": "active",
+      "name": "COMPUTING",
+      "code": "IT901",
+      "classIds": [
+        "iPooVjMkWOUvEpY1UYDu"
+      ],
+      "department": "All",
+      "isCore": true
+    },
+    {
+      "id": "cgt2xbBwSElElQWu9P48",
+      "code": "MAT901",
+      "name": "MATHEMATICS",
+      "status": "active",
+      "classIds": [
+        "iPooVjMkWOUvEpY1UYDu"
+      ],
+      "isCore": true
+    },
+    {
+      "id": "352qeuD45VdoqFGBYqrc",
+      "code": "ENG901",
+      "name": "ENGLISH",
+      "status": "active",
+      "classIds": [
+        "iPooVjMkWOUvEpY1UYDu"
+      ],
+      "isCore": true
+    },
+    {
+      "id": "hQUyb6MuBXwarz7ULmT5",
+      "code": "SCI102",
+      "name": "SCIENCE",
+      "status": "active",
+      "classIds": [
+        "iPooVjMkWOUvEpY1UYDu"
+      ],
+      "isCore": true
+    },
+    {
+      "id": "7IaKzwCfG5T9al0tOuwK",
+      "code": "CAD102",
+      "name": "CAD",
+      "status": "active",
+      "classIds": [
+        "iPooVjMkWOUvEpY1UYDu"
+      ],
+      "isCore": false
+    },
+    {
+      "id": "jWYE4s2vcfrEHoCFnPzd",
+      "code": "CAT102",
+      "name": "CAT",
+      "status": "active",
+      "classIds": [
+        "iPooVjMkWOUvEpY1UYDu"
+      ],
+      "isCore": false
+    }
+  ],
   "academicYears": [],
   "terms": [],
   "gradingScales": [],
   "results": [],
   "reports": [
     {
-      "id": "rpt_mt5l1o916bi",
+      "id": "uCvStbWvc4ryR1N5op8I",
       "updatedAt": {
-        "seconds": 1787476456,
-        "nanoseconds": 691000000
+        "nanoseconds": 272000000,
+        "seconds": 1787482946
       },
-      "approvedAt": "2026-08-23T09:14:10.448Z",
-      "studentId": "D8n3h1m8MBbIt3obs9Mr",
+      "createdAt": {
+        "nanoseconds": 226000000,
+        "seconds": 1787482819
+      },
       "studentName": "EVANS",
-      "approvalKey": "D8n3h1m8MBbIt3obs9Mr|2026|3",
-      "classId": "BASIC 9",
-      "generatedAt": "2026-08-23T09:06:18.757Z",
-      "termId": "3",
+      "approvedAt": "2026-08-23T11:02:19.759Z",
+      "termId": "dgvfBudOtgScohlrQGmO",
       "status": "Approved",
-      "academicYearId": "2026",
-      "generatedBy": "evansdebrah111@gmail.com"
+      "studentId": "D8n3h1m8MBbIt3obs9Mr",
+      "generatedBy": "admin",
+      "classId": "iPooVjMkWOUvEpY1UYDu",
+      "academicYearId": "mpFWQQVuxPNLr0tDQyN9",
+      "approvalKey": "D8n3h1m8MBbIt3obs9Mr|2026|3",
+      "generatedAt": "2026-08-23T11:00:13.326Z"
     }
   ],
   "scores": {
@@ -141,6 +185,66 @@
         "examScore50": 40,
         "grade": "1",
         "remark": "EXCELLENT"
+      }
+    },
+    "ENGLISH": {
+      "D8n3h1m8MBbIt3obs9Mr": {
+        "classScore": 45,
+        "examScore": 65,
+        "totalScore": 55,
+        "assessments": {},
+        "classScore50": 22.5,
+        "examScore50": 32.5,
+        "grade": "5",
+        "remark": "AVERAGE"
+      }
+    },
+    "CAD": {
+      "D8n3h1m8MBbIt3obs9Mr": {
+        "classScore": 90,
+        "examScore": 56,
+        "totalScore": 73,
+        "assessments": {},
+        "classScore50": 45,
+        "examScore50": 28,
+        "grade": "2",
+        "remark": "VERY GOOD"
+      }
+    },
+    "MATHEMATICS": {
+      "D8n3h1m8MBbIt3obs9Mr": {
+        "classScore": 56,
+        "examScore": 76,
+        "totalScore": 66,
+        "assessments": {},
+        "classScore50": 28,
+        "examScore50": 38,
+        "grade": "3",
+        "remark": "GOOD"
+      }
+    },
+    "SCIENCE": {
+      "D8n3h1m8MBbIt3obs9Mr": {
+        "classScore": 45,
+        "examScore": 65,
+        "totalScore": 55,
+        "assessments": {},
+        "classScore50": 22.5,
+        "examScore50": 32.5,
+        "grade": "5",
+        "remark": "AVERAGE"
+      }
+    },
+    "CAT": {
+      "D8n3h1m8MBbIt3obs9Mr": {
+        "classScore": 76,
+        "examScore": 56,
+        "totalScore": 66,
+        "assessments": {},
+        "classScore50": 38,
+        "examScore50": 28,
+        "grade": "3",
+        "remark": "GOOD"
       }
     }
   },
@@ -173,7 +277,12 @@
   },
   "studentReportDetails": {
     "D8n3h1m8MBbIt3obs9Mr": {
-      "attendance": "1 OUT OF —"
+      "attendance": "1 OUT OF —",
+      "promotionStatus": "Promoted",
+      "promotionTarget": "SHS 1",
+      "conduct": "Generally well-behaved and cooperative",
+      "interest": "COMPUTING",
+      "teacherRemarks": "Satisfactory work overall. Extra attention and practice needed in ENGLISH for further improvement."
     }
   },
   "parentContacts": {},

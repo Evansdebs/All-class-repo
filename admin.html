@@ -793,9 +793,14 @@
                     <div class="settings-body">
                         <p class="settings-hint">Define departments in the school (e.g. JHS, Primary, Kindergarten). Dropdowns across Classes, Subjects, and Grading Scales will use these.</p>
                         <div id="departmentsListContainer" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;"></div>
-                        <div style="display:flex;gap:8px;">
-                            <input type="text" id="newDepartmentNameInput" placeholder="Add new department (e.g. Nursery)" class="admin-input" style="flex:1;">
-                            <button type="button" class="btn-admin btn-primary btn-sm" onclick="addDepartmentSetting()"><i class="fas fa-plus"></i> Add Dept</button>
+                        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                            <input type="text" id="newDepartmentName" placeholder="Department name (e.g. Nursery)" class="admin-input" style="flex:2;min-width:160px;" onkeydown="if(event.key==='Enter') addDepartmentSetting()">
+                            <select id="newDepartmentGrading" class="admin-select" style="flex:1;min-width:130px;">
+                                <option value="standard">Standard (A–F)</option>
+                                <option value="jhs">JHS Stanine (1–9)</option>
+                                <option value="primary">Primary Scale</option>
+                            </select>
+                            <button type="button" class="btn-admin btn-primary btn-sm" onclick="addDepartmentSetting()"><i class="fas fa-plus"></i> Add Dept.</button>
                         </div>
                     </div>
                 </div>
@@ -1568,6 +1573,13 @@
                     <option value="active">Active</option>
                     <option value="inactive">Inactive</option>
                 </select>
+            </div>
+            <div class="form-group-admin" style="background:#eef2ff;border:1px solid #c7d2fe;border-radius:8px;padding:10px 14px;">
+                <label style="color:#3730a3;font-weight:700;display:flex;align-items:center;gap:8px;cursor:pointer;">
+                    <input type="checkbox" id="subm-isCore" style="width:16px;height:16px;accent-color:#4f46e5;">
+                    <span>Core Subject (used for JHS Aggregate calculation)</span>
+                </label>
+                <p style="margin:6px 0 0 24px;font-size:11.5px;color:#6366f1;">The 4 core subjects + best 2 electives determine the JHS aggregate. Check this box for core subjects (e.g. English, Mathematics, Science, Social Studies).</p>
             </div>
         </div>
         <div class="modal-footer">
