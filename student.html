@@ -71,22 +71,22 @@
     <main class="student-container" id="studentMainContent" style="display:none;max-width:920px;margin:0 auto;padding:20px 16px;">
 
         <!-- Action Bar -->
-        <div class="student-action-bar" style="display:flex;gap:10px;justify-content:space-between;align-items:center;flex-wrap:wrap;margin-bottom:20px;background:#1e293b;padding:14px 18px;border-radius:12px;border:1px solid rgba(255,255,255,0.08);">
+        <div class="student-action-bar" style="display:flex;gap:10px;justify-content:space-between;align-items:center;flex-wrap:wrap;margin-bottom:18px;background:#1e293b;padding:14px 18px;border-radius:12px;border:1px solid rgba(255,255,255,0.08);">
             <div style="color:#fff;font-weight:700;font-size:15px;">
                 <i class="fas fa-file-alt" style="color:#818cf8;margin-right:8px;"></i> Official Academic Report Sheet
             </div>
             <div style="display:flex;gap:8px;flex-wrap:wrap;">
-                <button class="btn-student-action primary" onclick="downloadStudentReportFile()" style="background:#4f46e5;color:#fff;border:none;padding:8px 16px;border-radius:8px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:6px;">
+                <button class="btn-student-action primary" onclick="downloadStudentReportFile()" style="background:#4f46e5;color:#fff;border:none;padding:8px 18px;border-radius:8px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:6px;">
                     <i class="fas fa-file-pdf"></i> Download PDF
                 </button>
-                <button class="btn-student-action" onclick="printStudentReportSheet()" style="background:#4338ca;color:#fff;border:none;padding:8px 16px;border-radius:8px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:6px;">
+                <button class="btn-student-action" onclick="printStudentReportSheet()" style="background:#4338ca;color:#fff;border:none;padding:8px 18px;border-radius:8px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:6px;">
                     <i class="fas fa-print"></i> Print Report Sheet
                 </button>
-                <a class="btn-student-action" id="studentExcelBtn" href="/open?src=/api/export/student.xlsx" style="background:#059669;color:#fff;text-decoration:none;padding:8px 16px;border-radius:8px;font-weight:600;display:inline-flex;align-items:center;gap:6px;">
-                    <i class="fas fa-file-excel"></i> Excel
-                </a>
             </div>
         </div>
+
+        <!-- Student Results Summary KPI Cards -->
+        <div id="studentResultsSummaryCards" style="display:grid;grid-template-columns:repeat(auto-fit, minmax(180px, 1fr));gap:12px;margin-bottom:20px;"></div>
 
         <!-- Official Report Card Container (Identical to Admin & Teacher Layout) -->
         <div id="studentReportCardContainer" style="margin-bottom:30px;"></div>

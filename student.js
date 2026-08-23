@@ -125,8 +125,113 @@ async function loadStudentDashboard(admissionNo) {
 }
 
 async function renderStudentResults(student) {
+    const summaryCardsEl = document.getElementById('studentResultsSummaryCards');
     const container = document.getElementById('studentReportCardContainer');
     if (!container) return;
+
+    const rows = collectStudentResultRows(student);
+    const details = JSON.parse(localStorage.getItem('studentReportDetails') || '{}');
+    const d = details[student.id] || details[String(student.id)] || {};
+    const jhsKeywords = ['basic 7', 'basic 8', 'basic 9', 'jhs 1', 'jhs 2', 'jhs 3', 'jhs'];
+    const className = String(student.class || '');
+    const isJHS = jhsKeywords.some(k => className.toLowerCase().includes(k)) || student.level === 'JHS';
+
+    let totalScoreSum = 0, scoredCount = 0;
+    const jhsSubjectResults = [];
+
+    const jhsScale = [
+        { min: 80, max: 100, grade: '1', remark: 'EXCELLENT' },
+        { min: 70, max: 79,  grade: '2', remark: 'VERY GOOD' },
+        { min: 65, max: 69,  grade: '3', remark: 'GOOD' },
+        { min: 60, max: 64,  grade: '4', remark: 'CREDIT' },
+        { min: 55, max: 59,  grade: '5', remark: 'AVERAGE' },
+        { min: 50, max: 54,  grade: '6', remark: 'PASS' },
+        { min: 45, max: 49,  grade: '7', remark: 'WEAK PASS' },
+        { min: 40, max: 44,  grade: '8', remark: 'FAIL' },
+        { min: 0,  max: 39,  grade: '9', remark: 'FAIL' }
+    ];
+    const standardScale = [
+        { min: 80, max: 100, grade: 'A',  remark: 'ADVANCED' },
+        { min: 68, max: 79,  grade: 'P',  remark: 'PROFICIENT' },
+        { min: 54, max: 67,  grade: 'AP', remark: 'APPROACHING PROFICIENCY' },
+        { min: 40, max: 53,  grade: 'D',  remark: 'DEVELOPING' },
+        { min: 0,  max: 39,  grade: 'B',  remark: 'BEGINNER' }
+    ];
+    function getSummaryGrade(tot) {
+        const sc = isJHS ? jhsScale : standardScale;
+        const t = Math.max(0, Math.min(100, Number(tot) || 0));
+        return sc.find(g => t >= g.min && t <= g.max) || sc[sc.length - 1];
+    }
+
+    rows.forEach(r => {
+        const cs = r['Class Score'] !== '' && r['Class Score'] != null ? Number(r['Class Score']) : null;
+        const es = r['Exam Score'] !== '' && r['Exam Score'] != null ? Number(r['Exam Score']) : null;
+        const tot = r.Total !== '' && r.Total != null ? Number(r.Total) : (cs != null && es != null ? (cs + es) : null);
+        if (tot != null) {
+            totalScoreSum += tot;
+            scoredCount++;
+            const g = getSummaryGrade(tot);
+            jhsSubjectResults.push({ sub: r.Subject, tot, grade: Number(g.grade) || 99 });
+        }
+    });
+
+    const avg = scoredCount > 0 ? (totalScoreSum / scoredCount) : 0;
+    const overallGrade = getSummaryGrade(avg);
+    const attText = (typeof Attendance !== 'undefined' && Attendance.label(student.id)) || d.attendance || '—';
+
+    // Build JHS Aggregate if applicable
+    let aggCardHTML = '';
+    if (isJHS && scoredCount > 0) {
+        const allSubjects = JSON.parse(localStorage.getItem('subjects') || '[]');
+        const adminCoreNames = new Set(allSubjects.filter(s => s.isCore).map(s => s.name.toLowerCase()));
+        const fallbackCoreKeywords = ['english','mathematics','science','social studies','integrated science'];
+        const useFallback = adminCoreNames.size === 0;
+        const isCoreSubject = (subName) => {
+            const lower = String(subName || '').toLowerCase();
+            if (!useFallback) return adminCoreNames.has(lower);
+            return fallbackCoreKeywords.some(k => lower.includes(k));
+        };
+        const coreResults = jhsSubjectResults.filter(r => r.tot !== null && isCoreSubject(r.sub)).slice(0, 4);
+        const electiveResults = jhsSubjectResults.filter(r => r.tot !== null && !isCoreSubject(r.sub));
+        electiveResults.sort((a, b) => a.grade - b.grade);
+        const bestTwo = electiveResults.slice(0, 2);
+        const allAgg = [...coreResults, ...bestTwo];
+        const totalAgg = allAgg.reduce((s, r) => s + r.grade, 0);
+
+        aggCardHTML = `
+            <div style="background:linear-gradient(135deg, #1e1b4b 0%, #312e81 100%);color:#fff;padding:16px;border-radius:12px;border:1px solid rgba(255,255,255,0.1);box-shadow:0 4px 12px rgba(0,0,0,0.15);">
+                <div style="font-size:11px;color:#a5b4fc;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;"><i class="fas fa-award"></i> BECE Aggregate</div>
+                <div style="font-size:24px;font-weight:800;margin:6px 0 2px 0;color:#38bdf8;">${totalAgg}</div>
+                <div style="font-size:11px;color:#c7d2fe;">4 Cores + 2 Best Electives</div>
+            </div>
+        `;
+    }
+
+    if (summaryCardsEl) {
+        summaryCardsEl.innerHTML = `
+            <div style="background:#1e293b;color:#fff;padding:16px;border-radius:12px;border:1px solid rgba(255,255,255,0.08);">
+                <div style="font-size:11px;color:#94a3b8;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;"><i class="fas fa-chart-line"></i> Average Score</div>
+                <div style="font-size:24px;font-weight:800;margin:6px 0 2px 0;color:#60a5fa;">${scoredCount ? avg.toFixed(1) + '%' : '—'}</div>
+                <div style="font-size:11px;color:#94a3b8;">Terminal Average</div>
+            </div>
+            <div style="background:#1e293b;color:#fff;padding:16px;border-radius:12px;border:1px solid rgba(255,255,255,0.08);">
+                <div style="font-size:11px;color:#94a3b8;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;"><i class="fas fa-medal"></i> Overall Grade</div>
+                <div style="font-size:24px;font-weight:800;margin:6px 0 2px 0;color:#34d399;">${scoredCount ? overallGrade.grade : '—'}</div>
+                <div style="font-size:11px;color:#94a3b8;">${scoredCount ? overallGrade.remark : 'No grades yet'}</div>
+            </div>
+            <div style="background:#1e293b;color:#fff;padding:16px;border-radius:12px;border:1px solid rgba(255,255,255,0.08);">
+                <div style="font-size:11px;color:#94a3b8;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;"><i class="fas fa-book-reader"></i> Recorded Subjects</div>
+                <div style="font-size:24px;font-weight:800;margin:6px 0 2px 0;color:#fbbf24;">${scoredCount} <span style="font-size:14px;font-weight:500;color:#94a3b8;">/ ${rows.length}</span></div>
+                <div style="font-size:11px;color:#94a3b8;">Subjects with marks</div>
+            </div>
+            <div style="background:#1e293b;color:#fff;padding:16px;border-radius:12px;border:1px solid rgba(255,255,255,0.08);">
+                <div style="font-size:11px;color:#94a3b8;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;"><i class="fas fa-user-check"></i> Attendance</div>
+                <div style="font-size:20px;font-weight:800;margin:8px 0 2px 0;color:#c084fc;">${attText}</div>
+                <div style="font-size:11px;color:#94a3b8;">Term register status</div>
+            </div>
+            ${aggCardHTML}
+        `;
+    }
 
     const reportMarkup = buildUnifiedStudentReportHTML(student);
     container.innerHTML = reportMarkup || `

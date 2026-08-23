@@ -1331,6 +1331,13 @@ function exportBroadsheet() {
     window.location.href = '/open?src=' + encodeURIComponent(url);
 }
 
+function isApproved(studentId) {
+    const rList = loadJSON('reports', []);
+    const sid = String(studentId);
+    const rec = rList.find(r => String(r.studentId) === sid || (r.student && String(r.student.id) === sid));
+    return rec ? ['approved', 'published'].includes(String(rec.status || '').toLowerCase()) : true;
+}
+
 function renderReports() {
     loadAll();
     const list = classStudents();
@@ -1751,16 +1758,20 @@ function generatePdfBlob(id) {
 
             const jsPDFConstructor = (window.jspdf && window.jspdf.jsPDF) ? window.jspdf.jsPDF : window.jsPDF;
 
-            // 1. Primary path: html2canvas + jsPDF for exact design replication
+            // 1. Primary path: html2canvas + jsPDF with a 2.5-second timeout guard
             if (typeof html2canvas !== 'undefined' && jsPDFConstructor) {
                 try {
                     const targetEl = container.querySelector('#printableReportCard') || container.firstElementChild || container;
-                    const canvas = await html2canvas(targetEl, {
+                    const canvasPromise = html2canvas(targetEl, {
                         scale: 2,
                         useCORS: true,
                         allowTaint: true,
                         backgroundColor: '#ffffff'
                     });
+                    const canvas = await Promise.race([
+                        canvasPromise,
+                        new Promise((_, rej) => setTimeout(() => rej(new Error('html2canvas timeout')), 2500))
+                    ]);
                     if (container && container.parentNode) document.body.removeChild(container);
                     container = null;
 
@@ -1784,7 +1795,7 @@ function generatePdfBlob(id) {
                     resolve(doc.output('blob'));
                     return;
                 } catch (canvasErr) {
-                    console.warn('html2canvas render error, falling back to direct jsPDF:', canvasErr);
+                    console.warn('html2canvas render fallback:', canvasErr);
                 }
             }
 

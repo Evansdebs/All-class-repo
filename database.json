@@ -1,5 +1,33 @@
 {
-  "students": [],
+  "students": [
+    {
+      "id": "D8n3h1m8MBbIt3obs9Mr",
+      "academicYearId": "mpFWQQVuxPNLr0tDQyN9",
+      "dob": "2026-08-20",
+      "admissionNo": "TLS12",
+      "createdAt": {
+        "nanoseconds": 986000000,
+        "seconds": 1787176093
+      },
+      "updatedAt": {
+        "nanoseconds": 813000000,
+        "seconds": 1787403676
+      },
+      "class": "BASIC 9",
+      "status": "active",
+      "name": "EVANS",
+      "gender": "Male",
+      "parentPhone": "",
+      "parentName": "",
+      "classId": "iPooVjMkWOUvEpY1UYDu"
+    },
+    {
+      "id": 1787485195812,
+      "name": "EVANDA AGYEKUM",
+      "class": "BASIC 9",
+      "status": "active"
+    }
+  ],
   "teachers": [
     {
       "id": "admin_mt4zbtij",
@@ -143,17 +171,100 @@
   "results": [],
   "reports": [
     {
-      "id": "gVZ0vYasDNCFtwlVo6aR",
-      "studentId": "D8n3h1m8MBbIt3obs9Mr",
-      "studentName": "EVANS",
-      "classId": "iPooVjMkWOUvEpY1UYDu",
-      "academicYearId": "mpFWQQVuxPNLr0tDQyN9",
-      "termId": "dgvfBudOtgScohlrQGmO",
-      "approvalKey": "D8n3h1m8MBbIt3obs9Mr|2026|3",
+      "id": "4LdY1n1UVRhNjXyfZaky",
+      "studentName": "EVANDA AGYEKUM",
+      "studentId": "1787485195812",
+      "termId": "msUpplcSWGX1Zw2mX4U7",
+      "generatedAt": "2026-08-23T11:45:19.171Z",
       "status": "Approved",
-      "generatedAt": "2026-08-23T11:28:28.347Z",
-      "generatedBy": "AwuLAQfIOCRwGBf9uFogoQAqTd33",
-      "approvedAt": "2026-08-23T11:29:01.090Z"
+      "generatedBy": "admin",
+      "classId": "",
+      "academicYearId": "mpFWQQVuxPNLr0tDQyN9",
+      "approvedAt": "2026-08-23T11:46:26.167Z",
+      "createdAt": {
+        "seconds": 1787485543,
+        "nanoseconds": 418000000
+      },
+      "updatedAt": {
+        "seconds": 1787485592,
+        "nanoseconds": 964000000
+      },
+      "approvalKey": "1787485195812|2026|1"
+    },
+    {
+      "id": "My6N29cCcZpgEAVmqQbl",
+      "studentId": "D8n3h1m8MBbIt3obs9Mr",
+      "approvalKey": "D8n3h1m8MBbIt3obs9Mr|2026|1",
+      "termId": "msUpplcSWGX1Zw2mX4U7",
+      "status": "Approved",
+      "generatedBy": "admin",
+      "approvedAt": "2026-08-23T11:46:26.167Z",
+      "studentName": "EVANS",
+      "academicYearId": "mpFWQQVuxPNLr0tDQyN9",
+      "classId": "iPooVjMkWOUvEpY1UYDu",
+      "generatedAt": "2026-08-23T11:45:38.274Z",
+      "updatedAt": {
+        "seconds": 1787485544,
+        "nanoseconds": 204000000
+      },
+      "createdAt": {
+        "seconds": 1787485544,
+        "nanoseconds": 204000000
+      }
+    },
+    {
+      "id": "UYuj36tCepjN8IgixmZ2",
+      "generatedAt": "2026-08-23T11:45:13.276Z",
+      "studentId": "1787485195812",
+      "classId": "",
+      "studentName": "EVANDA AGYEKUM",
+      "generatedBy": "admin",
+      "approvedAt": "2026-08-23T11:46:26.167Z",
+      "academicYearId": "mpFWQQVuxPNLr0tDQyN9",
+      "termId": "msUpplcSWGX1Zw2mX4U7",
+      "approvalKey": "1787485195812|2026|1",
+      "createdAt": {
+        "seconds": 1787485543,
+        "nanoseconds": 396000000
+      },
+      "updatedAt": {
+        "seconds": 1787485592,
+        "nanoseconds": 149000000
+      },
+      "status": "Approved"
+    },
+    {
+      "id": "fHEnfVN85N3CAPm9BRMH",
+      "status": "Approved",
+      "academicYearId": "mpFWQQVuxPNLr0tDQyN9",
+      "termId": "msUpplcSWGX1Zw2mX4U7",
+      "approvalKey": "1787485195812|2026|1",
+      "createdAt": {
+        "seconds": 1787485543,
+        "nanoseconds": 431000000
+      },
+      "updatedAt": {
+        "seconds": 1787485593,
+        "nanoseconds": 493000000
+      },
+      "classId": "",
+      "generatedBy": "admin",
+      "studentId": "1787485195812",
+      "studentName": "EVANDA AGYEKUM",
+      "generatedAt": "2026-08-23T11:45:28.201Z",
+      "approvedAt": "2026-08-23T11:46:26.167Z"
+    },
+    {
+      "id": "rpt_mt5qpcdmq82",
+      "studentId": "1787485195812",
+      "classId": "BASIC 9",
+      "approvalKey": "1787485195812|2026|1",
+      "studentName": "EVANDA AGYEKUM",
+      "generatedBy": "evansdebrah111@gmail.com",
+      "generatedAt": "2026-08-23T11:44:41.194Z",
+      "academicYearId": "2026",
+      "termId": "1",
+      "status": "Pending"
     }
   ],
   "scores": {
