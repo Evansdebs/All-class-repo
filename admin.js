@@ -2692,6 +2692,55 @@ function printAdminReport() {
     win.document.close();
 }
 
+async function downloadAdminPreviewReport() {
+    const printContent = document.getElementById('printableReportCard');
+    if (!printContent) {
+        showToast('No report preview loaded.', 'error');
+        return;
+    }
+    showToast('Preparing PDF download...', 'info');
+
+    const jsPDFConstructor = (window.jspdf && window.jspdf.jsPDF) ? window.jspdf.jsPDF : window.jsPDF;
+    if (typeof html2canvas !== 'undefined' && jsPDFConstructor) {
+        try {
+            const canvas = await html2canvas(printContent, {
+                scale: 2,
+                useCORS: true,
+                allowTaint: true,
+                backgroundColor: '#ffffff'
+            });
+            const doc = new jsPDFConstructor('p', 'mm', 'a4');
+            const W = doc.internal.pageSize.getWidth();
+            const H = doc.internal.pageSize.getHeight();
+            const imgData = canvas.toDataURL('image/png');
+            const ratio = canvas.height / canvas.width;
+            const imgH = W * ratio;
+            let posY = 0;
+            doc.addImage(imgData, 'PNG', 0, posY, W, imgH);
+            if (imgH > H) {
+                let remaining = imgH - H;
+                while (remaining > 0) {
+                    posY -= H;
+                    doc.addPage();
+                    doc.addImage(imgData, 'PNG', 0, posY, W, imgH);
+                    remaining -= H;
+                }
+            }
+            const r = adminState.reports.find(x => String(x.id) === String(currentPreviewReportId));
+            const studentName = r?.studentName || 'student';
+            const fileName = `${studentName.replace(/[^a-zA-Z0-9]/g, '_')}_report.pdf`;
+            doc.save(fileName);
+            showToast('PDF downloaded successfully.', 'success');
+            return;
+        } catch (err) {
+            console.warn('html2canvas preview download fallback:', err);
+        }
+    }
+
+    // Fallback: trigger print dialog for saving as PDF
+    printAdminReport();
+}
+
 async function confirmDeleteReport(id) {
     showConfirm('Delete this report record?', async () => {
         await deleteDocument('reports', id);

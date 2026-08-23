@@ -1498,7 +1498,7 @@ function saveReportRecords(list) {
 function getReportRecord(studentId) {
     const key = getReportApprovalKey(studentId);
     const stuId = String(studentId);
-    return loadReportRecords().find(r => r.approvalKey === key || String(r.studentId) === stuId);
+    return loadReportRecords().find(r => r.approvalKey === key || String(r.studentId) === stuId || (r.approvalKey && String(r.approvalKey).split('|')[0] === stuId));
 }
 
 function isReportApproved(studentId) {
@@ -1603,13 +1603,13 @@ function generateAllClassReports() {
                 ${isReportApproved(student.id) ? 'Approved — ready to download' : 'Awaiting admin approval'}
             </div>
             <div class="student-report-actions">
-                <button class="btn edit-btn" onclick="openEditModal(${student.id})">
+                <button class="btn edit-btn" onclick="openEditModal('${student.id}')">
                     <i class="fas fa-edit"></i> Edit
                 </button>
-                <button class="btn preview-btn" onclick="previewStudentReport(${student.id})">
+                <button class="btn preview-btn" onclick="previewStudentReport('${student.id}')">
                     <i class="fas fa-eye"></i> Preview
                 </button>
-                <button class="btn download-btn" onclick="downloadStudentReport(${student.id})" ${isReportApproved(student.id) ? '' : 'disabled style="opacity:.45;cursor:not-allowed;" title="Admin must approve this report before download"'}>
+                <button class="btn download-btn" onclick="downloadStudentReport('${student.id}')" ${isReportApproved(student.id) ? '' : 'disabled style="opacity:.45;cursor:not-allowed;" title="Admin must approve this report before download"'}>
                     <i class="fas fa-download"></i> ${isReportApproved(student.id) ? 'Download' : 'Locked'}
                 </button>
             </div>
@@ -1623,7 +1623,7 @@ function generateAllClassReports() {
 
 // Open edit modal for a student
 function openEditModal(studentId) {
-    const student = students.find(s => s.id === studentId);
+    const student = students.find(s => String(s.id) === String(studentId));
     if (!student) {
         showNotification('Student not found.', 'error');
         return;
@@ -1753,7 +1753,7 @@ function applyPromotionToClass() {
 
 // Preview student report
 function previewStudentReport(studentId) {
-    const student = students.find(s => s.id === studentId);
+    const student = students.find(s => String(s.id) === String(studentId));
     if (!student) {
         showNotification('Student not found.', 'error');
         return;
@@ -1768,7 +1768,7 @@ function previewStudentReport(studentId) {
 
 // Generate individual report for a specific student
 function generateIndividualReport(studentId) {
-    const student = students.find(s => s.id === studentId);
+    const student = students.find(s => String(s.id) === String(studentId));
     
     if (!student) {
         showNotification('Student not found.', 'error');
@@ -2066,7 +2066,7 @@ function buildReportPdfDocument(studentId) {
 function generateReportPdfBlob(studentId) {
     return new Promise((resolve, reject) => {
         try {
-            const student = students.find(s => s.id === studentId);
+            const student = students.find(s => String(s.id) === String(studentId));
             if (!student) {
                 reject(new Error('Student not found.'));
                 return;
@@ -2355,7 +2355,7 @@ function generateReportPdfBlob(studentId) {
 
 // Download individual student report as PDF
 function downloadStudentReport(studentId) {
-    const student = students.find(s => s.id === studentId);
+    const student = students.find(s => String(s.id) === String(studentId));
     if (!student) {
         showNotification('Student not found.', 'error');
         return;
@@ -2373,11 +2373,16 @@ function downloadStudentReport(studentId) {
 
     generateReportPdfBlob(studentId).then((blob) => {
         const url = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = `${student.name.replace(/[^a-zA-Z0-9]/g, '_')}_report.pdf`;
-        link.click();
-        URL.revokeObjectURL(url);
+        const a = document.createElement('a');
+        a.style.display = 'none';
+        a.href = url;
+        a.download = `${student.name.replace(/[^a-zA-Z0-9]/g, '_')}_report.pdf`;
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => {
+            if (a.parentNode) document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }, 3000);
         showNotification('Report downloaded as PDF.', 'success');
     }).catch(() => {
         showNotification('Unable to generate PDF right now.', 'error');

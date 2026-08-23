@@ -343,59 +343,30 @@ function approvalKey(id) {
 
 function reportRecord(id) {
     const stuId = String(id);
-    const years = loadJSON('academicYears', []);
-    const terms = loadJSON('terms', []);
-    const activeYear = years.find(x => x.isActive) || loadJSON('activeAcademicYear', null);
-    const activeTerm = terms.find(x => x.isActive) || loadJSON('activeTerm', null);
-
-    const yearNamesOrIds = [
-        schoolInfo.academicYear,
-        activeYear?.name,
-        activeYear?.id
-    ].filter(Boolean).map(String);
-
-    const termNamesOrIds = [
-        schoolInfo.term,
-        activeTerm?.termNumber != null ? String(activeTerm.termNumber) : null,
-        activeTerm?.name,
-        activeTerm?.id
-    ].filter(Boolean).map(String);
-
-    const match = reports.find(r => {
-        if (String(r.studentId) !== stuId) return false;
-
-        if (r.approvalKey) {
-            const parts = String(r.approvalKey).split('|');
-            if (parts[0] === stuId) {
-                if (parts.length === 1) return true;
-                const kYear = parts[1];
-                const kTerm = parts[2];
-                const yearMatch = !kYear || yearNamesOrIds.includes(kYear);
-                const termMatch = !kTerm || termNamesOrIds.includes(kTerm);
-                if (yearMatch && termMatch) return true;
-            }
-        }
-
-        const rYear = r.academicYearId || r.academicYear || '';
-        const rTerm = r.termId || r.term || '';
-        const yearOk = !rYear || yearNamesOrIds.length === 0 || yearNamesOrIds.includes(String(rYear));
-        const termOk = !rTerm || termNamesOrIds.length === 0 || termNamesOrIds.includes(String(rTerm));
-
-        return yearOk && termOk;
-    });
-
-    return match || reports.find(r => String(r.studentId) === stuId);
+    const rList = loadJSON('reports', []);
+    return rList.find(r => 
+        String(r.studentId) === stuId || 
+        (r.student && String(r.student.id) === stuId) ||
+        (r.approvalKey && String(r.approvalKey).split('|')[0] === stuId)
+    ) || null;
 }
 
 function isApproved(id) {
     const rec = reportRecord(id);
-    const st = String(rec?.status || '').toLowerCase();
+    if (!rec) return false;
+    const st = String(rec.status || '').toLowerCase();
     return st === 'approved' || st === 'published';
 }
 
 function upsertPending(list) {
+    const currentReports = loadJSON('reports', []);
     list.forEach(stu => {
-        const existing = reportRecord(stu.id);
+        const sid = String(stu.id);
+        const existing = currentReports.find(r => 
+            String(r.studentId) === sid || 
+            (r.student && String(r.student.id) === sid) ||
+            (r.approvalKey && String(r.approvalKey).split('|')[0] === sid)
+        );
         if (existing) {
             if (!['approved', 'published'].includes(String(existing.status).toLowerCase())) {
                 existing.status = 'Pending';
@@ -405,10 +376,10 @@ function upsertPending(list) {
             }
         } else {
             const key = approvalKey(stu.id);
-            reports.push({
+            currentReports.push({
                 id: 'rpt_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5),
                 approvalKey: key,
-                studentId: String(stu.id),
+                studentId: sid,
                 studentName: stu.name,
                 classId: stu.class,
                 academicYearId: schoolInfo.academicYear || '',
@@ -419,6 +390,7 @@ function upsertPending(list) {
             });
         }
     });
+    reports = currentReports;
     persistReports();
 }
 
@@ -1176,19 +1148,12 @@ function marksTemplateRows() {
 
 function downloadBlobFile(content, filename, mime) {
     try {
-        if (window.OneRealFiles && typeof OneRealFiles.download === 'function') {
-            const res = OneRealFiles.download(filename, content, mime);
-            if (res !== undefined) return res;
-        }
-    } catch (e) {}
-
-    try {
         const blob = content instanceof Blob ? content : new Blob([content], { type: mime || 'application/octet-stream' });
         const url = window.URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.style.display = 'none';
         a.href = url;
-        a.download = filename;
+        a.download = filename || 'download.pdf';
         document.body.appendChild(a);
         a.click();
         setTimeout(() => {
@@ -1197,7 +1162,8 @@ function downloadBlobFile(content, filename, mime) {
         }, 3000);
         return true;
     } catch (err) {
-        console.error('Native downloadBlobFile failed:', err);
+        console.error('downloadBlobFile error:', err);
+        return false;
     }
 }
 
@@ -1331,13 +1297,6 @@ function exportBroadsheet() {
     window.location.href = '/open?src=' + encodeURIComponent(url);
 }
 
-function isApproved(studentId) {
-    const rList = loadJSON('reports', []);
-    const sid = String(studentId);
-    const rec = rList.find(r => String(r.studentId) === sid || (r.student && String(r.student.id) === sid));
-    return rec ? ['approved', 'published'].includes(String(rec.status || '').toLowerCase()) : true;
-}
-
 function renderReports() {
     loadAll();
     const list = classStudents();
@@ -1360,7 +1319,7 @@ function renderReports() {
                         <div class="actions">
                             <button class="btn btn-ghost btn-sm" onclick="openRemarks('${s.id}')">Remarks</button>
                             <button class="btn btn-ghost btn-sm" onclick="previewReport('${s.id}')"><i class="fas fa-eye"></i> Preview</button>
-                            <button class="btn btn-ok btn-sm" onclick="downloadReport('${s.id}')"><i class="fas fa-download"></i> Download</button>
+                            <button class="btn btn-ok btn-sm" onclick="downloadReport('${s.id}')" ${ok ? '' : 'title="Admin approval required for official download"'}><i class="fas fa-download"></i> Download</button>
                         </div>
                     </div>`;
                 }).join('') || '<div class="empty">Add students first.</div>'}
@@ -1749,12 +1708,12 @@ function generatePdfBlob(id) {
             // Build an offscreen container readable by html2canvas
             container = document.createElement('div');
             container.id = 'tempPdfRenderContainer';
-            container.style.cssText = 'position:fixed;top:0;left:0;width:800px;background:#fff;z-index:-9999;opacity:0.01;pointer-events:none;';
+            container.style.cssText = 'position:fixed;left:-9999px;top:0;width:800px;background:#fff;z-index:-9999;';
             container.innerHTML = reportMarkup;
             document.body.appendChild(container);
 
             // Wait a moment for layout/fonts to settle
-            await new Promise(r => setTimeout(r, 80));
+            await new Promise(r => setTimeout(r, 60));
 
             const jsPDFConstructor = (window.jspdf && window.jspdf.jsPDF) ? window.jspdf.jsPDF : window.jsPDF;
 
