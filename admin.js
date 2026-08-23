@@ -276,8 +276,8 @@ async function handleAdminLogin() {
             showAuthError(errorEl, 'No admin account found for this email. Only accounts created by the school can sign in.');
             return;
         }
-        if (account.status === 'inactive') {
-            showAuthError(errorEl, 'This account has been deactivated by the Administrator.');
+        if (account.status === 'inactive' || account.status === 'deleted' || account.isDeleted) {
+            showAuthError(errorEl, 'This account has been deactivated / deleted by the Administrator.');
             return;
         }
         if (!isAdminPortalRole(account.role)) {
@@ -554,9 +554,7 @@ function updateNavBadges() {
 
     const notifCount = document.getElementById('notificationCount');
     if (notifCount) {
-        const total = pendingResults + pendingReports;
-        notifCount.textContent = total;
-        notifCount.style.display = total > 0 ? 'flex' : 'none';
+        updateNotificationBadge();
     }
 }
 
@@ -1049,7 +1047,7 @@ function renderTeachersTable() {
     const search  = (document.getElementById('teacherFilterSearch')?.value || '').toLowerCase();
     const statusF =  document.getElementById('teacherFilterStatus')?.value || '';
 
-    let data = adminState.teachers;
+    let data = adminState.teachers.filter(t => t.status !== 'deleted' && !t.isDeleted);
     if (search)  data = data.filter(t => `${t.name} ${t.email}`.toLowerCase().includes(search));
     if (statusF) data = data.filter(t => (t.status || 'active') === statusF);
 
@@ -1294,14 +1292,18 @@ async function toggleTeacherStatus(id) {
 
 async function confirmDeleteTeacher(id) {
     const t = adminState.teachers.find(t => t.id === id);
-    showConfirm(`Delete staff member "${t?.name}"?`, async () => {
-        await deleteDocument('teachers', id);
-        adminState.teachers = adminState.teachers.filter(t => t.id !== id);
+    if (!t) return;
+    showConfirm(`Delete staff member "${t.name}"? (Their account will be deactivated and permanently barred from login while preserving database records)`, async () => {
+        t.status = 'deleted';
+        t.isDeleted = true;
+        t.deletedAt = new Date().toISOString();
+        await updateDocument('teachers', id, { status: 'deleted', isDeleted: true, deletedAt: t.deletedAt });
         await syncSaveCollection('teachers', adminState.teachers);
         renderTeachersTable();
         updateNavBadges();
-        showToast('Staff member deleted.', 'success');
-        await logActivity('Teacher Deleted', `Deleted teacher ${t?.name}`, id);
+        showToast('Staff member deleted and login access permanently revoked.', 'success');
+        await logActivity('Teacher Deleted', `Deleted teacher ${t.name} and revoked login access`, id);
+        triggerAdminNotification('Staff Account Deleted', `Teacher ${t.name} (${t.email}) was deleted and login access revoked.`, 'warning', 'teachers');
     });
 }
 
@@ -2470,7 +2472,7 @@ function viewReport(id) {
         jhsAggregateHTML = `
         <div style="background:#1e1b4b;color:#fff;padding:12px 16px;border-radius:8px;margin-bottom:16px;font-size:12.5px;">
             <div style="font-weight:700;font-size:14px;margin-bottom:6px;">JHS TOTAL AGGREGATE</div>
-            <div style="font-size:22px;font-weight:800;letter-spacing:-1px;">${totalAgg} <span style="font-size:13px;font-weight:400;opacity:0.75;">()</span></div>
+            <div style="font-size:22px;font-weight:800;letter-spacing:-1px;">${totalAgg} <span style="font-size:13px;font-weight:400;opacity:0.75;"></span></div>
             <div style="font-size:11px;margin-top:4px;opacity:0.85;">${aggSubjects}</div>
             <div style="font-size:10.5px;margin-top:4px;opacity:0.65;">${coreLabel} + Best ${bestTwo.length} Elective(s)</div>
             ${allAgg.length < 6 ? '<div style="font-size:11px;margin-top:4px;color:#fbbf24;">&#9888; Not all 6 aggregate subjects have scores</div>' : ''}
@@ -3844,9 +3846,178 @@ function closeConfirmModal(event) {
     document.getElementById('confirmModal').style.display = 'none';
 }
 
-function toggleNotificationsPanel() {
-    showToast('Notification panel coming soon.', 'info');
+// ─── NOTIFICATION PANEL & REAL-TIME ALERTS ──────────────────────────────────
+function getStoredNotifications() {
+    try {
+        return JSON.parse(localStorage.getItem('adminNotifications') || '[]');
+    } catch(e) {
+        return [];
+    }
 }
+
+function saveStoredNotifications(list) {
+    localStorage.setItem('adminNotifications', JSON.stringify(list));
+}
+
+function updateNotificationBadge() {
+    const list = getStoredNotifications();
+    const pendingReports = (adminState.reports || []).filter(r => !['approved','published'].includes(String(r.status||'').toLowerCase()));
+    const unreadStored = list.filter(n => !n.read).length;
+    const totalUnread = unreadStored + pendingReports.length;
+
+    const countEl = document.getElementById('notificationCount');
+    const badgePill = document.getElementById('notifUnreadBadge');
+
+    if (countEl) {
+        if (totalUnread > 0) {
+            countEl.textContent = totalUnread > 99 ? '99+' : totalUnread;
+            countEl.style.display = 'flex';
+        } else {
+            countEl.style.display = 'none';
+        }
+    }
+    if (badgePill) {
+        if (totalUnread > 0) {
+            badgePill.textContent = totalUnread;
+            badgePill.style.display = 'inline-block';
+        } else {
+            badgePill.style.display = 'none';
+        }
+    }
+}
+
+function renderNotificationsList() {
+    const container = document.getElementById('notificationList');
+    if (!container) return;
+
+    const stored = getStoredNotifications();
+    const pendingReports = (adminState.reports || []).filter(r => !['approved','published'].includes(String(r.status||'').toLowerCase()));
+    const items = [];
+
+    // 1. Live Pending Reports alerts
+    if (pendingReports.length > 0) {
+        items.push({
+            id: 'pending_reports_alert',
+            type: 'warning',
+            icon: 'fa-file-invoice',
+            title: `${pendingReports.length} Report Sheet${pendingReports.length === 1 ? '' : 's'} Awaiting Approval`,
+            desc: 'Teachers have submitted student report sheets that need administrative approval.',
+            time: 'Action Required',
+            unread: true,
+            section: 'reports'
+        });
+    }
+
+    // 2. Recent Audit Logs as system notifications
+    const recentLogs = (adminState.auditLogs || []).slice(0, 6);
+    recentLogs.forEach(log => {
+        const isDelete = /deleted/i.test(log.action);
+        const isAuth = /login/i.test(log.action);
+        const isEdit = /edit|update|status/i.test(log.action);
+        items.push({
+            id: 'log_' + (log.id || log.timestamp),
+            type: isDelete ? 'danger' : isAuth ? 'info' : isEdit ? 'warning' : 'success',
+            icon: isDelete ? 'fa-trash' : isAuth ? 'fa-sign-in-alt' : isEdit ? 'fa-edit' : 'fa-check-circle',
+            title: log.action || 'System Activity',
+            desc: log.details || 'Activity logged in system',
+            time: formatTimeAgo(log.timestamp),
+            unread: false,
+            section: 'audit'
+        });
+    });
+
+    // 3. User-created custom notifications
+    stored.forEach(n => items.push(n));
+
+    if (!items.length) {
+        container.innerHTML = `
+            <div class="notif-empty">
+                <i class="fas fa-bell-slash"></i>
+                <p>All caught up! No notifications.</p>
+            </div>
+        `;
+        return;
+    }
+
+    container.innerHTML = items.map(item => `
+        <div class="notif-item ${item.unread ? 'unread' : ''}" onclick="handleNotificationClick('${item.section || ''}', '${item.id || ''}')">
+            <div class="notif-item-icon ${item.type || 'info'}">
+                <i class="fas ${item.icon || 'fa-bell'}"></i>
+            </div>
+            <div class="notif-item-content">
+                <div class="notif-item-title">${escHtml(item.title)}</div>
+                <div class="notif-item-desc">${escHtml(item.desc)}</div>
+                <div class="notif-item-time"><i class="far fa-clock"></i> ${escHtml(item.time)}</div>
+            </div>
+        </div>
+    `).join('');
+}
+
+function toggleNotificationsPanel(event) {
+    if (event) event.stopPropagation();
+    const panel = document.getElementById('notificationsDropdown');
+    if (!panel) return;
+    const isHidden = panel.style.display === 'none' || !panel.style.display;
+    if (isHidden) {
+        renderNotificationsList();
+        updateNotificationBadge();
+        panel.style.display = 'block';
+    } else {
+        panel.style.display = 'none';
+    }
+}
+
+function handleNotificationClick(section, notifId) {
+    const panel = document.getElementById('notificationsDropdown');
+    if (panel) panel.style.display = 'none';
+    if (section && typeof switchSection === 'function') {
+        switchSection(section);
+    }
+}
+
+function markAllNotificationsRead() {
+    const list = getStoredNotifications();
+    list.forEach(n => { n.read = true; });
+    saveStoredNotifications(list);
+    renderNotificationsList();
+    updateNotificationBadge();
+    showToast('All notifications marked as read.', 'info');
+}
+
+function clearAllNotifications() {
+    saveStoredNotifications([]);
+    renderNotificationsList();
+    updateNotificationBadge();
+    showToast('Notifications cleared.', 'info');
+}
+
+function triggerAdminNotification(title, desc, type = 'info', section = '') {
+    const list = getStoredNotifications();
+    list.unshift({
+        id: 'notif_' + Date.now(),
+        title,
+        desc,
+        type,
+        time: 'Just now',
+        unread: true,
+        section,
+        timestamp: new Date().toISOString()
+    });
+    saveStoredNotifications(list.slice(0, 50));
+    updateNotificationBadge();
+    showToast(title, type);
+}
+
+// Close notifications when clicking outside
+document.addEventListener('click', (e) => {
+    const panel = document.getElementById('notificationsDropdown');
+    const bell = document.getElementById('notificationBell');
+    if (panel && panel.style.display === 'block') {
+        if (!panel.contains(e.target) && !bell.contains(e.target)) {
+            panel.style.display = 'none';
+        }
+    }
+});
 
 // ─── TOAST ────────────────────────────────────────────────────────────────────
 function showToast(message, type = 'info') {

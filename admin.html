@@ -152,11 +152,36 @@
                     <i class="fas fa-search"></i>
                     <input type="text" id="globalSearch" placeholder="Search students, teachers, classes…" oninput="handleGlobalSearch(this.value)">
                 </div>
-                <div class="notification-bell" onclick="toggleNotificationsPanel()" id="notificationBell">
+                <div class="notification-bell" onclick="toggleNotificationsPanel(event)" id="notificationBell">
                     <i class="fas fa-bell"></i>
                     <span class="notification-count" id="notificationCount" style="display:none;">0</span>
                 </div>
                 <div class="topbar-avatar" id="topbarAvatar">A</div>
+            </div>
+        </div>
+
+        <!-- NOTIFICATIONS DROPDOWN PANEL -->
+        <div class="notifications-dropdown" id="notificationsDropdown" style="display:none;">
+            <div class="notif-dropdown-header">
+                <div style="display:flex;align-items:center;gap:8px;">
+                    <i class="fas fa-bell" style="color:var(--primary);"></i>
+                    <h4 style="margin:0;font-size:14px;font-weight:700;">Notifications</h4>
+                    <span class="notif-badge-pill" id="notifUnreadBadge" style="display:none;">0</span>
+                </div>
+                <div style="display:flex;align-items:center;gap:6px;">
+                    <button class="notif-mini-btn" onclick="markAllNotificationsRead()" title="Mark all read">
+                        <i class="fas fa-check-double"></i> Mark read
+                    </button>
+                    <button class="notif-mini-btn" onclick="clearAllNotifications()" title="Clear notifications">
+                        <i class="fas fa-trash-alt"></i>
+                    </button>
+                </div>
+            </div>
+            <div class="notif-dropdown-body" id="notificationList">
+                <div class="notif-empty">
+                    <i class="fas fa-bell-slash"></i>
+                    <p>No notifications yet</p>
+                </div>
             </div>
         </div>
 

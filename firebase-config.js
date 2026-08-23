@@ -160,16 +160,16 @@ async function loadUserProfile(uid) {
             }
         }
 
-        // Check if account has been deactivated by administrator
-        if (currentUserProfile.status === 'inactive') {
+        // Check if account has been deactivated or deleted by administrator
+        if (currentUserProfile.status === 'inactive' || currentUserProfile.status === 'deleted' || currentUserProfile.isDeleted) {
             await auth.signOut();
             currentUserProfile = null;
-            throw new Error('Your account has been deactivated by the Administrator. Please contact your school administrator.');
+            throw new Error('Your account has been deactivated / deleted by the Administrator. Please contact your school administrator.');
         }
 
         return currentUserProfile;
     } catch (e) {
-        if (e.message.includes('deactivated')) throw e;
+        if (e.message.includes('deactivated') || e.message.includes('deleted')) throw e;
         console.warn('Could not load user profile:', e);
         return null;
     }
@@ -217,9 +217,9 @@ async function loginFirebaseUser(email, password) {
     try { await auth.setPersistence(firebase.auth.Auth.Persistence.NONE); } catch (e) {}
     const creds = await auth.signInWithEmailAndPassword(email, password);
     const profile = await loadUserProfile(creds.user.uid);
-    if (profile?.status === 'inactive') {
+    if (profile?.status === 'inactive' || profile?.status === 'deleted' || profile?.isDeleted) {
         await auth.signOut();
-        throw new Error('Your account has been deactivated by the Administrator.');
+        throw new Error('Your account has been deactivated / deleted by the Administrator.');
     }
     // Fire-and-forget: the audit write must not delay the sign-in flow.
     logActivity('User Login', `Logged in as ${email}`).catch(() => {});
@@ -888,6 +888,88 @@ async function syncFetchCollection(collectionName, fallbackData) {
     }
 
     return parsedLocal;
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// CONTINUOUS AUTO-SYNC ENGINE
+// ──────────────────────────────────────────────────────────────────────────────
+let autoSyncInterval = null;
+let isAutoSyncing = false;
+
+async function runAutoSyncCycle() {
+    if (isAutoSyncing) return;
+    isAutoSyncing = true;
+    const collectionsToSync = ['teachers', 'students', 'classes', 'subjects', 'scores', 'reports', 'schoolSettings', 'schoolInfo', 'auditLogs', 'schoolDepartments'];
+
+    try {
+        const localPayload = {};
+        collectionsToSync.forEach(col => {
+            const raw = localStorage.getItem(col);
+            if (raw) {
+                try { localPayload[col] = JSON.parse(raw); } catch (e) {}
+            }
+        });
+
+        // 1. Sync with Local / Cloud REST API backend
+        const res = await fetch('/api/sync', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(localPayload)
+        }).catch(() => null);
+
+        if (res && res.ok) {
+            const serverData = await res.json().catch(() => null);
+            if (serverData && typeof serverData === 'object') {
+                collectionsToSync.forEach(col => {
+                    if (serverData[col] !== undefined && serverData[col] !== null) {
+                        const localRaw = localStorage.getItem(col);
+                        const serverRaw = JSON.stringify(serverData[col]);
+                        if (localRaw !== serverRaw) {
+                            localStorage.setItem(col, serverRaw);
+                        }
+                    }
+                });
+            }
+        }
+
+        // 2. Sync with Firebase Firestore
+        if (isFirebaseActive && db) {
+            const schoolId = localStorage.getItem('schoolId') || 'default_school';
+            for (const col of collectionsToSync) {
+                const data = localPayload[col];
+                if (data) {
+                    await db.collection('schools').doc(schoolId).collection(col).doc('main_data').set({
+                        payload: JSON.stringify(data),
+                        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                    }).catch(() => {});
+                }
+            }
+        }
+    } catch (syncErr) {
+        console.warn('Auto-sync background cycle notice:', syncErr);
+    } finally {
+        isAutoSyncing = false;
+    }
+}
+
+function startContinuousAutoSync() {
+    if (autoSyncInterval) clearInterval(autoSyncInterval);
+    setTimeout(runAutoSyncCycle, 1500);
+    autoSyncInterval = setInterval(runAutoSyncCycle, 12000);
+
+    window.addEventListener('online', runAutoSyncCycle);
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') runAutoSyncCycle();
+    });
+}
+
+// Auto-start sync engine
+if (typeof window !== 'undefined') {
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', startContinuousAutoSync);
+    } else {
+        startContinuousAutoSync();
+    }
 }
 
 // ──────────────────────────────────────────────────────────────────────────────

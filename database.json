@@ -1,33 +1,5 @@
 {
-  "students": [
-    {
-      "id": "D8n3h1m8MBbIt3obs9Mr",
-      "academicYearId": "mpFWQQVuxPNLr0tDQyN9",
-      "dob": "2026-08-20",
-      "admissionNo": "TLS12",
-      "createdAt": {
-        "nanoseconds": 986000000,
-        "seconds": 1787176093
-      },
-      "updatedAt": {
-        "nanoseconds": 813000000,
-        "seconds": 1787403676
-      },
-      "class": "BASIC 9",
-      "status": "active",
-      "name": "EVANS",
-      "gender": "Male",
-      "parentPhone": "",
-      "parentName": "",
-      "classId": "iPooVjMkWOUvEpY1UYDu"
-    },
-    {
-      "id": 1787485195812,
-      "name": "EVANDA AGYEKUM",
-      "class": "BASIC 9",
-      "status": "active"
-    }
-  ],
+  "students": [],
   "teachers": [
     {
       "id": "admin_mt4zbtij",
@@ -42,33 +14,21 @@
       "email": "admin123@school.com"
     },
     {
-      "id": "ZGeiZGaGn25bDy5iE3Gn",
-      "role": "Teacher",
-      "password": "TYsU7BMi",
+      "id": "admin_mt4zbtij",
       "status": "active",
-      "phone": "123344232",
-      "assignedSubjects": [
-        "QEdtA5Hwjy7pU7F1ulyX",
-        "cgt2xbBwSElElQWu9P48",
-        "352qeuD45VdoqFGBYqrc",
-        "hQUyb6MuBXwarz7ULmT5",
-        "7IaKzwCfG5T9al0tOuwK",
-        "jWYE4s2vcfrEHoCFnPzd"
-      ],
-      "name": "eva",
+      "email": "admin123@school.com",
+      "uid": "AwuLAQfIOCRwGBf9uFogoQAqTd33",
+      "role": "Super Admin",
       "updatedAt": {
-        "nanoseconds": 695000000,
-        "seconds": 1787439039
+        "seconds": 1787441616,
+        "nanoseconds": 603000000
       },
-      "createdAt": {
-        "nanoseconds": 748000000,
-        "seconds": 1787439016
-      },
-      "email": "evansdebrah111@gmail.com",
-      "assignedClasses": [
-        "iPooVjMkWOUvEpY1UYDu"
-      ],
-      "userId": "iXKnkUPwxkhkp3mYXgKnDAvcI712"
+      "displayName": "admin123",
+      "assignedSubjects": [],
+      "name": "admin123",
+      "password": "admin123",
+      "phone": "",
+      "assignedClasses": []
     }
   ],
   "classes": [
@@ -172,87 +132,87 @@
   "reports": [
     {
       "id": "4LdY1n1UVRhNjXyfZaky",
-      "studentName": "EVANDA AGYEKUM",
-      "studentId": "1787485195812",
-      "termId": "msUpplcSWGX1Zw2mX4U7",
       "generatedAt": "2026-08-23T11:45:19.171Z",
-      "status": "Approved",
-      "generatedBy": "admin",
-      "classId": "",
       "academicYearId": "mpFWQQVuxPNLr0tDQyN9",
-      "approvedAt": "2026-08-23T11:46:26.167Z",
       "createdAt": {
-        "seconds": 1787485543,
-        "nanoseconds": 418000000
+        "nanoseconds": 418000000,
+        "seconds": 1787485543
       },
+      "approvalKey": "1787485195812|2026|1",
+      "studentName": "EVANDA AGYEKUM",
+      "termId": "msUpplcSWGX1Zw2mX4U7",
+      "generatedBy": "admin",
+      "studentId": "1787485195812",
+      "classId": "",
       "updatedAt": {
-        "seconds": 1787485592,
-        "nanoseconds": 964000000
+        "nanoseconds": 964000000,
+        "seconds": 1787485592
       },
-      "approvalKey": "1787485195812|2026|1"
+      "approvedAt": "2026-08-23T11:46:26.167Z",
+      "status": "Approved"
     },
     {
       "id": "My6N29cCcZpgEAVmqQbl",
-      "studentId": "D8n3h1m8MBbIt3obs9Mr",
-      "approvalKey": "D8n3h1m8MBbIt3obs9Mr|2026|1",
-      "termId": "msUpplcSWGX1Zw2mX4U7",
-      "status": "Approved",
-      "generatedBy": "admin",
-      "approvedAt": "2026-08-23T11:46:26.167Z",
       "studentName": "EVANS",
-      "academicYearId": "mpFWQQVuxPNLr0tDQyN9",
       "classId": "iPooVjMkWOUvEpY1UYDu",
-      "generatedAt": "2026-08-23T11:45:38.274Z",
-      "updatedAt": {
-        "seconds": 1787485544,
-        "nanoseconds": 204000000
-      },
       "createdAt": {
-        "seconds": 1787485544,
-        "nanoseconds": 204000000
-      }
+        "nanoseconds": 204000000,
+        "seconds": 1787485544
+      },
+      "approvalKey": "D8n3h1m8MBbIt3obs9Mr|2026|1",
+      "generatedAt": "2026-08-23T11:45:38.274Z",
+      "status": "Approved",
+      "academicYearId": "mpFWQQVuxPNLr0tDQyN9",
+      "updatedAt": {
+        "seconds": 1787485594,
+        "nanoseconds": 36000000
+      },
+      "generatedBy": "admin",
+      "termId": "msUpplcSWGX1Zw2mX4U7",
+      "approvedAt": "2026-08-23T11:46:26.167Z",
+      "studentId": "D8n3h1m8MBbIt3obs9Mr"
     },
     {
       "id": "UYuj36tCepjN8IgixmZ2",
       "generatedAt": "2026-08-23T11:45:13.276Z",
-      "studentId": "1787485195812",
-      "classId": "",
-      "studentName": "EVANDA AGYEKUM",
-      "generatedBy": "admin",
-      "approvedAt": "2026-08-23T11:46:26.167Z",
       "academicYearId": "mpFWQQVuxPNLr0tDQyN9",
-      "termId": "msUpplcSWGX1Zw2mX4U7",
-      "approvalKey": "1787485195812|2026|1",
       "createdAt": {
         "seconds": 1787485543,
         "nanoseconds": 396000000
       },
+      "approvalKey": "1787485195812|2026|1",
+      "studentName": "EVANDA AGYEKUM",
+      "termId": "msUpplcSWGX1Zw2mX4U7",
+      "generatedBy": "admin",
+      "studentId": "1787485195812",
+      "classId": "",
       "updatedAt": {
         "seconds": 1787485592,
         "nanoseconds": 149000000
       },
+      "approvedAt": "2026-08-23T11:46:26.167Z",
       "status": "Approved"
     },
     {
       "id": "fHEnfVN85N3CAPm9BRMH",
-      "status": "Approved",
-      "academicYearId": "mpFWQQVuxPNLr0tDQyN9",
-      "termId": "msUpplcSWGX1Zw2mX4U7",
-      "approvalKey": "1787485195812|2026|1",
+      "studentName": "EVANDA AGYEKUM",
+      "classId": "",
       "createdAt": {
         "seconds": 1787485543,
         "nanoseconds": 431000000
       },
-      "updatedAt": {
-        "seconds": 1787485593,
-        "nanoseconds": 493000000
-      },
-      "classId": "",
-      "generatedBy": "admin",
-      "studentId": "1787485195812",
-      "studentName": "EVANDA AGYEKUM",
+      "approvalKey": "1787485195812|2026|1",
       "generatedAt": "2026-08-23T11:45:28.201Z",
-      "approvedAt": "2026-08-23T11:46:26.167Z"
+      "status": "Approved",
+      "academicYearId": "mpFWQQVuxPNLr0tDQyN9",
+      "updatedAt": {
+        "nanoseconds": 493000000,
+        "seconds": 1787485593
+      },
+      "generatedBy": "admin",
+      "termId": "msUpplcSWGX1Zw2mX4U7",
+      "approvedAt": "2026-08-23T11:46:26.167Z",
+      "studentId": "1787485195812"
     },
     {
       "id": "rpt_mt5qpcdmq82",
@@ -267,90 +227,7 @@
       "status": "Pending"
     }
   ],
-  "scores": {
-    "COMPUTING": {
-      "D8n3h1m8MBbIt3obs9Mr": {
-        "classScore": 80,
-        "examScore": 80,
-        "totalScore": 80,
-        "assessments": {
-          "test1": "",
-          "test2": "",
-          "project": "",
-          "homework": 67,
-          "ca1": 20,
-          "ca4": 10,
-          "ca2": 20,
-          "ca3": 20,
-          "ca5": 10
-        },
-        "classScore50": 40,
-        "examScore50": 40,
-        "grade": "1",
-        "remark": "EXCELLENT"
-      }
-    },
-    "ENGLISH": {
-      "D8n3h1m8MBbIt3obs9Mr": {
-        "classScore": 45,
-        "examScore": 65,
-        "totalScore": 55,
-        "assessments": {},
-        "classScore50": 22.5,
-        "examScore50": 32.5,
-        "grade": "5",
-        "remark": "AVERAGE"
-      }
-    },
-    "CAD": {
-      "D8n3h1m8MBbIt3obs9Mr": {
-        "classScore": 90,
-        "examScore": 56,
-        "totalScore": 73,
-        "assessments": {},
-        "classScore50": 45,
-        "examScore50": 28,
-        "grade": "2",
-        "remark": "VERY GOOD"
-      }
-    },
-    "MATHEMATICS": {
-      "D8n3h1m8MBbIt3obs9Mr": {
-        "classScore": 56,
-        "examScore": 76,
-        "totalScore": 66,
-        "assessments": {},
-        "classScore50": 28,
-        "examScore50": 38,
-        "grade": "3",
-        "remark": "GOOD"
-      }
-    },
-    "SCIENCE": {
-      "D8n3h1m8MBbIt3obs9Mr": {
-        "classScore": 45,
-        "examScore": 65,
-        "totalScore": 55,
-        "assessments": {},
-        "classScore50": 22.5,
-        "examScore50": 32.5,
-        "grade": "5",
-        "remark": "AVERAGE"
-      }
-    },
-    "CAT": {
-      "D8n3h1m8MBbIt3obs9Mr": {
-        "classScore": 76,
-        "examScore": 56,
-        "totalScore": 66,
-        "assessments": {},
-        "classScore50": 38,
-        "examScore50": 28,
-        "grade": "3",
-        "remark": "GOOD"
-      }
-    }
-  },
+  "scores": {},
   "schoolInfo": {
     "academicYear": "",
     "term": "",
@@ -378,33 +255,13 @@
     "signature": null,
     "fieldToggles": {}
   },
-  "studentReportDetails": {
-    "D8n3h1m8MBbIt3obs9Mr": {
-      "attendance": "1 OUT OF —",
-      "promotionStatus": "Promoted",
-      "promotionTarget": "SHS 1",
-      "conduct": "Generally well-behaved and cooperative",
-      "interest": "COMPUTING",
-      "teacherRemarks": "Satisfactory work overall. Extra attention and practice needed in ENGLISH for further improvement."
-    }
-  },
+  "studentReportDetails": {},
   "parentContacts": {},
   "auditLogs": [],
-  "attendanceMarks": {
-    "D8n3h1m8MBbIt3obs9Mr": {
-      "2026-08-21": {
-        "status": "present",
-        "className": "BASIC 9",
-        "termKey": "2026|3",
-        "by": "evansdebrah111@gmail.com",
-        "at": "2026-08-23T09:10:01.040Z"
-      }
-    }
-  },
+  "attendanceMarks": {},
   "attendanceSettings": {
     "defaultDays": {},
     "studentDays": {},
-    "studentPresentOverride": {},
-    "updatedAt": ""
+    "studentPresentOverride": {}
   }
 }
