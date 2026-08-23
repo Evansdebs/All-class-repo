@@ -1,27 +1,5 @@
 {
-  "students": [
-    {
-      "id": "D8n3h1m8MBbIt3obs9Mr",
-      "academicYearId": "mpFWQQVuxPNLr0tDQyN9",
-      "dob": "2026-08-20",
-      "admissionNo": "TLS12",
-      "createdAt": {
-        "nanoseconds": 986000000,
-        "seconds": 1787176093
-      },
-      "updatedAt": {
-        "nanoseconds": 813000000,
-        "seconds": 1787403676
-      },
-      "class": "BASIC 9",
-      "status": "active",
-      "name": "EVANS",
-      "gender": "Male",
-      "parentPhone": "",
-      "parentName": "",
-      "classId": "iPooVjMkWOUvEpY1UYDu"
-    }
-  ],
+  "students": [],
   "teachers": [
     {
       "id": "admin_mt4zbtij",

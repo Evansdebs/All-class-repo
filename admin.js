@@ -532,17 +532,20 @@ function toggleSidebar() {
 }
 
 function updateNavBadges() {
+    const activeStudents = adminState.students.filter(s => s.status !== 'deleted' && !s.isDeleted);
+    const activeTeachers = adminState.teachers.filter(t => t.status !== 'deleted' && !t.isDeleted);
+
     const studBadge = document.getElementById('nav-badge-students');
-    if (studBadge) studBadge.textContent = adminState.students.length;
+    if (studBadge) studBadge.textContent = activeStudents.length;
 
     const teachBadge = document.getElementById('nav-badge-teachers');
-    if (teachBadge) teachBadge.textContent = adminState.teachers.length;
+    if (teachBadge) teachBadge.textContent = activeTeachers.length;
 
     const studHeaderBadge = document.getElementById('studentsHeaderBadge');
-    if (studHeaderBadge) studHeaderBadge.textContent = adminState.students.length;
+    if (studHeaderBadge) studHeaderBadge.textContent = activeStudents.length;
 
     const teachHeaderBadge = document.getElementById('teachersHeaderBadge');
-    if (teachHeaderBadge) teachHeaderBadge.textContent = adminState.teachers.length;
+    if (teachHeaderBadge) teachHeaderBadge.textContent = activeTeachers.length;
 
     const pendingResults = adminState.results.filter(r => r.status === 'Submitted').length;
     const pendingReports = adminState.reports.filter(r => !['approved','published'].includes(String(r.status||'').toLowerCase())).length;
@@ -564,10 +567,15 @@ async function loadDashboard() {
     const activeTerm = adminState.terms.find(t => t.isActive);
     const pendingResults = adminState.results.filter(r => r.status === 'Submitted').length;
 
-    setKPI('kpi-students', adminState.students.filter(s => s.status !== 'inactive').length);
-    setKPI('kpi-teachers', adminState.teachers.filter(t => t.status !== 'inactive').length);
-    setKPI('kpi-classes',  adminState.classes.filter(c => c.status !== 'inactive').length);
-    setKPI('kpi-subjects', adminState.subjects.filter(s => s.status !== 'inactive').length);
+    const activeStudents = adminState.students.filter(s => s.status !== 'inactive' && s.status !== 'deleted' && !s.isDeleted);
+    const activeTeachers = adminState.teachers.filter(t => t.status !== 'inactive' && t.status !== 'deleted' && !t.isDeleted);
+    const activeClasses = adminState.classes.filter(c => c.status !== 'inactive' && c.status !== 'deleted' && !c.isDeleted);
+    const activeSubjects = adminState.subjects.filter(s => s.status !== 'inactive' && s.status !== 'deleted' && !s.isDeleted);
+
+    setKPI('kpi-students', activeStudents.length);
+    setKPI('kpi-teachers', activeTeachers.length);
+    setKPI('kpi-classes',  activeClasses.length);
+    setKPI('kpi-subjects', activeSubjects.length);
     setKPI('kpi-reports',  adminState.reports.length);
     setKPI('kpi-pending',  pendingResults);
     setKPI('kpi-year',     activeYear ? activeYear.name : 'None');
@@ -853,7 +861,7 @@ function renderStudentsTable() {
     const classF   =  document.getElementById('studentFilterClass')?.value   || '';
     const statusF  =  document.getElementById('studentFilterStatus')?.value  || '';
 
-    let data = adminState.students;
+    let data = adminState.students.filter(s => s.status !== 'deleted' && !s.isDeleted);
     if (search)  data = data.filter(s => `${s.name} ${s.admissionNo}`.toLowerCase().includes(search));
     if (classF)  data = data.filter(s => s.classId === classF || s.class === classF);
     if (statusF) data = data.filter(s => (s.status || 'active') === statusF);
@@ -890,7 +898,7 @@ function renderStudentsTable() {
     if (countEl) countEl.textContent = `${total} student${total === 1 ? '' : 's'}`;
 
     const headerBadge = document.getElementById('studentsHeaderBadge');
-    if (headerBadge) headerBadge.textContent = adminState.students.length;
+    if (headerBadge) headerBadge.textContent = adminState.students.filter(s => s.status !== 'deleted' && !s.isDeleted).length;
 
     renderPagination('studentsPagination', total, adminState.studentsPerPage, page, (p) => {
         adminState.studentPage = p;
@@ -1079,11 +1087,12 @@ function renderTeachersTable() {
     const countEl = document.getElementById('teachersCount');
     if (countEl) countEl.textContent = `${data.length} teacher${data.length === 1 ? '' : 's'}`;
 
+    const activeTeachers = adminState.teachers.filter(t => t.status !== 'deleted' && !t.isDeleted);
     const headerBadge = document.getElementById('teachersHeaderBadge');
-    if (headerBadge) headerBadge.textContent = adminState.teachers.length;
+    if (headerBadge) headerBadge.textContent = activeTeachers.length;
 
     const navBadge = document.getElementById('nav-badge-teachers');
-    if (navBadge) navBadge.textContent = adminState.teachers.length;
+    if (navBadge) navBadge.textContent = activeTeachers.length;
 }
 
 function openTeacherModal(id = null) {
