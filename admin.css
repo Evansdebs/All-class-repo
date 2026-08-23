@@ -353,11 +353,11 @@ body {
 }
 
 .notifications-dropdown {
-    position: absolute; top: calc(var(--topbar-h) + 6px);
+    position: fixed; top: calc(var(--topbar-h) + 8px);
     right: 24px; width: 380px; max-width: calc(100vw - 32px);
     background: #ffffff; border: 1.5px solid var(--border);
-    border-radius: 12px; box-shadow: 0 10px 25px -5px rgba(0,0,0,0.12), 0 8px 10px -6px rgba(0,0,0,0.08);
-    z-index: 1000; overflow: hidden;
+    border-radius: 12px; box-shadow: 0 16px 36px rgba(0,0,0,0.16), 0 4px 12px rgba(0,0,0,0.08);
+    z-index: 999999; overflow: hidden;
     animation: fadeInDown 0.18s ease-out;
 }
 

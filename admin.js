@@ -3954,8 +3954,9 @@ function saveStoredNotifications(list) {
 function updateNotificationBadge() {
     const list = getStoredNotifications();
     const pendingReports = (adminState.reports || []).filter(r => !['approved','published'].includes(String(r.status||'').toLowerCase()));
+    const submittedResults = (adminState.results || []).filter(r => r.status === 'Submitted');
     const unreadStored = list.filter(n => !n.read).length;
-    const totalUnread = unreadStored + pendingReports.length;
+    const totalUnread = unreadStored + pendingReports.length + submittedResults.length;
 
     const countEl = document.getElementById('notificationCount');
     const badgePill = document.getElementById('notifUnreadBadge');
@@ -3984,6 +3985,7 @@ function renderNotificationsList() {
 
     const stored = getStoredNotifications();
     const pendingReports = (adminState.reports || []).filter(r => !['approved','published'].includes(String(r.status||'').toLowerCase()));
+    const submittedResults = (adminState.results || []).filter(r => r.status === 'Submitted');
     const items = [];
 
     // 1. Live Pending Reports alerts
@@ -4000,7 +4002,36 @@ function renderNotificationsList() {
         });
     }
 
-    // 2. Recent Audit Logs as system notifications
+    // 2. Live Submitted Results Marks alert
+    if (submittedResults.length > 0) {
+        items.push({
+            id: 'submitted_results_alert',
+            type: 'info',
+            icon: 'fa-clipboard-check',
+            title: `${submittedResults.length} Subject Mark${submittedResults.length === 1 ? '' : 's'} Submitted`,
+            desc: 'New marks submitted by teachers awaiting review and approval.',
+            time: 'Pending Review',
+            unread: true,
+            section: 'results'
+        });
+    }
+
+    // 3. System Configuration Alerts
+    const activeYear = (adminState.academicYears || []).find(y => y.isActive);
+    if (!activeYear) {
+        items.push({
+            id: 'no_active_year_alert',
+            type: 'danger',
+            icon: 'fa-calendar-exclamation',
+            title: 'No Active Academic Year',
+            desc: 'Please configure and activate an Academic Year for accurate reporting.',
+            time: 'Setup Required',
+            unread: true,
+            section: 'academic-years'
+        });
+    }
+
+    // 4. Recent Audit Logs as system notifications
     const recentLogs = (adminState.auditLogs || []).slice(0, 6);
     recentLogs.forEach(log => {
         const isDelete = /deleted/i.test(log.action);
@@ -4014,11 +4045,11 @@ function renderNotificationsList() {
             desc: log.details || 'Activity logged in system',
             time: formatTimeAgo(log.timestamp),
             unread: false,
-            section: 'audit'
+            section: 'audit-logs'
         });
     });
 
-    // 3. User-created custom notifications
+    // 5. User-created custom notifications
     stored.forEach(n => items.push(n));
 
     if (!items.length) {
@@ -4046,7 +4077,10 @@ function renderNotificationsList() {
 }
 
 function toggleNotificationsPanel(event) {
-    if (event) event.stopPropagation();
+    if (event) {
+        event.stopPropagation();
+        event.preventDefault();
+    }
     const panel = document.getElementById('notificationsDropdown');
     if (!panel) return;
     const isHidden = panel.style.display === 'none' || !panel.style.display;
@@ -4105,7 +4139,7 @@ document.addEventListener('click', (e) => {
     const panel = document.getElementById('notificationsDropdown');
     const bell = document.getElementById('notificationBell');
     if (panel && panel.style.display === 'block') {
-        if (!panel.contains(e.target) && !bell.contains(e.target)) {
+        if (!panel.contains(e.target) && (!bell || !bell.contains(e.target))) {
             panel.style.display = 'none';
         }
     }
