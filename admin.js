@@ -2118,11 +2118,14 @@ function renderResultsTable() {
 }
 
 function handleResultCheckbox() {
-    const checked = document.querySelectorAll('.result-checkbox:checked').length;
+    const checkboxes = document.querySelectorAll('.result-checkbox');
+    const checked = Array.from(checkboxes).filter(c => c.checked).length;
     const bulkBar = document.getElementById('resultsBulkActions');
     const countEl = document.getElementById('selectedResultsCount');
+    const selectAllCb = document.getElementById('selectAllResults');
     if (bulkBar) bulkBar.style.display = checked > 0 ? 'flex' : 'none';
     if (countEl) countEl.textContent = `${checked} selected`;
+    if (selectAllCb) selectAllCb.checked = checked > 0 && checked === checkboxes.length;
 }
 
 function toggleSelectAllResults(cb) {
@@ -2131,81 +2134,161 @@ function toggleSelectAllResults(cb) {
 }
 
 function getSelectedResultIds() {
-    return Array.from(document.querySelectorAll('.result-checkbox:checked')).map(c => c.value);
+    return Array.from(document.querySelectorAll('.result-checkbox:checked')).map(c => c.value).filter(Boolean);
 }
 
 async function approveResult(id) {
     try {
-        await approveResults([id], 'Approved');
+        if (typeof approveResults === 'function') {
+            try { await approveResults([id], 'Approved'); } catch(e) {}
+        }
         const r = adminState.results.find(r => r.id === id);
         if (r) { r.status = 'Approved'; r.locked = true; }
+        if (typeof syncSaveCollection === 'function') {
+            try { await syncSaveCollection('results', adminState.results); } catch(e) {}
+        }
         renderResultsTable();
+        updateNavBadges();
         showToast('Result approved and locked.', 'success');
     } catch (e) {
-        showToast(e.message, 'error');
+        showToast(e.message || 'Error approving result', 'error');
     }
 }
 
 async function unlockResult(id) {
     try {
-        await unlockResults([id]);
+        if (typeof unlockResults === 'function') {
+            try { await unlockResults([id]); } catch(e) {}
+        }
         const r = adminState.results.find(r => r.id === id);
         if (r) { r.status = 'Reviewed'; r.locked = false; }
+        if (typeof syncSaveCollection === 'function') {
+            try { await syncSaveCollection('results', adminState.results); } catch(e) {}
+        }
         renderResultsTable();
+        updateNavBadges();
         showToast('Result unlocked for editing.', 'success');
     } catch (e) {
-        showToast(e.message, 'error');
+        showToast(e.message || 'Error unlocking result', 'error');
     }
 }
 
 async function bulkApproveResults() {
     const ids = getSelectedResultIds();
-    if (!ids.length) return;
+    if (!ids.length) return showToast('Please select at least one result mark.', 'warning');
     showConfirm(`Approve ${ids.length} selected results?`, async () => {
-        await approveResults(ids, 'Approved');
-        ids.forEach(id => {
-            const r = adminState.results.find(r => r.id === id);
-            if (r) { r.status = 'Approved'; r.locked = true; }
-        });
-        renderResultsTable();
-        showToast(`${ids.length} results approved.`, 'success');
+        try {
+            if (typeof approveResults === 'function') {
+                try { await approveResults(ids, 'Approved'); } catch(e) {}
+            }
+            ids.forEach(id => {
+                const r = adminState.results.find(r => r.id === id);
+                if (r) { r.status = 'Approved'; r.locked = true; }
+            });
+            if (typeof syncSaveCollection === 'function') {
+                try { await syncSaveCollection('results', adminState.results); } catch(e) {}
+            }
+            renderResultsTable();
+            handleResultCheckbox();
+            updateNavBadges();
+            showToast(`${ids.length} results approved successfully.`, 'success');
+            await logActivity('Bulk Results Approved', `Approved ${ids.length} results`);
+        } catch(e) {
+            showToast(e.message || 'Error approving results', 'error');
+        }
+    });
+}
+
+async function bulkDeleteResults() {
+    const ids = getSelectedResultIds();
+    if (!ids.length) return showToast('Please select at least one result mark to delete.', 'warning');
+    showConfirm(`Delete ${ids.length} selected results? This cannot be undone.`, async () => {
+        try {
+            for (const id of ids) {
+                await deleteDocument('results', id);
+            }
+            adminState.results = adminState.results.filter(r => !ids.includes(r.id));
+            if (typeof syncSaveCollection === 'function') {
+                try { await syncSaveCollection('results', adminState.results); } catch(e) {}
+            }
+            renderResultsTable();
+            handleResultCheckbox();
+            updateNavBadges();
+            showToast(`${ids.length} results deleted successfully.`, 'success');
+            await logActivity('Bulk Results Deleted', `Deleted ${ids.length} results`);
+        } catch(e) {
+            showToast(e.message || 'Error deleting results', 'error');
+        }
     });
 }
 
 async function bulkUnlockResults() {
     const ids = getSelectedResultIds();
-    if (!ids.length) return;
+    if (!ids.length) return showToast('Please select at least one result.', 'warning');
     showConfirm(`Unlock ${ids.length} results for editing?`, async () => {
-        await unlockResults(ids);
-        ids.forEach(id => {
-            const r = adminState.results.find(r => r.id === id);
-            if (r) { r.status = 'Reviewed'; r.locked = false; }
-        });
-        renderResultsTable();
-        showToast(`${ids.length} results unlocked.`, 'success');
+        try {
+            if (typeof unlockResults === 'function') {
+                try { await unlockResults(ids); } catch(e) {}
+            }
+            ids.forEach(id => {
+                const r = adminState.results.find(r => r.id === id);
+                if (r) { r.status = 'Reviewed'; r.locked = false; }
+            });
+            if (typeof syncSaveCollection === 'function') {
+                try { await syncSaveCollection('results', adminState.results); } catch(e) {}
+            }
+            renderResultsTable();
+            handleResultCheckbox();
+            updateNavBadges();
+            showToast(`${ids.length} results unlocked.`, 'success');
+            await logActivity('Bulk Results Unlocked', `Unlocked ${ids.length} results`);
+        } catch(e) {
+            showToast(e.message || 'Error unlocking results', 'error');
+        }
     });
 }
 
 async function bulkPublishResults() {
     const ids = getSelectedResultIds();
-    if (!ids.length) return;
+    if (!ids.length) return showToast('Please select at least one result.', 'warning');
     showConfirm(`Publish ${ids.length} results?`, async () => {
-        await approveResults(ids, 'Published');
-        ids.forEach(id => {
-            const r = adminState.results.find(r => r.id === id);
-            if (r) { r.status = 'Published'; r.locked = true; }
-        });
-        renderResultsTable();
-        showToast(`${ids.length} results published.`, 'success');
+        try {
+            if (typeof approveResults === 'function') {
+                try { await approveResults(ids, 'Published'); } catch(e) {}
+            }
+            ids.forEach(id => {
+                const r = adminState.results.find(r => r.id === id);
+                if (r) { r.status = 'Published'; r.locked = true; }
+            });
+            if (typeof syncSaveCollection === 'function') {
+                try { await syncSaveCollection('results', adminState.results); } catch(e) {}
+            }
+            renderResultsTable();
+            handleResultCheckbox();
+            updateNavBadges();
+            showToast(`${ids.length} results published.`, 'success');
+            await logActivity('Bulk Results Published', `Published ${ids.length} results`);
+        } catch(e) {
+            showToast(e.message || 'Error publishing results', 'error');
+        }
     });
 }
 
 async function confirmDeleteResult(id) {
     showConfirm('Delete this result?', async () => {
-        await deleteDocument('results', id);
-        adminState.results = adminState.results.filter(r => r.id !== id);
-        renderResultsTable();
-        showToast('Result deleted.', 'success');
+        try {
+            await deleteDocument('results', id);
+            adminState.results = adminState.results.filter(r => r.id !== id);
+            if (typeof syncSaveCollection === 'function') {
+                try { await syncSaveCollection('results', adminState.results); } catch(e) {}
+            }
+            renderResultsTable();
+            handleResultCheckbox();
+            updateNavBadges();
+            showToast('Result deleted.', 'success');
+        } catch(e) {
+            showToast(e.message || 'Error deleting result', 'error');
+        }
     });
 }
 
