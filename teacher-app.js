@@ -174,7 +174,8 @@ function allClassSubjects(className) {
     const docs = adminSubjects();
     const allDocs = docs.length ? docs : LEGACY_SUBJECTS.map(name => ({ id: name, name }));
     const forClass = allDocs.filter(d => subjectAssignedToClass(d, className || currentClass));
-    return forClass.map(d => d.name);
+    if (forClass.length > 0) return forClass.map(d => d.name);
+    return allDocs.map(d => d.name);
 }
 
 // Subjects for the class currently open, filtered by the teacher's assignment.
@@ -1688,6 +1689,7 @@ function reportHTML(id) {
 let currentPreviewReportStudentId = null;
 
 function previewReport(id) {
+    loadAll();
     currentPreviewReportStudentId = String(id);
     const html = buildUnifiedReportHTML(id);
     if (!html) {
@@ -1697,7 +1699,10 @@ function previewReport(id) {
     const body = document.getElementById('previewBody');
     if (body) body.innerHTML = html;
     const modal = document.getElementById('previewModal');
-    if (modal) modal.style.display = 'flex';
+    if (modal) {
+        modal.style.display = 'flex';
+        modal.style.zIndex = '99999';
+    }
 }
 
 function closePreview() {
@@ -1857,6 +1862,7 @@ function generatePdfBlob(id) {
 }
 
 async function downloadReport(id) {
+    loadAll();
     const s = students.find(x => String(x.id) === String(id));
     if (!s) return toast('Student record not found.', 'bad');
     if (window.OneRealFiles) OneRealFiles.arm();
@@ -1865,11 +1871,11 @@ async function downloadReport(id) {
         const blob = await generatePdfBlob(id);
         const name = (String(s.name || 'student').replace(/[^a-z0-9]/gi, '_')) + '_report.pdf';
         await downloadBlobFile(blob, name, 'application/pdf');
-        toast('PDF is ready and downloaded.', 'ok');
+        toast('PDF downloaded.', 'ok');
     } catch (e) {
-        console.error('downloadReport error:', e);
-        toast('Could not build PDF. Opening preview...', 'bad');
+        console.warn('Direct PDF export encountered an issue, opening print sheet for instant PDF saving/printing:', e);
         previewReport(id);
+        setTimeout(() => { printTeacherPreview(); }, 350);
     }
 }
 

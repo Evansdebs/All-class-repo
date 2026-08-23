@@ -125,91 +125,24 @@ async function loadStudentDashboard(admissionNo) {
 }
 
 async function renderStudentResults(student) {
-    const tbody = document.getElementById('studentResultsBody');
-    const beceBanner = document.getElementById('beceAggregateBanner');
-    if (!tbody) return;
+    const container = document.getElementById('studentReportCardContainer');
+    if (!container) return;
 
-    let resultsMap = {};
-    const scores = JSON.parse(localStorage.getItem('scores') || '{}');
-
-    // Extract student scores from local store
-    Object.keys(scores).forEach(sub => {
-        if (scores[sub] && scores[sub][student.id]) {
-            resultsMap[sub] = scores[sub][student.id];
-        }
-    });
-
-    // Also check Firestore results collection
-    if (typeof isFirebaseActive !== 'undefined' && isFirebaseActive && typeof db !== 'undefined' && db) {
-        try {
-            const snap = await db.collection('results').where('studentId', '==', student.id.toString()).get();
-            snap.docs.forEach(doc => {
-                const r = doc.data();
-                if (r.subjectId) {
-                    resultsMap[r.subjectId] = {
-                        classScore: r.classScore,
-                        examScore: r.examScore,
-                        totalScore: r.totalScore,
-                        grade: r.grade,
-                        remark: r.remark,
-                        status: r.status,
-                        locked: r.locked
-                    };
-                }
-            });
-        } catch (e) {}
-    }
-
-    const subjectsList = Object.keys(resultsMap);
-    if (!subjectsList.length) {
-        tbody.innerHTML = `<tr><td colspan="7" style="padding:24px;text-align:center;color:var(--text-muted-light);">No official results published for this term yet.</td></tr>`;
-        if (beceBanner) beceBanner.style.display = 'none';
-        return;
-    }
-
-    // Determine if student is in JHS
-    const isJhs = (student.class || '').toLowerCase().includes('jhs') || student.level === 'JHS';
-
-    if (isJhs && typeof calculateBECEAggregate === 'function') {
-        const beceRes = calculateBECEAggregate(resultsMap);
-        if (beceRes.isEligible && beceBanner) {
-            document.getElementById('beceAggValue').textContent = beceRes.aggregate;
-            document.getElementById('beceAggDetail').textContent = beceRes.summaryText;
-            beceBanner.style.display = 'flex';
-        } else if (beceBanner) {
-            beceBanner.style.display = 'none';
-        }
-    } else if (beceBanner) {
-        beceBanner.style.display = 'none';
-    }
-
-    // Render Table Rows
-    const rowsHtml = subjectsList.map((subject, index) => {
-        const entry = resultsMap[subject];
-        const gradeClass = (entry.grade || '').toLowerCase().replace(/[^a-z]/g, '');
-
-        return `
-            <tr>
-                <td>${index + 1}</td>
-                <td><strong>${subject}</strong></td>
-                <td>${entry.classScore !== undefined ? entry.classScore : '—'}</td>
-                <td>${entry.examScore  !== undefined ? entry.examScore  : '—'}</td>
-                <td><strong>${entry.totalScore !== undefined ? entry.totalScore : '—'}</strong></td>
-                <td><span class="grade-badge ${gradeClass}">${entry.grade || '—'}</span></td>
-                <td>${entry.remark || '—'}</td>
-            </tr>
-        `;
-    }).join('');
-
-    tbody.innerHTML = rowsHtml;
+    const reportMarkup = buildUnifiedStudentReportHTML(student);
+    container.innerHTML = reportMarkup || `
+        <div style="background:#fff;color:#1e293b;padding:32px;border-radius:12px;text-align:center;box-shadow:0 2px 10px rgba(0,0,0,.08);font-family:'Inter',sans-serif;">
+            <i class="fas fa-info-circle" style="font-size:32px;color:#818cf8;margin-bottom:12px;"></i>
+            <h3>No Official Results Published Yet</h3>
+            <p style="color:#64748b;font-size:14px;margin-top:6px;">Your marks and terminal report for this academic period will appear here once finalized and approved by the administration.</p>
+        </div>
+    `;
 }
 
 function setupStudentRealtimeListener(student) {
     if (typeof isFirebaseActive === 'undefined' || !isFirebaseActive || typeof db === 'undefined' || !db) return;
 
-    // Listen for live result updates for this student
     const unsub = db.collection('results').where('studentId', '==', student.id.toString())
-        .onSnapshot(snap => {
+        .onSnapshot(() => {
             renderStudentResults(student);
         });
     realtimeUnsubscribers.push(unsub);
@@ -327,7 +260,7 @@ function buildUnifiedStudentReportHTML(student) {
     const avg = scoredCount > 0 ? (totalScoreSum / scoredCount) : 0;
     const overallGrade = getGrade(avg);
 
-    // JHS Aggregate
+    // JHS Aggregate: 4 Core + 2 Best Electives
     let jhsAggregateHTML = '';
     if (isJHS) {
         const allSubjects = JSON.parse(localStorage.getItem('subjects') || '[]');
@@ -353,7 +286,7 @@ function buildUnifiedStudentReportHTML(student) {
         jhsAggregateHTML = `
         <div style="background:#1e1b4b;color:#fff;padding:12px 16px;border-radius:8px;margin-bottom:16px;font-size:12.5px;">
             <div style="font-weight:700;font-size:14px;margin-bottom:6px;">JHS TOTAL AGGREGATE</div>
-            <div style="font-size:22px;font-weight:800;letter-spacing:-1px;">${totalAgg} <span style="font-size:13px;font-weight:400;opacity:0.75;">(lower is better)</span></div>
+            <div style="font-size:22px;font-weight:800;letter-spacing:-1px;">${totalAgg}</div>
             <div style="font-size:11px;margin-top:4px;opacity:0.85;">${aggSubjects}</div>
             <div style="font-size:10.5px;margin-top:4px;opacity:0.65;">${coreLabel} + Best ${bestTwo.length} Elective(s)</div>
             ${allAgg.length < 6 ? '<div style="font-size:11px;margin-top:4px;color:#fbbf24;">⚠ Not all 6 aggregate subjects have scores</div>' : ''}

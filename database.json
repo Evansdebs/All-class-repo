@@ -143,25 +143,17 @@
   "results": [],
   "reports": [
     {
-      "id": "uCvStbWvc4ryR1N5op8I",
-      "updatedAt": {
-        "nanoseconds": 272000000,
-        "seconds": 1787482946
-      },
-      "createdAt": {
-        "nanoseconds": 226000000,
-        "seconds": 1787482819
-      },
-      "studentName": "EVANS",
-      "approvedAt": "2026-08-23T11:02:19.759Z",
-      "termId": "dgvfBudOtgScohlrQGmO",
-      "status": "Approved",
+      "id": "gVZ0vYasDNCFtwlVo6aR",
       "studentId": "D8n3h1m8MBbIt3obs9Mr",
-      "generatedBy": "admin",
+      "studentName": "EVANS",
       "classId": "iPooVjMkWOUvEpY1UYDu",
       "academicYearId": "mpFWQQVuxPNLr0tDQyN9",
+      "termId": "dgvfBudOtgScohlrQGmO",
       "approvalKey": "D8n3h1m8MBbIt3obs9Mr|2026|3",
-      "generatedAt": "2026-08-23T11:00:13.326Z"
+      "status": "Approved",
+      "generatedAt": "2026-08-23T11:28:28.347Z",
+      "generatedBy": "AwuLAQfIOCRwGBf9uFogoQAqTd33",
+      "approvedAt": "2026-08-23T11:29:01.090Z"
     }
   ],
   "scores": {

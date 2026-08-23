@@ -68,89 +68,28 @@
         </div>
     </header>
 
-    <main class="student-container" id="studentMainContent" style="display:none;">
-
-        <!-- BECE Aggregate Banner (Shown for JHS Students) -->
-        <div id="beceAggregateBanner" class="bece-aggregate-banner" style="display:none;">
-            <div>
-                <div class="bece-agg-label"><i class="fas fa-award"></i> BECE Aggregate Score</div>
-                <div class="bece-agg-desc" id="beceAggDetail">Calculated from 4 Core Subjects + Best 2 Elective Subjects</div>
-            </div>
-            <div class="bece-agg-value" id="beceAggValue">08</div>
-        </div>
-
-        <!-- Student Profile Card -->
-        <div class="student-profile-card">
-            <div class="profile-meta-item">
-                <label>Student Name</label>
-                <span id="st-name">—</span>
-            </div>
-            <div class="profile-meta-item">
-                <label>Admission No</label>
-                <span id="st-admNo">—</span>
-            </div>
-            <div class="profile-meta-item">
-                <label>Class / Level</label>
-                <span id="st-class">—</span>
-            </div>
-            <div class="profile-meta-item">
-                <label>Academic Year & Term</label>
-                <span id="st-term">—</span>
-            </div>
-            <div class="profile-meta-item">
-                <label>Attendance</label>
-                <span id="st-attendance">—</span>
-            </div>
-        </div>
+    <main class="student-container" id="studentMainContent" style="display:none;max-width:920px;margin:0 auto;padding:20px 16px;">
 
         <!-- Action Bar -->
-        <div class="student-action-bar" style="display:flex;gap:10px;flex-wrap:wrap;">
-            <button class="btn-student-action primary" onclick="downloadStudentReportFile()" style="background:#4f46e5;color:#fff;">
-                <i class="fas fa-file-pdf"></i> Download Official Report Card (PDF)
-            </button>
-            <button class="btn-student-action" onclick="printStudentReportSheet()" style="background:#4338ca;color:#fff;">
-                <i class="fas fa-print"></i> Print Official Report Sheet
-            </button>
-            <a class="btn-student-action" id="studentExcelBtn" href="/open?src=/api/export/student.xlsx" style="background:#059669;color:#fff;">
-                <i class="fas fa-file-excel"></i> Download Excel
-            </a>
-        </div>
-
-        <!-- Subject Results Table -->
-        <div class="student-card-box">
-            <div class="student-card-header">
-                <h3><i class="fas fa-clipboard-check" style="color:#818cf8;"></i> Terminal Academic Performance</h3>
-                <span id="resultStatusBadge" class="grade-badge a">OFFICIAL APPROVED REPORT</span>
+        <div class="student-action-bar" style="display:flex;gap:10px;justify-content:space-between;align-items:center;flex-wrap:wrap;margin-bottom:20px;background:#1e293b;padding:14px 18px;border-radius:12px;border:1px solid rgba(255,255,255,0.08);">
+            <div style="color:#fff;font-weight:700;font-size:15px;">
+                <i class="fas fa-file-alt" style="color:#818cf8;margin-right:8px;"></i> Official Academic Report Sheet
             </div>
-            <div style="overflow-x:auto;">
-                <table class="student-table">
-                    <thead>
-                        <tr>
-                            <th>#</th>
-                            <th>Subject</th>
-                            <th>Class Score (50%)</th>
-                            <th>Exam Score (50%)</th>
-                            <th>Total Score (100%)</th>
-                            <th>Grade</th>
-                            <th>Remark</th>
-                        </tr>
-                    </thead>
-                    <tbody id="studentResultsBody"></tbody>
-                </table>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                <button class="btn-student-action primary" onclick="downloadStudentReportFile()" style="background:#4f46e5;color:#fff;border:none;padding:8px 16px;border-radius:8px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:6px;">
+                    <i class="fas fa-file-pdf"></i> Download PDF
+                </button>
+                <button class="btn-student-action" onclick="printStudentReportSheet()" style="background:#4338ca;color:#fff;border:none;padding:8px 16px;border-radius:8px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:6px;">
+                    <i class="fas fa-print"></i> Print Report Sheet
+                </button>
+                <a class="btn-student-action" id="studentExcelBtn" href="/open?src=/api/export/student.xlsx" style="background:#059669;color:#fff;text-decoration:none;padding:8px 16px;border-radius:8px;font-weight:600;display:inline-flex;align-items:center;gap:6px;">
+                    <i class="fas fa-file-excel"></i> Excel
+                </a>
             </div>
         </div>
 
-        <!-- Remarks Card -->
-        <div class="student-profile-card" style="grid-template-columns: 1fr 1fr;">
-            <div>
-                <label style="display:block;font-size:11px;color:var(--text-muted-light);font-weight:700;text-transform:uppercase;margin-bottom:6px;">Class Teacher Remark</label>
-                <p id="st-teacherRemark" style="font-size:14px;color:#fff;font-style:italic;">—</p>
-            </div>
-            <div>
-                <label style="display:block;font-size:11px;color:var(--text-muted-light);font-weight:700;text-transform:uppercase;margin-bottom:6px;">Headteacher Remark / Promotion</label>
-                <p id="st-headRemark" style="font-size:14px;color:#fff;font-style:italic;">—</p>
-            </div>
-        </div>
+        <!-- Official Report Card Container (Identical to Admin & Teacher Layout) -->
+        <div id="studentReportCardContainer" style="margin-bottom:30px;"></div>
 
     </main>
 
@@ -162,6 +101,6 @@
     <script src="firebase-config.js?v=fb10"></script>
     <script src="files.js?v=dl9"></script>
     <script src="attendance.js?v=hub4"></script>
-    <script src="student.js?v=dl8"></script>
+    <script src="student.js?v=dl9"></script>
 </body>
 </html>
