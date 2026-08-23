@@ -717,7 +717,7 @@ function renderStudents() {
                 <div class="field"><label>Student name</label><input id="newStudentName" placeholder="Full name"></div>
                 <button class="btn btn-primary" onclick="addStudent()"><i class="fas fa-plus"></i> Add to ${esc(currentClass)}</button>
             </div>
-            <input class="field" style="margin-bottom:10px;width:100%;padding:9px 10px;border:1.5px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink);" id="studentFilter" placeholder="Search students…" oninput="renderStudents()">
+            <input class="field" style="margin-bottom:10px;width:100%;padding:9px 10px;border:1.5px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink);" id="studentFilter" placeholder="Search students…" oninput="renderStudents()" autocomplete="off" value="">
             <div class="list">
                 ${list.filter(s => {
                     const q = (document.getElementById('studentFilter')?.value || '').toLowerCase();

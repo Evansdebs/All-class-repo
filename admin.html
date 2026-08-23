@@ -150,7 +150,7 @@
             <div class="topbar-right">
                 <div class="search-box">
                     <i class="fas fa-search"></i>
-                    <input type="text" id="globalSearch" placeholder="Search students, teachers, classes…" oninput="handleGlobalSearch(this.value)">
+                    <input type="text" id="globalSearch" placeholder="Search students, teachers, classes…" oninput="handleGlobalSearch(this.value)" autocomplete="off" value="">
                 </div>
                 <div class="notification-bell" onclick="toggleNotificationsPanel(event)" id="notificationBell">
                     <i class="fas fa-bell"></i>
@@ -336,7 +336,7 @@
             <div class="filter-bar">
                 <div class="search-filter">
                     <i class="fas fa-search"></i>
-                    <input type="text" id="studentFilterSearch" placeholder="Search students…" oninput="renderStudentsTable()">
+                    <input type="text" id="studentFilterSearch" placeholder="Search students…" oninput="renderStudentsTable()" autocomplete="off" value="">
                 </div>
                 <select id="studentFilterClass" class="admin-select" onchange="renderStudentsTable()">
                     <option value="">All Classes</option>
@@ -385,7 +385,7 @@
             <div class="filter-bar">
                 <div class="search-filter">
                     <i class="fas fa-search"></i>
-                    <input type="text" id="teacherFilterSearch" placeholder="Search teachers…" oninput="renderTeachersTable()">
+                    <input type="text" id="teacherFilterSearch" placeholder="Search teachers…" oninput="renderTeachersTable()" autocomplete="off" value="">
                 </div>
                 <select id="teacherFilterStatus" class="admin-select" onchange="renderTeachersTable()">
                     <option value="">All Status</option>
@@ -610,7 +610,7 @@
                 </select>
                 <div class="search-filter">
                     <i class="fas fa-search"></i>
-                    <input type="text" id="resultsFilterSearch" placeholder="Search student…" oninput="renderResultsTable()">
+                    <input type="text" id="resultsFilterSearch" placeholder="Search student…" oninput="renderResultsTable()" autocomplete="off" value="">
                 </div>
             </div>
             <div class="card-admin">
@@ -943,7 +943,7 @@
             <div class="filter-bar">
                 <div class="search-filter">
                     <i class="fas fa-search"></i>
-                    <input type="text" id="auditLogSearch" placeholder="Search logs…" oninput="renderAuditLogs()">
+                    <input type="text" id="auditLogSearch" placeholder="Search logs…" oninput="renderAuditLogs()" autocomplete="off" value="">
                 </div>
                 <select id="auditLogActionFilter" class="admin-select" onchange="renderAuditLogs()">
                     <option value="">All Actions</option>

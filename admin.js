@@ -492,6 +492,12 @@ function switchSection(sectionId) {
     const bc = document.getElementById('breadcrumb');
     if (bc) bc.innerHTML = `<span>${labels[sectionId] || sectionId}</span>`;
 
+    // Clear search filter fields on section navigation so user searches manually with empty state
+    ['globalSearch', 'studentFilterSearch', 'teacherFilterSearch', 'resultsFilterSearch', 'auditLogSearch'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.value = '';
+    });
+
     // Lazy-render sections
     switch(sectionId) {
         case 'dashboard':      loadDashboard(); break;
