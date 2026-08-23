@@ -1106,6 +1106,9 @@ function openTeacherModal(id = null) {
     renderCheckboxes('tm-subjects-checkboxes', adminState.subjects, 'id', 'name');
 
     const pwSection = document.getElementById('tm-password-section');
+    const pwLabel = document.getElementById('tm-password-label');
+    const pwInput = document.getElementById('tm-password');
+    if (pwInput) pwInput.value = '';
 
     if (id) {
         const t = adminState.teachers.find(t => t.id === id);
@@ -1117,13 +1120,15 @@ function openTeacherModal(id = null) {
             document.getElementById('tm-phone').value = t.phone || '';
             document.getElementById('tm-role').value  = t.role || 'Teacher';
             document.getElementById('tm-status').value = t.status || 'active';
-            if (pwSection) pwSection.style.display = 'none';
+            if (pwSection) pwSection.style.display = 'block';
+            if (pwLabel) pwLabel.textContent = 'New Password (leave blank to keep current)';
             renderCheckboxes('tm-classes-checkboxes',  adminState.classes,  'id', 'name', t.assignedClasses  || []);
             renderCheckboxes('tm-subjects-checkboxes', adminState.subjects, 'id', 'name', t.assignedSubjects || []);
         }
     } else {
         if (title) title.innerHTML = '<i class="fas fa-chalkboard-teacher"></i> Add Teacher';
         if (pwSection) pwSection.style.display = 'block';
+        if (pwLabel) pwLabel.textContent = 'Password *';
     }
 
     modal.style.display = 'flex';
@@ -1141,16 +1146,19 @@ async function saveTeacher() {
     const assignedSubjects = getCheckedValues('tm-subjects-checkboxes');
 
     if (!name || !email) { showToast('Name and email are required.', 'error'); return; }
-    if (!id && !password) { showToast('A password is required so the teacher can sign in.', 'error'); return; }
+
+    // Check if a teacher with this email already exists in the system
+    const existingByEmail = adminState.teachers.find(t => t.email && t.email.toLowerCase() === email.toLowerCase());
+    const effectiveId = id || (existingByEmail ? existingByEmail.id : null);
+
+    if (!effectiveId && !password) { showToast('A password is required so the teacher can sign in.', 'error'); return; }
 
     const teacherData = { name, email, phone, role, status, assignedClasses, assignedSubjects };
-    // Store the password on the record so the teacher can sign in with the
-    // exact credentials the admin created (strict login).
-    if (!id && password) teacherData.password = password;
+    if (password) teacherData.password = password;
 
     try {
-        let teacherId = id;
-        if (!id) {
+        let teacherId = effectiveId;
+        if (!effectiveId) {
             // Create Firebase Auth user for teacher if active
             if (isFirebaseActive && password) {
                 try {
@@ -1166,13 +1174,13 @@ async function saveTeacher() {
             showToast('Teacher added!', 'success');
             await logActivity('Teacher Added', `Added teacher ${name}`, newDoc.id);
         } else {
-            await updateDocument('teachers', id, teacherData);
-            const idx = adminState.teachers.findIndex(t => String(t.id) === String(id));
-            if (idx >= 0) adminState.teachers[idx] = { ...adminState.teachers[idx], ...teacherData, id };
-            showToast('Teacher updated!', 'success');
-            await logActivity('Teacher Updated', `Updated teacher ${name}`, id);
+            await updateDocument('teachers', effectiveId, teacherData);
+            const idx = adminState.teachers.findIndex(t => String(t.id) === String(effectiveId));
+            if (idx >= 0) adminState.teachers[idx] = { ...adminState.teachers[idx], ...teacherData, id: effectiveId };
+            showToast('Teacher profile and password updated!', 'success');
+            await logActivity('Teacher Updated', `Updated teacher ${name}`, effectiveId);
         }
-        teacherId = id || adminState.teachers.find(t => t.email === email)?.id;
+        teacherId = effectiveId || adminState.teachers.find(t => t.email === email)?.id;
         if (teacherId) {
             adminState.classes.forEach(c => {
                 if (String(c.classTeacherId) === String(teacherId)) c.classTeacherName = name;
@@ -1182,6 +1190,17 @@ async function saveTeacher() {
             }
             localStorage.setItem('classes', JSON.stringify(adminState.classes));
         }
+
+        // Deduplicate any duplicates with matching email
+        const uniqueTeachers = [];
+        const seenEmails = new Set();
+        adminState.teachers.forEach(t => {
+            const em = (t.email || '').toLowerCase();
+            if (em && seenEmails.has(em)) return;
+            if (em) seenEmails.add(em);
+            uniqueTeachers.push(t);
+        });
+        adminState.teachers = uniqueTeachers;
 
         await syncSaveCollection('teachers', adminState.teachers);
 
@@ -1836,23 +1855,219 @@ async function confirmDeleteGradingScale(id) {
     });
 }
 
+// ── DEPARTMENT MANAGEMENT ────────────────────────────────────────────────────────
+function getSchoolDepartments() {
+    try {
+        const raw = localStorage.getItem('schoolDepartments');
+        return raw ? JSON.parse(raw) : [];
+    } catch (e) { return []; }
+}
+
+function saveSchoolDepartments(depts) {
+    localStorage.setItem('schoolDepartments', JSON.stringify(depts));
+    if (typeof syncSaveCollection === 'function') {
+        syncSaveCollection('schoolDepartments', depts).catch(() => {});
+    }
+}
+
+function renderDepartmentsSetting() {
+    const container = document.getElementById('departmentsListContainer');
+    if (!container) return;
+    const depts = getSchoolDepartments();
+    if (!depts.length) {
+        container.innerHTML = '<div style="color:#94a3b8;font-size:13px;padding:8px 0;">No departments yet. Add one above.</div>';
+        return;
+    }
+    container.innerHTML = depts.map((d, i) => `
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;margin-bottom:6px;">
+            <div>
+                <strong style="font-size:13px;">${escHtml(d.name)}</strong>
+                ${d.gradingType ? `<span style="font-size:11px;color:#6366f1;margin-left:8px;">(${escHtml(d.gradingType)})</span>` : ''}
+            </div>
+            <button class="action-btn delete" onclick="removeDepartment(${i})" title="Remove"><i class="fas fa-trash"></i></button>
+        </div>`);
+    populateDepartmentDropdowns();
+}
+
+function addDepartmentSetting() {
+    const input = document.getElementById('newDepartmentName');
+    const gradingType = document.getElementById('newDepartmentGrading');
+    const name = input ? input.value.trim() : '';
+    if (!name) { showToast('Enter a department name.', 'error'); return; }
+    const depts = getSchoolDepartments();
+    if (depts.some(d => d.name.toLowerCase() === name.toLowerCase())) {
+        showToast('Department already exists.', 'warning'); return;
+    }
+    depts.push({ name, gradingType: gradingType ? gradingType.value : 'standard' });
+    saveSchoolDepartments(depts);
+    if (input) input.value = '';
+    renderDepartmentsSetting();
+    showToast(`Department "${name}" added.`, 'success');
+}
+
+function removeDepartment(index) {
+    const depts = getSchoolDepartments();
+    const d = depts[index];
+    showConfirm(`Remove department "${d?.name}"?`, () => {
+        depts.splice(index, 1);
+        saveSchoolDepartments(depts);
+        renderDepartmentsSetting();
+        showToast('Department removed.', 'success');
+    });
+}
+
+function populateDepartmentDropdowns() {
+    const depts = getSchoolDepartments();
+    const selectors = [
+        '#cm-department', '#subm-department', '#gs-department',
+        '#tm-department', '#studentDeptFilter'
+    ];
+    selectors.forEach(sel => {
+        document.querySelectorAll(sel).forEach(el => {
+            const cur = el.value;
+            el.innerHTML = '<option value="">-- Select Department --</option>' +
+                depts.map(d => `<option value="${escHtml(d.name)}" ${cur === d.name ? 'selected' : ''}>${escHtml(d.name)}</option>`).join('');
+        });
+    });
+}
+
+// Department helper to get grading type
+function getDeptGradingType(departmentName) {
+    if (!departmentName) return 'standard';
+    const depts = getSchoolDepartments();
+    const d = depts.find(x => x.name.toLowerCase() === departmentName.toLowerCase());
+    return d?.gradingType || 'standard';
+}
+
+// JHS detection helper
+function isJHSDepartment(className, department) {
+    const jhs = ['basic 7','basic 8','basic 9','jhs 1','jhs 2','jhs 3','jhs'];
+    const cn = String(className || '').toLowerCase();
+    const dep = String(department || '').toLowerCase();
+    return jhs.some(k => cn.includes(k) || dep.includes(k)) || getDeptGradingType(department) === 'jhs';
+}
+
+// Get JHS stanine grade
+const JHS_SCALE = [
+    { min:80, max:100, grade:'1', remark:'EXCELLENT' },
+    { min:70, max:79,  grade:'2', remark:'VERY GOOD' },
+    { min:65, max:69,  grade:'3', remark:'GOOD' },
+    { min:60, max:64,  grade:'4', remark:'CREDIT' },
+    { min:55, max:59,  grade:'5', remark:'AVERAGE' },
+    { min:50, max:54,  grade:'6', remark:'PASS' },
+    { min:45, max:49,  grade:'7', remark:'WEAK PASS' },
+    { min:40, max:44,  grade:'8', remark:'FAIL' },
+    { min:0,  max:39,  grade:'9', remark:'FAIL' }
+];
+
+function getGradeForDept(score, isJHS) {
+    const t = Math.max(0, Math.min(100, Number(score) || 0));
+    if (isJHS) return JHS_SCALE.find(g => t >= g.min && t <= g.max) || JHS_SCALE[JHS_SCALE.length - 1];
+    const scale = (typeof getActiveGradingScale === 'function' ? getActiveGradingScale() : null) ||
+        adminState.gradingScales?.find(s => s.isActive)?.ranges ||
+        adminState.gradingScales?.find(s => s.isActive)?.items || [
+        { min:80, max:100, grade:'A', remark:'ADVANCE' },
+        { min:68, max:79,  grade:'P', remark:'PROFICIENCY' },
+        { min:54, max:67,  grade:'AP', remark:'APPROACHING PROFICIENCY' },
+        { min:40, max:53,  grade:'D', remark:'DEVELOPING' },
+        { min:0,  max:39,  grade:'B', remark:'BEGINNER' }
+    ];
+    return scale.find(g => t >= g.min && t <= g.max) || scale[scale.length - 1];
+}
+
+function populateAllDropdowns() {
+    populateDepartmentDropdowns();
+
+    // Populate class dropdowns
+    const activeClasses = adminState.classes.filter(c => c.status !== 'inactive');
+    const classSelectors = [
+        '#resultsFilterClass', '#reportsFilterClass', '#studentsFilterClass',
+        '#sm-class', '#gradeDistClassFilter', '#subjectAvgClassFilter',
+        '#bulkDownloadClassSelect'
+    ];
+    classSelectors.forEach(sel => {
+        document.querySelectorAll(sel).forEach(el => {
+            const cur = el.value;
+            const hasAll = el.querySelector('option[value=""]');
+            const allText = hasAll ? hasAll.textContent : 'All Classes';
+            el.innerHTML = `<option value="">${allText}</option>` +
+                activeClasses.map(c => `<option value="${escHtml(c.id)}" ${cur === c.id ? 'selected' : ''}>${escHtml(c.name)}</option>`).join('');
+        });
+    });
+
+    // Populate academic year dropdowns
+    const yearSelectors = ['#resultsFilterYear', '#reportsFilterYear'];
+    yearSelectors.forEach(sel => {
+        document.querySelectorAll(sel).forEach(el => {
+            const cur = el.value;
+            el.innerHTML = '<option value="">All Academic Years</option>' +
+                adminState.academicYears.map(y => `<option value="${escHtml(y.id)}" ${cur === y.id ? 'selected' : ''}>${escHtml(y.name)}</option>`).join('');
+        });
+    });
+
+    // Populate term dropdowns
+    const termSelectors = ['#resultsFilterTerm', '#reportsFilterTerm'];
+    termSelectors.forEach(sel => {
+        document.querySelectorAll(sel).forEach(el => {
+            const cur = el.value;
+            el.innerHTML = '<option value="">All Terms</option>' +
+                adminState.terms.map(t => `<option value="${escHtml(t.id)}" ${cur === t.id ? 'selected' : ''}>${escHtml(t.name)}</option>`).join('');
+        });
+    });
+}
+
 // ─── RESULTS ─────────────────────────────────────────────────────────────────
+function syncScoresIntoResults() {
+    try {
+        const storedResults = JSON.parse(localStorage.getItem('results') || '[]');
+        storedResults.forEach(r => {
+            const existing = adminState.results.find(ar =>
+                String(ar.studentId) === String(r.studentId) &&
+                (ar.subjectId === r.subjectId || ar.subjectName === r.subjectName) &&
+                ar.classId === r.classId
+            );
+            if (existing) {
+                Object.assign(existing, r);
+            } else {
+                adminState.results.push(r);
+            }
+        });
+    } catch(e) {}
+}
+
 function renderResultsTable() {
+    syncScoresIntoResults();
     const yearF    = document.getElementById('resultsFilterYear')?.value   || '';
     const termF    = document.getElementById('resultsFilterTerm')?.value   || '';
     const classF   = document.getElementById('resultsFilterClass')?.value  || '';
     const statusF  = document.getElementById('resultsFilterStatus')?.value || '';
+    const subjectF = document.getElementById('resultsFilterSubject')?.value || '';
     const search   = (document.getElementById('resultsFilterSearch')?.value || '').toLowerCase();
 
     let data = adminState.results;
-    if (yearF)   data = data.filter(r => r.academicYearId === yearF);
-    if (termF)   data = data.filter(r => r.termId === termF);
-    if (classF)  data = data.filter(r => r.classId === classF);
-    if (statusF) data = data.filter(r => r.status === statusF);
-    if (search)  data = data.filter(r => {
+    if (yearF)    data = data.filter(r => r.academicYearId === yearF);
+    if (termF)    data = data.filter(r => r.termId === termF);
+    if (classF)   data = data.filter(r => r.classId === classF);
+    if (statusF)  data = data.filter(r => r.status === statusF);
+    if (subjectF) data = data.filter(r => (r.subjectId === subjectF || r.subjectName === subjectF));
+    if (search)   data = data.filter(r => {
         const s = adminState.students.find(s => s.id === r.studentId);
-        return (s?.name || '').toLowerCase().includes(search);
+        const stuName = (s?.name || r.studentName || '').toLowerCase();
+        return stuName.includes(search) || (r.subjectId || '').toLowerCase().includes(search);
     });
+
+    // Populate subject filter dropdown if present
+    const subjectFilterEl = document.getElementById('resultsFilterSubject');
+    if (subjectFilterEl && subjectFilterEl.options.length <= 1) {
+        const allSubs = [...new Set(adminState.results.map(r => r.subjectId || r.subjectName).filter(Boolean))];
+        allSubs.forEach(sub => {
+            const opt = document.createElement('option');
+            opt.value = sub;
+            opt.textContent = sub;
+            subjectFilterEl.appendChild(opt);
+        });
+        if (subjectF) subjectFilterEl.value = subjectF;
+    }
 
     const page  = adminState.resultPage;
     const total = data.length;
@@ -1870,7 +2085,7 @@ function renderResultsTable() {
             <td><input type="checkbox" class="result-checkbox" value="${r.id}" onchange="handleResultCheckbox()"></td>
             <td>${escHtml(student?.name || r.studentName || r.studentId || '—')}</td>
             <td>${escHtml(resolveClass(r.classId))}</td>
-            <td>${escHtml(r.subjectId || '—')}</td>
+            <td>${escHtml(r.subjectId || r.subjectName || '—')}</td>
             <td>${r.classScore ?? '—'}</td>
             <td>${r.examScore ?? '—'}</td>
             <td><strong>${r.totalScore ?? '—'}</strong></td>
@@ -2180,17 +2395,13 @@ function viewReport(id) {
     }
     if (!classSubs.length) classSubs = adminState.subjects;
 
-    const scale = (typeof getActiveGradingScale === 'function' ? getActiveGradingScale() : null) || adminState.gradingScales?.find(s => s.isActive)?.ranges || [
-        { min: 80, max: 100, grade: 'A', remark: 'ADVANCE' },
-        { min: 68, max: 79, grade: 'P', remark: 'PROFICIENCY' },
-        { min: 54, max: 67, grade: 'AP', remark: 'APPROACHING PROFICIENCY' },
-        { min: 40, max: 53, grade: 'D', remark: 'DEVELOPING' },
-        { min: 0, max: 39, grade: 'B', remark: 'BEGINNER' }
-    ];
+    // Determine if JHS
+    const isJHS = isJHSDepartment(className, classRec?.department || '');
 
     let totalScoreSum = 0;
     let scoredCount = 0;
     let rowsHtml = '';
+    const jhsSubjectResults = [];
 
     classSubs.forEach(sub => {
         const subName = sub.name || sub;
@@ -2203,9 +2414,10 @@ function viewReport(id) {
             const cs50 = Math.round((cs / 100) * 50 * 10) / 10;
             const es50 = Math.round((es / 100) * 50 * 10) / 10;
             const tot = scoreEntry.totalScore !== undefined && scoreEntry.totalScore !== '' ? Number(scoreEntry.totalScore) : (cs50 + es50);
-            const gradeObj = (typeof getGradeForScore === 'function' ? getGradeForScore(tot) : null) || scale.find(g => tot >= g.min && tot <= g.max) || { grade: '—', remark: '—' };
+            const gradeObj = getGradeForDept(tot, isJHS);
             totalScoreSum += tot;
             scoredCount++;
+            jhsSubjectResults.push({ sub: subName, tot, grade: Number(gradeObj.grade) || 99 });
             rowsHtml += `<tr>
                 <td style="text-align:left;font-weight:600;padding:8px 10px;border:1px solid #cbd5e1;">${escHtml(subName)}</td>
                 <td style="padding:8px 10px;border:1px solid #cbd5e1;">${cs50}</td>
@@ -2215,21 +2427,38 @@ function viewReport(id) {
                 <td style="padding:8px 10px;border:1px solid #cbd5e1;">${gradeObj.remark}</td>
             </tr>`;
         } else {
+            jhsSubjectResults.push({ sub: subName, tot: null, grade: 99 });
             rowsHtml += `<tr>
                 <td style="text-align:left;color:#94a3b8;padding:8px 10px;border:1px solid #cbd5e1;">${escHtml(subName)}</td>
-                <td style="padding:8px 10px;border:1px solid #cbd5e1;color:#94a3b8;">—</td>
-                <td style="padding:8px 10px;border:1px solid #cbd5e1;color:#94a3b8;">—</td>
-                <td style="padding:8px 10px;border:1px solid #cbd5e1;color:#94a3b8;">—</td>
-                <td style="padding:8px 10px;border:1px solid #cbd5e1;color:#94a3b8;">—</td>
-                <td style="padding:8px 10px;border:1px solid #cbd5e1;color:#94a3b8;font-style:italic;">No scores entered</td>
+                <td style="padding:8px 10px;border:1px solid #cbd5e1;color:#94a3b8;" colspan="5">No scores entered</td>
             </tr>`;
         }
     });
 
     const avg = scoredCount > 0 ? (totalScoreSum / scoredCount) : 0;
-    const overallGrade = (typeof getGradeForScore === 'function' ? getGradeForScore(avg) : null) || scale.find(g => avg >= g.min && avg <= g.max) || { grade: '—', remark: '—' };
+    const overallGrade = getGradeForDept(avg, isJHS);
     const logoSrc = settings.schoolLogo || schoolInf.schoolLogo || null;
     const isApproved = ['approved', 'published'].includes(String(r.status || '').toLowerCase());
+
+    // JHS Aggregate
+    let jhsAggregateHTML = '';
+    if (isJHS) {
+        const coreKeywords = ['english','mathematics','science','social studies','integrated science'];
+        const coreResults = jhsSubjectResults.filter(r => r.tot !== null && coreKeywords.some(k => r.sub.toLowerCase().includes(k))).slice(0, 4);
+        const electiveResults = jhsSubjectResults.filter(r => r.tot !== null && !coreKeywords.some(k => r.sub.toLowerCase().includes(k)));
+        electiveResults.sort((a, b) => a.grade - b.grade);
+        const bestTwo = electiveResults.slice(0, 2);
+        const allAgg = [...coreResults, ...bestTwo];
+        const totalAgg = allAgg.reduce((s, r) => s + r.grade, 0);
+        const aggSubjects = allAgg.map(r => `${escHtml(r.sub)}: Grade ${r.grade}`).join(' | ');
+        jhsAggregateHTML = `
+        <div style="background:#1e1b4b;color:#fff;padding:12px 16px;border-radius:8px;margin-bottom:16px;font-size:12.5px;">
+            <div style="font-weight:700;font-size:14px;margin-bottom:6px;">JHS TOTAL AGGREGATE</div>
+            <div style="font-size:22px;font-weight:800;letter-spacing:-1px;">${totalAgg} <span style="font-size:13px;font-weight:400;opacity:0.75;">(lower is better)</span></div>
+            <div style="font-size:11px;margin-top:4px;opacity:0.85;">${aggSubjects}</div>
+            ${allAgg.length < 6 ? '<div style="font-size:11px;margin-top:4px;color:#fbbf24;">&#9888; Not all 6 aggregate subjects have scores</div>' : ''}
+        </div>`;
+    }
 
     const modalBody = document.getElementById('adminPreviewReportBody');
     if (!modalBody) return;
@@ -2240,8 +2469,8 @@ function viewReport(id) {
                 ${logoSrc ? `<img src="${logoSrc}" style="width:70px;height:70px;object-fit:contain;border-radius:8px;" alt="Logo">` : '<div style="width:70px;height:70px;border:2px dashed #cbd5e1;border-radius:8px;display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:11px;text-align:center;">No Logo</div>'}
                 <div style="text-align:center;flex:1;padding:0 12px;">
                     <h2 style="font-size:20px;font-weight:800;color:#1e1b4b;margin:0 0 4px 0;letter-spacing:-0.5px;">${escHtml(settings.schoolName || schoolInf.schoolName || 'ONEREAL SCHOOL')}</h2>
-                    <p style="font-size:12px;color:#64748b;margin:0 0 2px 0;">${escHtml(settings.address || 'Accra, Ghana')}</p>
-                    <p style="font-size:11.5px;color:#4f46e5;font-weight:600;margin:0 0 6px 0;"><em>"${escHtml(settings.motto || 'Drink deep or taste not the spring of knowledge')}"</em></p>
+                    <p style="font-size:12px;color:#64748b;margin:0 0 2px 0;">${escHtml(settings.address || '')}</p>
+                    <p style="font-size:11.5px;color:#4f46e5;font-weight:600;margin:0 0 6px 0;"><em>&ldquo;${escHtml(settings.motto || 'Drink deep or taste not the spring of knowledge')}&rdquo;</em></p>
                     <div style="display:inline-block;background:#4f46e5;color:#fff;font-size:12px;font-weight:700;padding:4px 14px;border-radius:20px;letter-spacing:0.5px;">
                         END OF ${escHtml(String(tm).toUpperCase())} REPORT SHEET
                     </div>
@@ -2273,6 +2502,8 @@ function viewReport(id) {
                     ${rowsHtml || '<tr><td colspan="6" style="padding:16px;color:#94a3b8;">No subjects assigned</td></tr>'}
                 </tbody>
             </table>
+
+            ${jhsAggregateHTML}
 
             <div style="display:grid;grid-template-columns:repeat(3, 1fr);gap:10px;background:#eef2ff;padding:12px 16px;border-radius:8px;margin-bottom:16px;font-size:12.5px;border:1px solid #c7d2fe;">
                 <div><span style="color:#4338ca;font-size:11px;display:block;font-weight:600;">AVERAGE SCORE</span><strong style="font-size:15px;color:#1e1b4b;">${scoredCount ? avg.toFixed(1) + '%' : '—'}</strong></div>
@@ -2309,17 +2540,11 @@ function viewReport(id) {
         if (isApproved) {
             approveBtn.className = 'btn-admin btn-warning';
             approveBtn.innerHTML = '<i class="fas fa-undo"></i> Revoke Approval';
-            approveBtn.onclick = async () => {
-                await revokeReportApproval(id);
-                viewReport(id);
-            };
+            approveBtn.onclick = async () => { await revokeReportApproval(id); viewReport(id); };
         } else {
             approveBtn.className = 'btn-admin btn-primary';
             approveBtn.innerHTML = '<i class="fas fa-check"></i> Approve for Download';
-            approveBtn.onclick = async () => {
-                await approveReport(id);
-                viewReport(id);
-            };
+            approveBtn.onclick = async () => { await approveReport(id); viewReport(id); };
         }
     }
 
@@ -2363,6 +2588,192 @@ async function confirmDeleteReport(id) {
         renderReportsTable();
         showToast('Report deleted.', 'success');
     });
+}
+
+// ── BULK DOWNLOAD for Admin ─────────────────────────────────────────────────
+function openAdminBulkDownloadModal() {
+    const modal = document.getElementById('adminBulkDownloadModal');
+    if (!modal) { showToast('Bulk download modal not found.', 'error'); return; }
+
+    // Populate class selector
+    const sel = document.getElementById('bulkDownloadClassSelect');
+    if (sel) {
+        sel.innerHTML = '<option value="">-- All Classes --</option>' +
+            adminState.classes.filter(c => c.status !== 'inactive')
+                .map(c => `<option value="${escHtml(c.id)}">${escHtml(c.name)}</option>`).join('');
+    }
+    modal.style.display = 'flex';
+}
+
+async function executeAdminBulkDownload() {
+    const classFilter = document.getElementById('bulkDownloadClassSelect')?.value || '';
+    const statusFilter = document.getElementById('bulkDownloadStatusSelect')?.value || 'approved';
+
+    const showToastMsg = (msg, type) => showToast(msg, type);
+    showToastMsg('Preparing bulk download...', 'info');
+
+    let reports = adminState.reports.filter(r => {
+        const statusMatch = !statusFilter || ['approved','published'].includes(String(statusFilter).toLowerCase())
+            ? ['approved','published'].includes(String(r.status || '').toLowerCase())
+            : r.status === statusFilter;
+        const classMatch = !classFilter || r.classId === classFilter;
+        return statusMatch && classMatch;
+    });
+
+    if (!reports.length) { showToast('No approved reports found for the selection.', 'warning'); return; }
+
+    if (typeof JSZip === 'undefined') {
+        showToast('ZIP library not loaded. Cannot create bulk download.', 'error');
+        return;
+    }
+
+    const zip = new JSZip();
+    const scoresBag = JSON.parse(localStorage.getItem('scores') || '{}');
+    const detailsBag = JSON.parse(localStorage.getItem('studentReportDetails') || '{}');
+    const settings = adminState.settings || {};
+    const schoolInf = getSchoolInfo();
+
+    let count = 0;
+    for (const r of reports) {
+        try {
+            const student = adminState.students.find(s => String(s.id) === String(r.studentId));
+            if (!student) continue;
+            const className = resolveClass(r.classId);
+            const yr = adminState.academicYears.find(y => String(y.id) === String(r.academicYearId))?.name || '';
+            const tm = adminState.terms.find(t => String(t.id) === String(r.termId))?.name || '';
+            const d = detailsBag[student.id] || detailsBag[String(student.id)] || {};
+            const classRec = adminState.classes.find(c => String(c.id) === String(r.classId));
+            let classSubs = adminState.subjects;
+            if (classRec && Array.isArray(classRec.subjectIds) && classRec.subjectIds.length) {
+                classSubs = adminState.subjects.filter(s => classRec.subjectIds.includes(s.id));
+            }
+            if (!classSubs.length) classSubs = adminState.subjects;
+            const isJHS = isJHSDepartment(className, classRec?.department || '');
+
+            let rowsHtml = '';
+            let totalScoreSum = 0, scoredCount = 0;
+            const jhsSubjectResults = [];
+            classSubs.forEach(sub => {
+                const subName = sub.name || sub;
+                const bag = scoresBag[subName] || {};
+                const se = bag[student.id] || bag[String(student.id)] || null;
+                if (se && se.classScore !== '' && se.examScore !== '') {
+                    const cs50 = Math.round((Number(se.classScore) / 100) * 50 * 10) / 10;
+                    const es50 = Math.round((Number(se.examScore) / 100) * 50 * 10) / 10;
+                    const tot = se.totalScore !== undefined && se.totalScore !== '' ? Number(se.totalScore) : (cs50 + es50);
+                    const g = getGradeForDept(tot, isJHS);
+                    totalScoreSum += tot; scoredCount++;
+                    jhsSubjectResults.push({ sub: subName, tot, grade: Number(g.grade) || 99 });
+                    rowsHtml += `<tr><td style="text-align:left;font-weight:600;padding:6px 8px;border:1px solid #cbd5e1;">${escHtml(subName)}</td><td style="padding:6px 8px;border:1px solid #cbd5e1;">${cs50}</td><td style="padding:6px 8px;border:1px solid #cbd5e1;">${es50}</td><td style="padding:6px 8px;border:1px solid #cbd5e1;"><strong>${tot}</strong></td><td style="padding:6px 8px;border:1px solid #cbd5e1;">${g.grade}</td><td style="padding:6px 8px;border:1px solid #cbd5e1;">${g.remark}</td></tr>`;
+                } else {
+                    rowsHtml += `<tr><td style="text-align:left;color:#94a3b8;padding:6px 8px;border:1px solid #cbd5e1;">${escHtml(subName)}</td><td colspan="5" style="padding:6px 8px;border:1px solid #cbd5e1;color:#94a3b8;">No scores</td></tr>`;
+                }
+            });
+            const avg = scoredCount > 0 ? totalScoreSum / scoredCount : 0;
+            const overallGrade = getGradeForDept(avg, isJHS);
+            const logoSrc = settings.schoolLogo || schoolInf.schoolLogo;
+
+            let jhsAggHTML = '';
+            if (isJHS) {
+                const coreKw = ['english','mathematics','science','social studies','integrated science'];
+                const coreR = jhsSubjectResults.filter(r => r.tot !== null && coreKw.some(k => r.sub.toLowerCase().includes(k))).slice(0,4);
+                const elecR = jhsSubjectResults.filter(r => r.tot !== null && !coreKw.some(k => r.sub.toLowerCase().includes(k))).sort((a,b) => a.grade - b.grade).slice(0,2);
+                const allAgg = [...coreR, ...elecR];
+                const totalAgg = allAgg.reduce((s, r) => s + r.grade, 0);
+                jhsAggHTML = `<div style="background:#1e1b4b;color:#fff;padding:10px;border-radius:6px;margin-bottom:12px;font-size:12px;"><strong>JHS AGGREGATE: ${totalAgg}</strong> (${allAgg.map(r => r.sub + ':' + r.grade).join(', ')})</div>`;
+            }
+
+            const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${student.name}</title><style>body{margin:20px;font-family:Arial,sans-serif;font-size:12px;-webkit-print-color-adjust:exact;}table{width:100%;border-collapse:collapse;}th,td{border:1px solid #cbd5e1;padding:6px 8px;}</style></head><body>
+<div style="display:flex;align-items:center;justify-content:space-between;border-bottom:2px solid #4f46e5;padding-bottom:12px;margin-bottom:16px;">
+    ${logoSrc ? `<img src="${logoSrc}" style="width:60px;height:60px;object-fit:contain;" alt="Logo">` : ''}
+    <div style="text-align:center;flex:1;">
+        <h2 style="font-size:18px;font-weight:800;color:#1e1b4b;margin:0 0 3px;">${escHtml(settings.schoolName || schoolInf.schoolName || 'School')}</h2>
+        <p style="margin:0 0 2px;font-size:11px;color:#64748b;">${escHtml(settings.address || '')}</p>
+        <p style="margin:0 0 6px;font-size:11px;color:#4f46e5;"><em>&ldquo;${escHtml(settings.motto || '')}&rdquo;</em></p>
+        <div style="display:inline-block;background:#4f46e5;color:#fff;font-size:11px;font-weight:700;padding:3px 12px;border-radius:16px;">END OF ${escHtml(String(tm).toUpperCase())} REPORT SHEET</div>
+    </div>
+    ${logoSrc ? `<img src="${logoSrc}" style="width:60px;height:60px;object-fit:contain;" alt="Logo">` : ''}
+</div>
+<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;background:#f8fafc;padding:10px 14px;border-radius:6px;margin-bottom:14px;border:1px solid #e2e8f0;">
+    <div><span style="font-size:10px;font-weight:600;color:#64748b;display:block;">NAME</span><strong>${escHtml(student.name)}</strong></div>
+    <div><span style="font-size:10px;font-weight:600;color:#64748b;display:block;">CLASS</span><strong>${escHtml(className)}</strong></div>
+    <div><span style="font-size:10px;font-weight:600;color:#64748b;display:block;">YEAR</span><strong>${escHtml(yr)}</strong></div>
+    <div><span style="font-size:10px;font-weight:600;color:#64748b;display:block;">TERM</span><strong>${escHtml(tm)}</strong></div>
+    <div><span style="font-size:10px;font-weight:600;color:#64748b;display:block;">VACATION</span><strong>${escHtml(settings.closingDate || '')}</strong></div>
+    <div><span style="font-size:10px;font-weight:600;color:#64748b;display:block;">RE-OPENS</span><strong>${escHtml(settings.reopeningDate || '')}</strong></div>
+</div>
+<table><thead><tr style="background:#4f46e5;color:#fff;"><th>SUBJECT</th><th>CLASS 50%</th><th>EXAM 50%</th><th>TOTAL</th><th>GRADE</th><th>REMARKS</th></tr></thead><tbody>${rowsHtml}</tbody></table>
+${jhsAggHTML}
+<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;background:#eef2ff;padding:10px 14px;border-radius:6px;margin:14px 0;border:1px solid #c7d2fe;">
+    <div><span style="font-size:10px;font-weight:600;color:#4338ca;display:block;">AVERAGE</span><strong>${scoredCount ? avg.toFixed(1) + '%' : '—'}</strong></div>
+    <div><span style="font-size:10px;font-weight:600;color:#4338ca;display:block;">GRADE</span><strong>${overallGrade.grade} (${overallGrade.remark})</strong></div>
+    <div><span style="font-size:10px;font-weight:600;color:#4338ca;display:block;">SUBJECTS</span><strong>${scoredCount}/${classSubs.length}</strong></div>
+</div>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px;">
+    <div style="background:#f8fafc;padding:8px 12px;border-radius:6px;border:1px solid #e2e8f0;"><div><strong>Attendance:</strong> ${escHtml(d.attendance || '—')}</div><div><strong>Conduct:</strong> ${escHtml(d.conduct || '—')}</div><div><strong>Interest:</strong> ${escHtml(d.interest || '—')}</div></div>
+    <div style="background:#f8fafc;padding:8px 12px;border-radius:6px;border:1px solid #e2e8f0;"><div><strong>Promoted to:</strong> ${escHtml(d.promotionTarget || d.promotionStatus || '—')}</div><div><strong>Remarks:</strong> <em>${escHtml(d.teacherRemarks || '—')}</em></div></div>
+</div>
+<div style="display:flex;justify-content:space-between;padding-top:12px;border-top:1px dashed #cbd5e1;font-size:11px;">
+    <div><strong>Class Teacher:</strong> ${escHtml(classRec?.classTeacherName || '—')}</div>
+    <div><strong>Headteacher:</strong> ${escHtml(settings.headTeacher || '—')}</div>
+</div>
+</body></html>`;
+
+            const blob = new Blob([html], { type: 'text/html' });
+            const safeName = (student.name || 'student').replace(/[^a-z0-9]/gi, '_');
+            const folderName = classFilter
+                ? (adminState.classes.find(c => c.id === classFilter)?.name || 'class').replace(/\s/g, '_')
+                : 'all_classes';
+            zip.file(`${folderName}/${safeName}_report.html`, blob);
+            count++;
+        } catch(e) { console.warn('Bulk download error for report:', r.id, e); }
+    }
+
+    if (!count) { showToast('No reports could be generated.', 'warning'); return; }
+
+    const zipBlob = await zip.generateAsync({ type: 'blob' });
+    const zipName = (classFilter
+        ? (adminState.classes.find(c => c.id === classFilter)?.name || 'class').replace(/\s/g, '_')
+        : 'all_classes') + '_reports.zip';
+
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(zipBlob);
+    a.download = zipName;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(a.href);
+
+    closeModal('adminBulkDownloadModal');
+    showToast(`Downloaded ${count} report(s) as ZIP successfully!`, 'success');
+}
+
+async function printAllClassReports() {
+    const classFilter = document.getElementById('bulkDownloadClassSelect')?.value || '';
+    let reports = adminState.reports.filter(r => {
+        const approved = ['approved','published'].includes(String(r.status || '').toLowerCase());
+        const classMatch = !classFilter || r.classId === classFilter;
+        return approved && classMatch;
+    });
+    if (!reports.length) { showToast('No approved reports found for printing.', 'warning'); return; }
+    // Build a combined print page
+    const pages = [];
+    for (const r of reports) {
+        const student = adminState.students.find(s => String(s.id) === String(r.studentId));
+        if (!student) continue;
+        // Use the same viewReport logic to build the card content
+        viewReport(r.id);
+        const cardEl = document.getElementById('printableReportCard');
+        if (cardEl) pages.push(`<div style="page-break-after:always;">${cardEl.outerHTML}</div>`);
+    }
+    if (!pages.length) { showToast('Could not generate print pages.', 'error'); return; }
+    const win = window.open('', '_blank', 'width=900,height=750');
+    win.document.write(`<!DOCTYPE html><html><head><title>Class Reports</title>
+        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
+        <style>body{margin:0;font-family:Inter,sans-serif;-webkit-print-color-adjust:exact;print-color-adjust:exact;}@media print{.no-print{display:none;}}</style>
+    </head><body>${pages.join('')}<script>window.onload=function(){window.print()};<\/script></body></html>`);
+    win.document.close();
+    closeModal('adminBulkDownloadModal');
 }
 
 // ─── SCHOOL SETTINGS ─────────────────────────────────────────────────────────
@@ -2436,6 +2847,7 @@ function loadSettingsForm() {
     }
 
     renderFieldToggles();
+    renderDepartmentsSetting();
     loadFirebaseForm();
 }
 

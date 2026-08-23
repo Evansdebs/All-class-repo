@@ -11,52 +11,139 @@
       "status": "active",
       "role": "Super Admin",
       "uid": "AwuLAQfIOCRwGBf9uFogoQAqTd33",
-      "email": "admin@school.com",
-      "phone": ""
+      "email": "admin123@school.com"
     },
     {
       "id": "ZGeiZGaGn25bDy5iE3Gn",
+      "role": "Teacher",
+      "password": "TYsU7BMi",
+      "status": "active",
+      "phone": "123344232",
       "assignedSubjects": [
         "QEdtA5Hwjy7pU7F1ulyX"
-      ],
-      "phone": "123344232",
-      "password": "eva123",
-      "assignedClasses": [
-        "iPooVjMkWOUvEpY1UYDu"
       ],
       "name": "eva",
       "updatedAt": {
         "nanoseconds": 695000000,
         "seconds": 1787439039
       },
-      "status": "active",
-      "email": "evansdebrah111@gmail.com",
-      "role": "Teacher",
-      "userId": "iXKnkUPwxkhkp3mYXgKnDAvcI712",
       "createdAt": {
-        "seconds": 1787439016,
-        "nanoseconds": 748000000
-      }
+        "nanoseconds": 748000000,
+        "seconds": 1787439016
+      },
+      "email": "evansdebrah111@gmail.com",
+      "assignedClasses": [
+        "iPooVjMkWOUvEpY1UYDu"
+      ],
+      "userId": "iXKnkUPwxkhkp3mYXgKnDAvcI712"
     },
     {
       "id": "admin_mt4zbtij",
-      "email": "admin123@school.com",
-      "assignedSubjects": [],
-      "role": "Super Admin",
-      "assignedClasses": [],
-      "name": "admin123",
       "status": "active",
-      "password": "admin123"
+      "email": "admin123@school.com",
+      "uid": "AwuLAQfIOCRwGBf9uFogoQAqTd33",
+      "role": "Super Admin",
+      "updatedAt": {
+        "seconds": 1787441616,
+        "nanoseconds": 603000000
+      },
+      "displayName": "admin123",
+      "assignedSubjects": [],
+      "name": "admin123",
+      "password": "admin123",
+      "phone": "",
+      "assignedClasses": []
+    },
+    {
+      "id": "sMvund4D05hoBU4t7Sjx4JQxLo23",
+      "createdAt": {
+        "seconds": 1787475932,
+        "nanoseconds": 557000000
+      },
+      "status": "active",
+      "role": "Teacher",
+      "email": "evansdebrah111@gmail.com",
+      "displayName": "eva",
+      "assignedClasses": [
+        "iPooVjMkWOUvEpY1UYDu",
+        "BASIC 9"
+      ],
+      "name": "eva",
+      "uid": "sMvund4D05hoBU4t7Sjx4JQxLo23",
+      "assignedSubjects": []
     }
   ],
-  "classes": [],
+  "classes": [
+    {
+      "id": "iPooVjMkWOUvEpY1UYDu",
+      "department": "JHS",
+      "status": "active",
+      "gradingScaleId": "",
+      "updatedAt": {
+        "nanoseconds": 746000000,
+        "seconds": 1787402825
+      },
+      "createdAt": {
+        "nanoseconds": 372000000,
+        "seconds": 1787402592
+      },
+      "level": "JHS",
+      "classTeacherName": "",
+      "name": "BASIC 9",
+      "classTeacherId": "",
+      "assignedTeacherIds": [
+        "ZGeiZGaGn25bDy5iE3Gn"
+      ]
+    }
+  ],
   "subjects": [],
   "academicYears": [],
   "terms": [],
   "gradingScales": [],
   "results": [],
-  "reports": [],
-  "scores": {},
+  "reports": [
+    {
+      "id": "rpt_mt5l1o916bi",
+      "updatedAt": {
+        "seconds": 1787476456,
+        "nanoseconds": 691000000
+      },
+      "approvedAt": "2026-08-23T09:14:10.448Z",
+      "studentId": "D8n3h1m8MBbIt3obs9Mr",
+      "studentName": "EVANS",
+      "approvalKey": "D8n3h1m8MBbIt3obs9Mr|2026|3",
+      "classId": "BASIC 9",
+      "generatedAt": "2026-08-23T09:06:18.757Z",
+      "termId": "3",
+      "status": "Approved",
+      "academicYearId": "2026",
+      "generatedBy": "evansdebrah111@gmail.com"
+    }
+  ],
+  "scores": {
+    "COMPUTING": {
+      "D8n3h1m8MBbIt3obs9Mr": {
+        "classScore": 80,
+        "examScore": 80,
+        "totalScore": 80,
+        "assessments": {
+          "test1": "",
+          "test2": "",
+          "project": "",
+          "homework": 67,
+          "ca1": 20,
+          "ca4": 10,
+          "ca2": 20,
+          "ca3": 20,
+          "ca5": 10
+        },
+        "classScore50": 40,
+        "examScore50": 40,
+        "grade": "1",
+        "remark": "EXCELLENT"
+      }
+    }
+  },
   "schoolInfo": {
     "academicYear": "",
     "term": "",
@@ -84,10 +171,24 @@
     "signature": null,
     "fieldToggles": {}
   },
-  "studentReportDetails": {},
+  "studentReportDetails": {
+    "D8n3h1m8MBbIt3obs9Mr": {
+      "attendance": "1 OUT OF —"
+    }
+  },
   "parentContacts": {},
   "auditLogs": [],
-  "attendanceMarks": {},
+  "attendanceMarks": {
+    "D8n3h1m8MBbIt3obs9Mr": {
+      "2026-08-21": {
+        "status": "present",
+        "className": "BASIC 9",
+        "termKey": "2026|3",
+        "by": "evansdebrah111@gmail.com",
+        "at": "2026-08-23T09:10:01.040Z"
+      }
+    }
+  },
   "attendanceSettings": {
     "defaultDays": {},
     "studentDays": {},

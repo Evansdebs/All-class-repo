@@ -572,6 +572,9 @@
                 <select id="resultsFilterClass" class="admin-select" onchange="renderResultsTable()">
                     <option value="">All Classes</option>
                 </select>
+                <select id="resultsFilterSubject" class="admin-select" onchange="renderResultsTable()">
+                    <option value="">All Subjects</option>
+                </select>
                 <select id="resultsFilterStatus" class="admin-select" onchange="renderResultsTable()">
                     <option value="">All Status</option>
                     <option value="Draft">Draft</option>
@@ -588,17 +591,16 @@
             <div class="card-admin">
                 <div class="results-bulk-actions" id="resultsBulkActions" style="display:none;">
                     <span id="selectedResultsCount">0 selected</span>
-                    <button class="btn-admin btn-success btn-sm" onclick="bulkApproveResults()"><i class="fas fa-check"></i> Approve</button>
-                    <button class="btn-admin btn-warning btn-sm" onclick="bulkUnlockResults()"><i class="fas fa-unlock"></i> Unlock</button>
-                    <button class="btn-admin btn-info btn-sm" onclick="bulkPublishResults()"><i class="fas fa-globe"></i> Publish</button>
+                    <button class="btn-admin btn-success btn-sm" onclick="bulkApproveResults()"><i class="fas fa-check"></i> Approve Selected</button>
+                    <button class="btn-admin btn-danger btn-sm" onclick="bulkDeleteResults()"><i class="fas fa-trash"></i> Delete Selected</button>
                 </div>
                 <div class="table-responsive">
                     <table class="admin-table">
                         <thead>
                             <tr>
                                 <th><input type="checkbox" id="selectAllResults" onchange="toggleSelectAllResults(this)"></th>
-                                <th>Student</th><th>Class</th><th>Subject</th><th>Class Score</th>
-                                <th>Exam Score</th><th>Total</th><th>Grade</th><th>Status</th><th>Locked</th><th>Actions</th>
+                                <th>Student</th><th>Class</th><th>Subject</th><th>Class 50%</th>
+                                <th>Exam 50%</th><th>Total</th><th>Grade</th><th>Status</th><th>Lock</th><th>Actions</th>
                             </tr>
                         </thead>
                         <tbody id="resultsTableBody"></tbody>
@@ -618,6 +620,12 @@
                 <div class="section-actions">
                     <button class="btn-admin btn-success" onclick="approveAllPendingReports()">
                         <i class="fas fa-check-double"></i> Approve Pending
+                    </button>
+                    <button class="btn-admin btn-info" onclick="openAdminBulkDownloadModal()">
+                        <i class="fas fa-file-archive"></i> Bulk Download Class Reports
+                    </button>
+                    <button class="btn-admin btn-secondary" onclick="printAllClassReports()">
+                        <i class="fas fa-print"></i> Print Class Reports
                     </button>
                     <a class="btn-admin btn-secondary" href="/open?src=/api/export/reports.xlsx" >
                         <i class="fas fa-file-excel"></i> Export Excel
@@ -778,6 +786,19 @@
                 </div>
 
 
+
+                <!-- School Departments Management -->
+                <div class="card-admin settings-card">
+                    <div class="card-admin-header"><h3><i class="fas fa-sitemap"></i> School Departments</h3></div>
+                    <div class="settings-body">
+                        <p class="settings-hint">Define departments in the school (e.g. JHS, Primary, Kindergarten). Dropdowns across Classes, Subjects, and Grading Scales will use these.</p>
+                        <div id="departmentsListContainer" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;"></div>
+                        <div style="display:flex;gap:8px;">
+                            <input type="text" id="newDepartmentNameInput" placeholder="Add new department (e.g. Nursery)" class="admin-input" style="flex:1;">
+                            <button type="button" class="btn-admin btn-primary btn-sm" onclick="addDepartmentSetting()"><i class="fas fa-plus"></i> Add Dept</button>
+                        </div>
+                    </div>
+                </div>
 
                 <!-- Color Scheme -->
                 <div class="card-admin settings-card">
@@ -1385,11 +1406,12 @@
             <div id="tm-password-section">
                 <div class="form-row">
                     <div class="form-group-admin">
-                        <label>Temporary Password *</label>
+                        <label id="tm-password-label">Password *</label>
                         <div class="pw-wrapper">
-                            <input type="password" id="tm-password" placeholder="Min 6 characters" class="admin-input">
+                            <input type="password" id="tm-password" placeholder="Min 6 characters (or new password to override)" class="admin-input">
                             <span class="password-toggle" onclick="togglePasswordVisibility('tm-password', this)"><i class="fas fa-eye"></i></span>
                         </div>
+                        <p class="settings-hint" id="tm-password-hint" style="margin-top:4px;">Setting a password overrides the previous password while preserving the user account.</p>
                     </div>
                 </div>
             </div>
@@ -1466,19 +1488,19 @@
             </div>
             <div class="form-row">
                 <div class="form-group-admin">
-                    <label>Academic Level *</label>
+                    <label>Department / Level *</label>
                     <select id="cm-level" class="admin-select">
+                        <option value="JHS">JHS (Junior High School)</option>
                         <option value="Primary">Primary School</option>
-                        <option value="JHS">Junior High School (JHS)</option>
                         <option value="Kindergarten">Kindergarten / Nursery</option>
                     </select>
                 </div>
                 <div class="form-group-admin">
                     <label>Grading System Scale</label>
                     <select id="cm-gradingScale" class="admin-select">
-                        <option value="">(Auto-detect by Level)</option>
+                        <option value="">(Auto-detect by Department)</option>
+                        <option value="preset_jhs_bece">JHS / BECE Stanine Scale (Grade 1 - 9)</option>
                         <option value="preset_ghana_primary">Ghana Primary Scale (A, P, AP, D, B)</option>
-                        <option value="preset_jhs_bece">JHS / BECE Scale (Grade 1 - Grade 9)</option>
                         <option value="preset_standard_letter">Standard Letter Scale (A+, A, B, C, D, F)</option>
                     </select>
                 </div>
@@ -1526,6 +1548,15 @@
             <div class="form-group-admin">
                 <label>Subject Name *</label>
                 <input type="text" id="subm-name" placeholder="e.g. Mathematics" class="admin-input" required>
+            </div>
+            <div class="form-group-admin">
+                <label>Department / Academic Level</label>
+                <select id="subm-department" class="admin-select">
+                    <option value="">All Departments</option>
+                    <option value="JHS">JHS</option>
+                    <option value="Primary">Primary</option>
+                    <option value="Kindergarten">Kindergarten / Nursery</option>
+                </select>
             </div>
             <div class="form-group-admin">
                 <label>Assigned Classes</label>
@@ -1598,12 +1629,27 @@
             <div class="form-row">
                 <div class="form-group-admin">
                     <label>Scale Name *</label>
-                    <input type="text" id="gs-name" placeholder="e.g. Primary School Grading 2024" class="admin-input">
+                    <input type="text" id="gs-name" placeholder="e.g. JHS Stanine Scale or Primary Grading" class="admin-input">
                 </div>
                 <div class="form-group-admin">
-                    <label>
-                        <input type="checkbox" id="gs-isActive"> Set as Active Grading Scale
+                    <label>Department *</label>
+                    <select id="gs-department" class="admin-select">
+                        <option value="JHS">JHS</option>
+                        <option value="Primary">Primary</option>
+                        <option value="Kindergarten">Kindergarten / Nursery</option>
+                        <option value="All">All Departments</option>
+                    </select>
+                </div>
+            </div>
+            <div class="form-row" style="align-items:center;margin-bottom:12px;">
+                <div class="form-group-admin" style="margin-bottom:0;">
+                    <label class="toggle-label" style="margin-bottom:0;">
+                        <input type="checkbox" id="gs-isActive" checked> Set as Active for this Department
                     </label>
+                </div>
+                <div style="display:flex;gap:6px;">
+                    <button type="button" class="btn-admin btn-ghost btn-sm" onclick="applyGradingPreset('jhs')"><i class="fas fa-magic"></i> JHS 1-9 Preset</button>
+                    <button type="button" class="btn-admin btn-ghost btn-sm" onclick="applyGradingPreset('primary')"><i class="fas fa-magic"></i> Primary A-B Preset</button>
                 </div>
             </div>
             <div class="grading-scale-editor" id="gradingScaleEditor">
@@ -1761,14 +1807,54 @@
     </div>
 </div>
 
+<!-- Admin Bulk Download Class Reports Modal -->
+<div class="modal-overlay" id="adminBulkDownloadModal" style="display:none;" onclick="closeModal('adminBulkDownloadModal', event)">
+    <div class="modal-box small">
+        <div class="modal-header">
+            <h3><i class="fas fa-file-archive"></i> Bulk Download Class Reports</h3>
+            <button class="modal-close" onclick="closeModal('adminBulkDownloadModal')"><i class="fas fa-times"></i></button>
+        </div>
+        <div class="modal-body">
+            <div class="form-group-admin">
+                <label>Select Class *</label>
+                <select id="abdm-class" class="admin-select"></select>
+            </div>
+            <div class="form-row">
+                <div class="form-group-admin">
+                    <label>Academic Year</label>
+                    <select id="abdm-year" class="admin-select"></select>
+                </div>
+                <div class="form-group-admin">
+                    <label>Term</label>
+                    <select id="abdm-term" class="admin-select"></select>
+                </div>
+            </div>
+            <div class="form-group-admin">
+                <label>Format</label>
+                <select id="abdm-format" class="admin-select">
+                    <option value="zip">ZIP Archive (Individual Student Report Files)</option>
+                    <option value="print">Multi-Page Printable Document (All Students)</option>
+                </select>
+            </div>
+            <div id="abdm-status" style="display:none;font-size:12.5px;color:var(--primary);margin-top:8px;"></div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn-admin btn-ghost" onclick="closeModal('adminBulkDownloadModal')">Cancel</button>
+            <button class="btn-admin btn-primary" onclick="executeAdminBulkDownload()"><i class="fas fa-download"></i> Download All Reports</button>
+        </div>
+    </div>
+</div>
+
 <!-- Firebase & Libraries -->
 <script src="vendor/firebase-compat.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="jspdf.umd.min.js"></script>
+<script src="jszip.min.js"></script>
 <script src="seed-data.js?v=prod1"></script>
-    <script src="firebase-config.js?v=fb11"></script>
+<script src="firebase-config.js?v=fb11"></script>
 <script src="files.js?v=dl9"></script>
 <script src="attendance.js?v=hub4"></script>
-<script src="admin.js?v=dash33"></script>
+<script src="admin.js?v=dash34"></script>
 </body>
 </html>

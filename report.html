@@ -109,10 +109,14 @@
     <div class="modal-box" id="modalBox"></div>
 </div>
 <div class="modal" id="previewModal" style="display:none;" onclick="if(event.target===this) closePreview()">
-    <div class="modal-box wide">
-        <div class="modal-head">
-            <h3>Report preview</h3>
-            <button class="icon-btn" onclick="closePreview()">&times;</button>
+    <div class="modal-box wide" style="max-width:880px;">
+        <div class="modal-head" style="display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--line);padding-bottom:12px;margin-bottom:14px;">
+            <h3 style="margin:0;"><i class="fas fa-file-alt"></i> Report Sheet Preview</h3>
+            <div style="display:flex;align-items:center;gap:8px;">
+                <button class="btn btn-primary btn-sm" onclick="printTeacherPreview()"><i class="fas fa-print"></i> Print</button>
+                <button class="btn btn-ok btn-sm" onclick="downloadPreviewReport()"><i class="fas fa-download"></i> Download PDF</button>
+                <button class="icon-btn" onclick="closePreview()" title="Close">&times;</button>
+            </div>
         </div>
         <div id="previewBody"></div>
     </div>
@@ -120,12 +124,13 @@
 
 <script src="vendor/firebase-compat.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <script src="seed-data.js?v=prod1"></script>
 <script src="firebase-config.js?v=fb10"></script>
 <script src="files.js?v=dl9"></script>
 <script src="attendance.js?v=hub4"></script>
 <script src="jspdf.umd.min.js"></script>
 <script src="jszip.min.js"></script>
-<script src="teacher-app.js?v=hub22"></script>
+<script src="teacher-app.js?v=hub23"></script>
 </body>
 </html>

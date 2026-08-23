@@ -256,41 +256,113 @@ function downloadStudentResultsCsv() {
 
 async function downloadStudentReportFile() {
     if (!activeStudentData) return;
-    /* overlay save path does not need a popup arm */
     const student = activeStudentData;
     const rows = collectStudentResultRows(student);
     const settings = JSON.parse(localStorage.getItem('schoolSettings') || '{}');
+    const schoolInfo = JSON.parse(localStorage.getItem('schoolInfo') || '{}');
     const school = settings.schoolName || 'The Living Spring School';
     const filename = String(student.name || 'student').replace(/[^\w]+/g, '_') + '_report.pdf';
+
+    const details = JSON.parse(localStorage.getItem('studentReportDetails') || '{}');
+    const d = details[student.id] || details[String(student.id)] || {};
+    const logoSrc = settings.schoolLogo || schoolInfo.schoolLogo || null;
+    const yr = schoolInfo.academicYear || '';
+    const tm = schoolInfo.term ? ('Term ' + schoolInfo.term) : '';
+
+    let totalScoreSum = 0, scoredCount = 0;
+    const rowsHtml = rows.map(r => {
+        const tot = Number(r.Total) || 0;
+        if (r.Total !== '') { totalScoreSum += tot; scoredCount++; }
+        return `<tr>
+            <td style="text-align:left;font-weight:600;padding:8px 10px;border:1px solid #cbd5e1;">${r.Subject}</td>
+            <td style="padding:8px 10px;border:1px solid #cbd5e1;">${r['Class Score'] ?? '—'}</td>
+            <td style="padding:8px 10px;border:1px solid #cbd5e1;">${r['Exam Score'] ?? '—'}</td>
+            <td style="padding:8px 10px;border:1px solid #cbd5e1;"><strong>${r.Total || '—'}</strong></td>
+            <td style="padding:8px 10px;border:1px solid #cbd5e1;"><span style="display:inline-block;padding:2px 8px;border-radius:4px;font-weight:700;background:rgba(79,70,229,.1);color:#4338ca;">${r.Grade || '—'}</span></td>
+            <td style="padding:8px 10px;border:1px solid #cbd5e1;">${r.Remark || '—'}</td>
+        </tr>`;
+    }).join('');
+
+    const avg = scoredCount > 0 ? (totalScoreSum / scoredCount) : 0;
+
+    const container = document.createElement('div');
+    container.style.cssText = 'position:fixed;left:-9999px;top:0;width:800px;background:#fff;font-family:Inter,sans-serif;padding:28px;z-index:-1;';
+    container.innerHTML = `
+        <div style="background:#fff;color:#1e293b;padding:28px;border-radius:12px;border:1px solid #e2e8f0;font-family:'Inter',sans-serif;">
+            <div style="display:flex;align-items:center;justify-content:space-between;border-bottom:2px solid #4f46e5;padding-bottom:14px;margin-bottom:18px;">
+                ${logoSrc ? `<img src="${logoSrc}" style="width:70px;height:70px;object-fit:contain;border-radius:8px;" alt="Logo">` : '<div style="width:70px;height:70px;border:2px dashed #cbd5e1;border-radius:8px;display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:11px;text-align:center;">No Logo</div>'}
+                <div style="text-align:center;flex:1;padding:0 12px;">
+                    <h2 style="font-size:20px;font-weight:800;color:#1e1b4b;margin:0 0 4px 0;">${school}</h2>
+                    <p style="font-size:12px;color:#64748b;margin:0 0 2px 0;">${settings.address || ''}</p>
+                    <p style="font-size:11.5px;color:#4f46e5;font-weight:600;margin:0 0 6px 0;"><em>&ldquo;${settings.motto || 'Drink deep or taste not the spring of knowledge'}&rdquo;</em></p>
+                    <div style="display:inline-block;background:#4f46e5;color:#fff;font-size:12px;font-weight:700;padding:4px 14px;border-radius:20px;">END OF ${tm.toUpperCase() || 'TERM'} REPORT SHEET</div>
+                </div>
+                ${logoSrc ? `<img src="${logoSrc}" style="width:70px;height:70px;object-fit:contain;border-radius:8px;" alt="Logo">` : '<div style="width:70px;height:70px;border:2px dashed #cbd5e1;border-radius:8px;display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:11px;text-align:center;">No Logo</div>'}
+            </div>
+            <div style="display:grid;grid-template-columns:repeat(3, 1fr);gap:10px;background:#f8fafc;padding:12px 16px;border-radius:8px;margin-bottom:16px;font-size:12.5px;border:1px solid #e2e8f0;">
+                <div><span style="color:#64748b;font-size:11px;display:block;font-weight:600;">NAME OF LEARNER</span><strong>${student.name || ''}</strong></div>
+                <div><span style="color:#64748b;font-size:11px;display:block;font-weight:600;">CLASS</span><strong>${student.class || ''}</strong></div>
+                <div><span style="color:#64748b;font-size:11px;display:block;font-weight:600;">ACADEMIC YEAR</span><strong>${yr}</strong></div>
+                <div><span style="color:#64748b;font-size:11px;display:block;font-weight:600;">TERM</span><strong>${tm}</strong></div>
+                <div><span style="color:#64748b;font-size:11px;display:block;font-weight:600;">DATE OF VACATION</span><strong>${settings.closingDate || schoolInfo.closingDate || '—'}</strong></div>
+                <div><span style="color:#64748b;font-size:11px;display:block;font-weight:600;">RE-OPENING DATE</span><strong>${settings.reopeningDate || schoolInfo.reopeningDate || '—'}</strong></div>
+            </div>
+            <table style="width:100%;border-collapse:collapse;margin-bottom:16px;font-size:12px;text-align:center;">
+                <thead>
+                    <tr style="background:#4f46e5;color:#fff;">
+                        <th style="padding:8px 10px;text-align:left;border:1px solid #4338ca;">SUBJECT</th>
+                        <th style="padding:8px 10px;border:1px solid #4338ca;">CLASS 50%</th>
+                        <th style="padding:8px 10px;border:1px solid #4338ca;">EXAM 50%</th>
+                        <th style="padding:8px 10px;border:1px solid #4338ca;">TOTAL 100%</th>
+                        <th style="padding:8px 10px;border:1px solid #4338ca;">GRADE</th>
+                        <th style="padding:8px 10px;border:1px solid #4338ca;">REMARKS</th>
+                    </tr>
+                </thead>
+                <tbody>${rowsHtml || '<tr><td colspan="6" style="padding:16px;color:#94a3b8;">No results recorded</td></tr>'}</tbody>
+            </table>
+            <div style="display:grid;grid-template-columns:repeat(3, 1fr);gap:10px;background:#eef2ff;padding:12px 16px;border-radius:8px;margin-bottom:16px;font-size:12.5px;border:1px solid #c7d2fe;">
+                <div><span style="color:#4338ca;font-size:11px;display:block;font-weight:600;">AVERAGE SCORE</span><strong style="font-size:15px;color:#1e1b4b;">${scoredCount ? avg.toFixed(1) + '%' : '—'}</strong></div>
+                <div><span style="color:#4338ca;font-size:11px;display:block;font-weight:600;">RECORDED SUBJECTS</span><strong style="font-size:15px;color:#1e1b4b;">${scoredCount} / ${rows.length}</strong></div>
+                <div><span style="color:#4338ca;font-size:11px;display:block;font-weight:600;">ATTENDANCE</span><strong style="font-size:15px;color:#1e1b4b;">${d.attendance || '—'}</strong></div>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;font-size:12.5px;">
+                <div style="background:#f8fafc;padding:10px 14px;border-radius:8px;border:1px solid #e2e8f0;">
+                    <div style="margin-bottom:6px;"><span style="color:#64748b;font-weight:600;">Conduct:</span> ${d.conduct || '—'}</div>
+                    <div><span style="color:#64748b;font-weight:600;">Interest:</span> ${d.interest || '—'}</div>
+                </div>
+                <div style="background:#f8fafc;padding:10px 14px;border-radius:8px;border:1px solid #e2e8f0;">
+                    <div style="margin-bottom:6px;"><span style="color:#64748b;font-weight:600;">Promoted to / In:</span> ${d.promotionTarget || d.promotionStatus || '—'}</div>
+                    <div><span style="color:#64748b;font-weight:600;">Teacher Remarks:</span> <em>${d.teacherRemarks || '—'}</em></div>
+                </div>
+            </div>
+            <div style="display:flex;justify-content:space-between;padding-top:14px;border-top:1px dashed #cbd5e1;font-size:12px;color:#475569;">
+                <div><strong>Class Teacher:</strong> ____________________</div>
+                <div><strong>Headteacher:</strong> ${settings.headTeacher || '____________________'}</div>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(container);
+
     try {
-        if (window.jspdf && window.jspdf.jsPDF) {
+        if (typeof html2canvas !== 'undefined' && window.jspdf) {
+            const canvas = await html2canvas(container.firstElementChild, { scale: 2, useCORS: true, backgroundColor: '#ffffff' });
+            document.body.removeChild(container);
             const { jsPDF } = window.jspdf;
-            const doc = new jsPDF('p', 'pt', 'a4');
-            let y = 48;
-            doc.setFont('helvetica', 'bold'); doc.setFontSize(16);
-            doc.text(school.toUpperCase(), 297, y, { align: 'center' }); y += 20;
-            doc.setFontSize(12);
-            doc.text('END OF TERM REPORT SHEET', 297, y, { align: 'center' }); y += 24;
-            doc.setFont('helvetica', 'normal'); doc.setFontSize(11);
-            doc.text('Name: ' + (student.name || ''), 40, y);
-            doc.text('Class: ' + (student.class || ''), 320, y); y += 16;
-            doc.text('Admission: ' + (student.admissionNo || student.id || ''), 40, y); y += 22;
-            doc.setFont('helvetica', 'bold');
-            doc.text('Subject', 40, y); doc.text('Class', 240, y); doc.text('Exam', 310, y); doc.text('Total', 380, y); doc.text('Grade', 450, y);
-            y += 14; doc.setFont('helvetica', 'normal');
-            (rows.length ? rows : [{ Subject: 'No published results', Total: '', Grade: '' }]).forEach(r => {
-                doc.text(String(r.Subject || '').slice(0, 28), 40, y);
-                doc.text(String(r['Class Score'] ?? ''), 240, y);
-                doc.text(String(r['Exam Score'] ?? ''), 310, y);
-                doc.text(String(r.Total ?? ''), 380, y);
-                doc.text(String(r.Grade ?? ''), 450, y);
-                y += 14;
-            });
+            const doc = new jsPDF('p', 'mm', 'a4');
+            const W = doc.internal.pageSize.getWidth();
+            const imgData = canvas.toDataURL('image/png');
+            const ratio = canvas.height / canvas.width;
+            const imgH = W * ratio;
+            doc.addImage(imgData, 'PNG', 0, 0, W, imgH);
             const blob = doc.output('blob');
             if (window.OneRealFiles) await OneRealFiles.download(filename, blob, 'application/pdf');
             return;
         }
-    } catch (e) {}
+    } catch(e) {
+        if (container.parentNode) document.body.removeChild(container);
+    }
+    if (container.parentNode) document.body.removeChild(container);
+
     const html = '<!DOCTYPE html><html><head><meta charset="utf-8"><title>' + school + '</title></head><body>' +
         '<h1>' + school + '</h1><h2>' + (student.name || '') + '</h2><p>' + (student.class || '') + '</p>' +
         '<table border="1" cellpadding="6"><tr><th>Subject</th><th>Class</th><th>Exam</th><th>Total</th><th>Grade</th></tr>' +
