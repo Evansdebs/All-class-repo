@@ -700,34 +700,10 @@ async function getCollection(collectionName) {
 
 async function addDocument(collectionName, data) {
     let newItem;
-    const docId = data.id || data.uid;
+    const docId = data.id || data.uid || `id_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    newItem = { ...data, id: String(docId), createdAt: data.createdAt || new Date().toISOString(), updatedAt: new Date().toISOString() };
 
-    if (!isFirebaseActive || !db) {
-        const items = JSON.parse(localStorage.getItem(collectionName) || '[]');
-        newItem = { id: docId || `local_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`, ...data, createdAt: new Date().toISOString() };
-        items.push(newItem);
-        localStorage.setItem(collectionName, JSON.stringify(items));
-        syncCollectionToServer(collectionName);
-        return newItem;
-    }
-
-    if (docId) {
-        await db.collection(collectionName).doc(String(docId)).set({
-            ...data,
-            id: String(docId),
-            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-        }, { merge: true });
-        newItem = { ...data, id: String(docId) };
-    } else {
-        const ref = await db.collection(collectionName).add({
-            ...data,
-            createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-        });
-        newItem = { id: ref.id, ...data };
-    }
-
-    // Always update local cache & server
+    // 1. Always update local cache & server instantly
     const items = JSON.parse(localStorage.getItem(collectionName) || '[]');
     const idx = items.findIndex(i => String(i.id) === String(newItem.id) || (newItem.uid && String(i.uid) === String(newItem.uid)));
     if (idx >= 0) items[idx] = newItem;
@@ -735,78 +711,97 @@ async function addDocument(collectionName, data) {
     localStorage.setItem(collectionName, JSON.stringify(items));
     syncCollectionToServer(collectionName);
 
-    // Sync to school doc payload in Firebase
-    try {
-        const schoolId = localStorage.getItem('schoolId') || 'default_school';
-        await db.collection('schools').doc(schoolId).collection(collectionName).doc('main_data').set({
-            payload: JSON.stringify(items),
-            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-        });
-    } catch (e) {}
+    // 2. Cloud Firestore write in the background (non-blocking)
+    if (isFirebaseActive && db) {
+        (async () => {
+            try {
+                await db.collection(collectionName).doc(String(docId)).set({
+                    ...newItem,
+                    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                }, { merge: true });
+
+                const schoolId = localStorage.getItem('schoolId') || 'default_school';
+                await db.collection('schools').doc(schoolId).collection(collectionName).doc('main_data').set({
+                    payload: JSON.stringify(items),
+                    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                });
+            } catch (e) {
+                console.warn(`Background Firestore add error on ${collectionName}/${docId}:`, e);
+            }
+        })();
+    }
 
     return newItem;
 }
 
 async function updateDocument(collectionName, docId, data) {
+    // 1. Always update local cache & server instantly
     const items = JSON.parse(localStorage.getItem(collectionName) || '[]');
     const idx = items.findIndex(i => String(i.id) === String(docId) || String(i.uid) === String(docId));
     if (idx >= 0) {
-        items[idx] = { ...items[idx], ...data, id: docId };
+        items[idx] = { ...items[idx], ...data, id: docId, updatedAt: new Date().toISOString() };
         localStorage.setItem(collectionName, JSON.stringify(items));
         syncCollectionToServer(collectionName);
     }
 
-    if (!isFirebaseActive || !db) return;
+    // 2. Cloud Firestore write in the background (non-blocking)
+    if (isFirebaseActive && db) {
+        (async () => {
+            try {
+                await db.collection(collectionName).doc(String(docId)).set({
+                    ...data,
+                    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                }, { merge: true });
 
-    try {
-        await db.collection(collectionName).doc(String(docId)).set({
-            ...data,
-            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-        }, { merge: true });
-
-        const schoolId = localStorage.getItem('schoolId') || 'default_school';
-        await db.collection('schools').doc(schoolId).collection(collectionName).doc('main_data').set({
-            payload: JSON.stringify(items),
-            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-        });
-    } catch (e) {
-        console.warn(`Firestore update error on ${collectionName}/${docId}:`, e);
+                const schoolId = localStorage.getItem('schoolId') || 'default_school';
+                await db.collection('schools').doc(schoolId).collection(collectionName).doc('main_data').set({
+                    payload: JSON.stringify(items),
+                    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                });
+            } catch (e) {
+                console.warn(`Background Firestore update error on ${collectionName}/${docId}:`, e);
+            }
+        })();
     }
 }
 
 async function deleteDocument(collectionName, docId) {
+    // 1. Always update local cache & server instantly
     const items = JSON.parse(localStorage.getItem(collectionName) || '[]').filter(i => String(i.id) !== String(docId) && String(i.uid) !== String(docId));
     localStorage.setItem(collectionName, JSON.stringify(items));
     syncCollectionToServer(collectionName);
 
-    if (!isFirebaseActive || !db) return;
+    // 2. Cloud Firestore write in the background (non-blocking)
+    if (isFirebaseActive && db) {
+        (async () => {
+            try {
+                await db.collection(collectionName).doc(String(docId)).delete();
+            } catch (e) {
+                console.warn(`Firestore delete error on ${collectionName}/${docId}:`, e);
+            }
 
-    try {
-        await db.collection(collectionName).doc(String(docId)).delete();
-    } catch (e) {
-        console.warn(`Firestore delete error on ${collectionName}/${docId}:`, e);
+            try {
+                const schoolId = localStorage.getItem('schoolId') || 'default_school';
+                await db.collection('schools').doc(schoolId).collection(collectionName).doc('main_data').set({
+                    payload: JSON.stringify(items),
+                    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                });
+            } catch (e) {}
+        })();
     }
-
-    try {
-        const schoolId = localStorage.getItem('schoolId') || 'default_school';
-        await db.collection('schools').doc(schoolId).collection(collectionName).doc('main_data').set({
-            payload: JSON.stringify(items),
-            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-        });
-    } catch (e) {}
 }
 
 async function getDocument(collectionName, docId) {
-    if (!isFirebaseActive || !db) {
-        const items = JSON.parse(localStorage.getItem(collectionName) || '[]');
-        return items.find(i => String(i.id) === String(docId) || String(i.uid) === String(docId)) || null;
-    }
+    const items = JSON.parse(localStorage.getItem(collectionName) || '[]');
+    const local = items.find(i => String(i.id) === String(docId) || String(i.uid) === String(docId));
+    if (local) return local;
+
+    if (!isFirebaseActive || !db) return null;
     try {
         const doc = await db.collection(collectionName).doc(String(docId)).get();
         return doc.exists ? { id: doc.id, ...doc.data() } : null;
     } catch (e) {
-        const items = JSON.parse(localStorage.getItem(collectionName) || '[]');
-        return items.find(i => String(i.id) === String(docId) || String(i.uid) === String(docId)) || null;
+        return null;
     }
 }
 
@@ -831,7 +826,7 @@ function syncCollectionToServer(collectionName) {
 async function syncSaveCollection(collectionName, data) {
     localStorage.setItem(collectionName, JSON.stringify(data));
 
-    // Sync to REST API backend
+    // Non-blocking sync to REST API backend
     try {
         const payload = {};
         payload[collectionName] = data;
@@ -844,29 +839,32 @@ async function syncSaveCollection(collectionName, data) {
 
     if (!isFirebaseActive || !db) return;
 
-    try {
-        const schoolId = localStorage.getItem('schoolId') || 'default_school';
-        await db.collection('schools').doc(schoolId).collection(collectionName).doc('main_data').set({
-            payload: JSON.stringify(data),
-            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-        });
+    // Run Firebase cloud write in the background so local actions return immediately (0ms delay)
+    (async () => {
+        try {
+            const schoolId = localStorage.getItem('schoolId') || 'default_school';
+            await db.collection('schools').doc(schoolId).collection(collectionName).doc('main_data').set({
+                payload: JSON.stringify(data),
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
 
-        // Also write individual docs to Firestore root collection
-        if (Array.isArray(data)) {
-            const batch = db.batch();
-            let count = 0;
-            for (const item of data) {
-                const docId = String(item.id || item.uid || ('id_' + Date.now()));
-                const ref = db.collection(collectionName).doc(docId);
-                batch.set(ref, { ...item, id: docId }, { merge: true });
-                count++;
-                if (count >= 450) break;
+            // Also write individual docs to Firestore root collection
+            if (Array.isArray(data)) {
+                const batch = db.batch();
+                let count = 0;
+                for (const item of data) {
+                    const docId = String(item.id || item.uid || ('id_' + Date.now()));
+                    const ref = db.collection(collectionName).doc(docId);
+                    batch.set(ref, { ...item, id: docId }, { merge: true });
+                    count++;
+                    if (count >= 450) break;
+                }
+                if (count > 0) await batch.commit();
             }
-            if (count > 0) await batch.commit();
+        } catch (err) {
+            console.error(`Firebase Sync Error on ${collectionName}:`, err);
         }
-    } catch (err) {
-        console.error(`Firebase Sync Error on ${collectionName}:`, err);
-    }
+    })();
 }
 
 async function syncFetchCollection(collectionName, fallbackData) {
@@ -932,7 +930,7 @@ async function runAutoSyncCycle() {
             }
         }
 
-        // 2. Sync with Firebase Firestore
+        // 2. Sync with Firebase Firestore (background)
         if (isFirebaseActive && db) {
             const schoolId = localStorage.getItem('schoolId') || 'default_school';
             for (const col of collectionsToSync) {

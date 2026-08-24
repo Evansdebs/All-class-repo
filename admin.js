@@ -433,7 +433,17 @@ async function loadAllData(opts = {}) {
 async function safeGetCollection(name) {
     try {
         const cached = JSON.parse(localStorage.getItem(name) || '[]');
-        if (isFirebaseActive) {
+        if (cached && (Array.isArray(cached) ? cached.length > 0 : Object.keys(cached).length > 0)) {
+            if (isFirebaseActive && typeof getCollection === 'function') {
+                getCollection(name).then(fresh => {
+                    if (fresh && fresh.length) {
+                        adminState[name] = fresh;
+                    }
+                }).catch(() => {});
+            }
+            return cached;
+        }
+        if (isFirebaseActive && typeof getCollection === 'function') {
             return await getCollection(name);
         }
         return cached;

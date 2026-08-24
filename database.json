@@ -1,5 +1,27 @@
 {
-  "students": [],
+  "students": [
+    {
+      "id": "D8X5RCgfRORZxlcSa2CR",
+      "parentPhone": "+233257537457",
+      "name": "ESTHER",
+      "dob": "",
+      "academicYearId": "mpFWQQVuxPNLr0tDQyN9",
+      "parentName": "",
+      "gender": "Male",
+      "status": "active",
+      "updatedAt": {
+        "seconds": 1787489837,
+        "nanoseconds": 398000000
+      },
+      "class": "BASIC 9",
+      "admissionNo": "TLS1",
+      "classId": "iPooVjMkWOUvEpY1UYDu",
+      "createdAt": {
+        "seconds": 1787489837,
+        "nanoseconds": 398000000
+      }
+    }
+  ],
   "teachers": [
     {
       "id": "admin_mt4zbtij",
@@ -21,6 +43,80 @@
       "isDeleted": true
     },
     {
+      "id": "ObCHu5hHpzmZuxAztBvm",
+      "name": "winie",
+      "createdAt": {
+        "seconds": 1787590896,
+        "nanoseconds": 190000000
+      },
+      "assignedClasses": [
+        "iPooVjMkWOUvEpY1UYDu"
+      ],
+      "userId": "Ui2qpFZVF2Q5h4hhtLO0Avp7rAN2",
+      "updatedAt": {
+        "seconds": 1787590896,
+        "nanoseconds": 190000000
+      },
+      "status": "active",
+      "role": "Class Teacher",
+      "email": "winie@school.com",
+      "password": "winie123",
+      "phone": "",
+      "assignedSubjects": [
+        "352qeuD45VdoqFGBYqrc",
+        "7IaKzwCfG5T9al0tOuwK",
+        "QEdtA5Hwjy7pU7F1ulyX",
+        "cgt2xbBwSElElQWu9P48",
+        "hQUyb6MuBXwarz7ULmT5",
+        "jWYE4s2vcfrEHoCFnPzd"
+      ]
+    },
+    {
+      "id": "Ui2qpFZVF2Q5h4hhtLO0Avp7rAN2",
+      "displayName": "winie",
+      "email": "winie@school.com",
+      "assignedSubjects": [],
+      "name": "winie",
+      "status": "active",
+      "createdAt": {
+        "seconds": 1787590895,
+        "nanoseconds": 4000000
+      },
+      "role": "Class Teacher",
+      "assignedClasses": [],
+      "uid": "Ui2qpFZVF2Q5h4hhtLO0Avp7rAN2"
+    },
+    {
+      "id": "VuqOGIjqMidFSe5MRTB8B1469eV2",
+      "role": "Class Teacher",
+      "deletedAt": "2026-08-24T16:59:36.058Z",
+      "createdAt": {
+        "seconds": 1787489701,
+        "nanoseconds": 460000000
+      },
+      "updatedAt": {
+        "seconds": 1787490941,
+        "nanoseconds": 512000000
+      },
+      "assignedClasses": [
+        "iPooVjMkWOUvEpY1UYDu"
+      ],
+      "email": "george@school.com",
+      "uid": "VuqOGIjqMidFSe5MRTB8B1469eV2",
+      "displayName": "SIR GEORGE",
+      "status": "deleted",
+      "phone": "",
+      "isDeleted": true,
+      "assignedSubjects": [
+        "352qeuD45VdoqFGBYqrc",
+        "7IaKzwCfG5T9al0tOuwK",
+        "cgt2xbBwSElElQWu9P48",
+        "hQUyb6MuBXwarz7ULmT5",
+        "jWYE4s2vcfrEHoCFnPzd"
+      ],
+      "name": "SIR GEORGE"
+    },
+    {
       "id": "admin_mt4zbtij",
       "uid": "AwuLAQfIOCRwGBf9uFogoQAqTd33",
       "status": "active",
@@ -38,29 +134,61 @@
       "assignedSubjects": [],
       "isDeleted": true,
       "password": "admin123"
+    },
+    {
+      "id": "rtiZoMy7Wg1yE1IlDO96",
+      "createdAt": {
+        "seconds": 1787489702,
+        "nanoseconds": 771000000
+      },
+      "role": "Class Teacher",
+      "password": "george123",
+      "assignedSubjects": [
+        "352qeuD45VdoqFGBYqrc",
+        "7IaKzwCfG5T9al0tOuwK",
+        "QEdtA5Hwjy7pU7F1ulyX",
+        "cgt2xbBwSElElQWu9P48",
+        "hQUyb6MuBXwarz7ULmT5",
+        "jWYE4s2vcfrEHoCFnPzd"
+      ],
+      "assignedClasses": [
+        "iPooVjMkWOUvEpY1UYDu"
+      ],
+      "email": "george@school.com",
+      "isDeleted": true,
+      "deletedAt": "2026-08-24T17:00:20.083Z",
+      "updatedAt": {
+        "seconds": 1787489702,
+        "nanoseconds": 771000000
+      },
+      "phone": "",
+      "status": "deleted",
+      "name": "SIR GEORGE",
+      "userId": "VuqOGIjqMidFSe5MRTB8B1469eV2"
     }
   ],
   "classes": [
     {
       "id": "iPooVjMkWOUvEpY1UYDu",
-      "classTeacherName": "",
-      "updatedAt": {
-        "nanoseconds": 746000000,
-        "seconds": 1787402825
-      },
-      "createdAt": {
-        "nanoseconds": 372000000,
-        "seconds": 1787402592
-      },
-      "department": "JHS",
-      "classTeacherId": "",
+      "classTeacherId": "rtiZoMy7Wg1yE1IlDO96",
       "name": "BASIC 9",
+      "level": "JHS",
+      "classTeacherName": "SIR GEORGE",
       "assignedTeacherIds": [
-        "ZGeiZGaGn25bDy5iE3Gn"
+        "VuqOGIjqMidFSe5MRTB8B1469eV2",
+        "rtiZoMy7Wg1yE1IlDO96"
       ],
       "gradingScaleId": "",
       "status": "active",
-      "level": "JHS"
+      "department": "JHS",
+      "createdAt": {
+        "seconds": 1787402592,
+        "nanoseconds": 372000000
+      },
+      "updatedAt": {
+        "seconds": 1787402825,
+        "nanoseconds": 746000000
+      }
     }
   ],
   "subjects": [
@@ -178,8 +306,120 @@
   "terms": [],
   "gradingScales": [],
   "results": [],
-  "reports": [],
-  "scores": {},
+  "reports": [
+    {
+      "id": "qTLimpKoX1RIPUfOW2pr",
+      "updatedAt": {
+        "nanoseconds": 516000000,
+        "seconds": 1787591101
+      },
+      "generatedBy": "admin",
+      "studentId": "D8X5RCgfRORZxlcSa2CR",
+      "classId": "iPooVjMkWOUvEpY1UYDu",
+      "approvedAt": "2026-08-24T17:04:55.015Z",
+      "createdAt": {
+        "nanoseconds": 134000000,
+        "seconds": 1787591073
+      },
+      "approvalKey": "D8X5RCgfRORZxlcSa2CR|2026|1",
+      "studentName": "ESTHER",
+      "status": "Approved",
+      "generatedAt": "2026-08-24T17:04:26.713Z",
+      "termId": "",
+      "academicYearId": "mpFWQQVuxPNLr0tDQyN9"
+    },
+    {
+      "id": "rpt_mt7hjwbkjp0",
+      "studentName": "ESTHER",
+      "studentId": "D8X5RCgfRORZxlcSa2CR",
+      "status": "Approved",
+      "approvalKey": "D8X5RCgfRORZxlcSa2CR|2026|1",
+      "academicYearId": "2026",
+      "classId": "BASIC 9",
+      "updatedAt": {
+        "nanoseconds": 139000000,
+        "seconds": 1787591286
+      },
+      "termId": "1",
+      "approvedAt": "2026-08-24T17:07:57.234Z",
+      "generatedBy": "winie@school.com",
+      "generatedAt": "2026-08-24T17:04:02.912Z"
+    }
+  ],
+  "scores": {
+    "ENGLISH": {
+      "D8X5RCgfRORZxlcSa2CR": {
+        "classScore": 67,
+        "examScore": 78,
+        "totalScore": 72.5,
+        "assessments": {},
+        "classScore50": 33.5,
+        "examScore50": 39,
+        "grade": "2",
+        "remark": "VERY GOOD"
+      }
+    },
+    "CAD": {
+      "D8X5RCgfRORZxlcSa2CR": {
+        "classScore": 45,
+        "examScore": 56,
+        "totalScore": 50.5,
+        "assessments": {},
+        "classScore50": 22.5,
+        "examScore50": 28,
+        "grade": "6",
+        "remark": "PASS"
+      }
+    },
+    "MATHEMATICS": {
+      "D8X5RCgfRORZxlcSa2CR": {
+        "classScore": 98,
+        "examScore": 78,
+        "totalScore": 88,
+        "assessments": {},
+        "classScore50": 49,
+        "examScore50": 39,
+        "grade": "1",
+        "remark": "EXCELLENT"
+      }
+    },
+    "SCIENCE": {
+      "D8X5RCgfRORZxlcSa2CR": {
+        "classScore": 67,
+        "examScore": 57,
+        "totalScore": 62,
+        "assessments": {},
+        "classScore50": 33.5,
+        "examScore50": 28.5,
+        "grade": "4",
+        "remark": "CREDIT"
+      }
+    },
+    "CAT": {
+      "D8X5RCgfRORZxlcSa2CR": {
+        "classScore": 87,
+        "examScore": 56,
+        "totalScore": 71.5,
+        "assessments": {},
+        "classScore50": 43.5,
+        "examScore50": 28,
+        "grade": "2",
+        "remark": "VERY GOOD"
+      }
+    },
+    "COMPUTING": {
+      "D8X5RCgfRORZxlcSa2CR": {
+        "classScore": 78,
+        "examScore": 78,
+        "totalScore": 78,
+        "assessments": {},
+        "classScore50": 39,
+        "examScore50": 39,
+        "grade": "2",
+        "remark": "VERY GOOD"
+      }
+    }
+  },
   "schoolInfo": {
     "academicYear": "2025/2026",
     "term": "1",
@@ -230,13 +470,42 @@
     "address": "P.O. Box 16493 K.I.A, Accra",
     "primaryColor": "#1a56db"
   },
-  "studentReportDetails": {},
+  "studentReportDetails": {
+    "D8X5RCgfRORZxlcSa2CR": {
+      "attendance": "1 OUT OF 1",
+      "promotionStatus": "Promoted",
+      "promotionTarget": "SHS 1",
+      "conduct": "Very well behaved and courteous",
+      "interest": "MATHEMATICS",
+      "teacherRemarks": "Very good performance with notable strength in MATHEMATICS. Continue to work diligently."
+    }
+  },
   "parentContacts": {},
   "auditLogs": [],
-  "attendanceMarks": {},
+  "attendanceMarks": {
+    "D8X5RCgfRORZxlcSa2CR": {
+      "2026-08-24": {
+        "status": "present",
+        "className": "BASIC 9",
+        "termKey": "2026|1",
+        "by": "winie@school.com",
+        "at": "2026-08-24T17:02:30.844Z"
+      }
+    }
+  },
   "attendanceSettings": {
-    "defaultDays": {},
+    "defaultDays": {
+      "2026|1": 1
+    },
     "studentDays": {},
-    "studentPresentOverride": {}
+    "studentPresentOverride": {},
+    "termRange": {
+      "2026|1": {
+        "start": "2026-08-24",
+        "end": "2026-08-24",
+        "closedOn": "2026-08-24"
+      }
+    },
+    "updatedAt": "2026-08-24T17:06:55.989Z"
   }
 }

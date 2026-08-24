@@ -26,6 +26,21 @@ let currentTab = 'students';
 let currentSubject = '';
 let saveTimer = null;
 
+function gradeScale() {
+    if (typeof getActiveGradingScale === 'function') {
+        const scale = getActiveGradingScale();
+        if (scale && scale.length) return scale;
+    }
+    const cached = loadJSON('activeGradingScale', null);
+    if (cached && Array.isArray(cached) && cached.length) return cached;
+    const allScales = loadJSON('gradingScales', []);
+    if (Array.isArray(allScales) && allScales.length) {
+        const active = allScales.find(s => s.isActive || s.status === 'active') || allScales[0];
+        if (active && (active.ranges || active.items)) return active.ranges || active.items;
+    }
+    return DEFAULT_GRADES;
+}
+
 function loadJSON(key, fallback) {
     try {
         const raw = localStorage.getItem(key);
@@ -1480,17 +1495,17 @@ function buildUnifiedReportHTML(id) {
     const s = students.find(x => String(x.id) === String(id));
     if (!s) return '';
     const d = studentReportDetails[id] || studentReportDetails[String(id)] || {};
-    const subs = allClassSubjects(s.class || currentClass);
+    const className = s.class || currentClass || 'Class';
+    const subs = allClassSubjects(className);
     const logo = schoolLogoSrc();
-    const settings = schoolSettings;
+    const settings = schoolSettings || {};
     const logoEl = logo
-        ? `<img src="${logo}" style="width:70px;height:70px;object-fit:contain;border-radius:8px;" alt="Logo">`
+        ? `<img src="${logo}" style="width:70px;height:70px;object-fit:contain;border-radius:8px;" alt="Logo" crossorigin="anonymous">`
         : `<div style="width:70px;height:70px;border:2px dashed #cbd5e1;border-radius:8px;display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:11px;text-align:center;">No Logo</div>`;
 
-    const scale = gradeScale();
+    const scale = typeof gradeScale === 'function' ? gradeScale() : DEFAULT_GRADES;
     const jhsKeywords = ['basic 7','basic 8','basic 9','jhs 1','jhs 2','jhs 3','jhs'];
-    const className = s.class || currentClass;
-    const isJHS = jhsKeywords.some(k => className.toLowerCase().includes(k));
+    const isJHS = jhsKeywords.some(k => String(className).toLowerCase().includes(k));
 
     // JHS grading: Stanine 1-9
     const jhsScale = [
@@ -1506,16 +1521,16 @@ function buildUnifiedReportHTML(id) {
     ];
 
     function getEffectiveGrade(tot) {
-        const sc = isJHS ? jhsScale : scale;
+        const sc = isJHS ? jhsScale : (scale && scale.length ? scale : DEFAULT_GRADES);
         const t = Math.max(0, Math.min(100, Number(tot) || 0));
-        return sc.find(g => t >= g.min && t <= g.max) || sc[sc.length - 1];
+        return sc.find(g => t >= g.min && t <= g.max) || sc[sc.length - 1] || { grade: '—', remark: '—' };
     }
 
     let totalScoreSum = 0, scoredCount = 0;
     const subjectRows = [];
     const jhsSubjectResults = [];
 
-    subs.forEach(sub => {
+    (subs || []).forEach(sub => {
         const e = getScoreEntry(sub, id);
         if (e && e.classScore !== '' && e.examScore !== '') {
             const cs50 = fifty(e.classScore);
@@ -1546,21 +1561,18 @@ function buildUnifiedReportHTML(id) {
     const yr = schoolInfo.academicYear || '';
     const tm = termHeading();
 
-    // JHS Aggregate: 4 core subjects (admin-marked) + 2 best electives
+    // JHS Aggregate: 4 core subjects + 2 best electives
     let jhsAggregateHTML = '';
     if (isJHS) {
-        // Load subjects to check isCore flag set by admin
         const allSubjects = loadJSON('subjects', []);
-        // Build a set of admin-marked core subject names (case-insensitive)
         const adminCoreNames = new Set(
-            allSubjects.filter(s => s.isCore).map(s => s.name.toLowerCase())
+            allSubjects.filter(s => s.isCore).map(s => String(s.name || '').toLowerCase())
         );
-        // Fallback keyword list if admin hasn't configured core subjects yet
         const fallbackCoreKeywords = ['english','mathematics','science','social studies','integrated science'];
         const useFallback = adminCoreNames.size === 0;
 
         const isCoreSubject = (subName) => {
-            const lower = subName.toLowerCase();
+            const lower = String(subName || '').toLowerCase();
             if (!useFallback) return adminCoreNames.has(lower);
             return fallbackCoreKeywords.some(k => lower.includes(k));
         };
@@ -1570,21 +1582,21 @@ function buildUnifiedReportHTML(id) {
         electiveResults.sort((a, b) => a.grade - b.grade);
         const bestTwo = electiveResults.slice(0, 2);
         const allAgg = [...coreResults, ...bestTwo];
-        const totalAgg = allAgg.reduce((s, r) => s + r.grade, 0);
+        const totalAgg = allAgg.reduce((s, r) => s + (Number(r.grade) || 0), 0);
         const aggSubjects = allAgg.map(r => `${esc(r.sub)}: Grade ${r.grade}`).join(' | ');
-        const coreLabel = useFallback ? 'Core (keyword match — mark core subjects in Admin → Subjects for accuracy)' : `Core (${coreResults.length}/4)`;
+        const coreLabel = useFallback ? 'Core (keyword match)' : `Core (${coreResults.length}/4)`;
         jhsAggregateHTML = `
         <div style="background:#1e1b4b;color:#fff;padding:12px 16px;border-radius:8px;margin-bottom:16px;font-size:12.5px;">
             <div style="font-weight:700;font-size:14px;margin-bottom:6px;">JHS TOTAL AGGREGATE</div>
             <div style="font-size:22px;font-weight:800;letter-spacing:-1px;">${totalAgg} <span style="font-size:13px;font-weight:400;opacity:0.75;"></span></div>
-            <div style="font-size:11px;margin-top:4px;opacity:0.85;">${aggSubjects}</div>
+            <div style="font-size:11px;margin-top:4px;opacity:0.85;">${aggSubjects || 'No graded subjects yet'}</div>
             <div style="font-size:10.5px;margin-top:4px;opacity:0.65;">${coreLabel} + Best ${bestTwo.length} Elective(s)</div>
             ${allAgg.length < 6 ? '<div style="font-size:11px;margin-top:4px;color:#fbbf24;">⚠ Not all 6 aggregate subjects have scores</div>' : ''}
         </div>`;
     }
 
     return `
-    <div id="printableReportCard" style="background:#fff;color:#1e293b;padding:28px;border-radius:12px;box-shadow:0 2px 10px rgba(0,0,0,.08);font-family:'Inter',sans-serif;max-width:800px;margin:0 auto;">
+    <div id="printableReportCard" style="background:#fff;color:#1e293b;padding:28px;border-radius:12px;box-shadow:0 2px 10px rgba(0,0,0,.08);font-family:'Inter',Arial,sans-serif;max-width:800px;margin:0 auto;box-sizing:border-box;">
         <div style="display:flex;align-items:center;justify-content:space-between;border-bottom:2px solid #4f46e5;padding-bottom:14px;margin-bottom:18px;">
             ${logoEl}
             <div style="text-align:center;flex:1;padding:0 12px;">
@@ -1680,6 +1692,10 @@ function printTeacherPreview() {
     const card = document.getElementById('printableReportCard') || document.getElementById('previewBody');
     if (!card) return toast('No report loaded to print.', 'bad');
     const win = window.open('', '_blank', 'width=900,height=750');
+    if (!win) {
+        toast('Pop-up blocked. Please allow pop-ups for printing.', 'bad');
+        return;
+    }
     win.document.write(`<!DOCTYPE html><html><head><title>Student Report Sheet</title>
         <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
         <style>body{margin:20px;font-family:'Inter',sans-serif;-webkit-print-color-adjust:exact;print-color-adjust:exact;}table th,table td{border:1px solid #cbd5e1;}</style>
@@ -1705,21 +1721,19 @@ function generatePdfBlob(id) {
             const reportMarkup = buildUnifiedReportHTML(id);
             if (!reportMarkup) return reject(new Error('No report content could be generated'));
 
-            // Build an offscreen container readable by html2canvas
-            container = document.createElement('div');
-            container.id = 'tempPdfRenderContainer';
-            container.style.cssText = 'position:fixed;left:-9999px;top:0;width:800px;background:#fff;z-index:-9999;';
-            container.innerHTML = reportMarkup;
-            document.body.appendChild(container);
-
-            // Wait a moment for layout/fonts to settle
-            await new Promise(r => setTimeout(r, 60));
-
             const jsPDFConstructor = (window.jspdf && window.jspdf.jsPDF) ? window.jspdf.jsPDF : window.jsPDF;
 
-            // 1. Primary path: html2canvas + jsPDF with a 2.5-second timeout guard
+            // 1. Primary path: html2canvas + jsPDF with a 2.0-second timeout guard
             if (typeof html2canvas !== 'undefined' && jsPDFConstructor) {
                 try {
+                    container = document.createElement('div');
+                    container.id = 'tempPdfRenderContainer';
+                    container.style.cssText = 'position:fixed;left:-9999px;top:0;width:800px;background:#fff;z-index:-9999;';
+                    container.innerHTML = reportMarkup;
+                    document.body.appendChild(container);
+
+                    await new Promise(r => setTimeout(r, 40));
+
                     const targetEl = container.querySelector('#printableReportCard') || container.firstElementChild || container;
                     const canvasPromise = html2canvas(targetEl, {
                         scale: 2,
@@ -1729,7 +1743,7 @@ function generatePdfBlob(id) {
                     });
                     const canvas = await Promise.race([
                         canvasPromise,
-                        new Promise((_, rej) => setTimeout(() => rej(new Error('html2canvas timeout')), 2500))
+                        new Promise((_, rej) => setTimeout(() => rej(new Error('html2canvas timeout')), 2000))
                     ]);
                     if (container && container.parentNode) document.body.removeChild(container);
                     container = null;
@@ -1755,12 +1769,12 @@ function generatePdfBlob(id) {
                     return;
                 } catch (canvasErr) {
                     console.warn('html2canvas render fallback:', canvasErr);
+                } finally {
+                    if (container && container.parentNode) {
+                        document.body.removeChild(container);
+                        container = null;
+                    }
                 }
-            }
-
-            if (container && container.parentNode) {
-                document.body.removeChild(container);
-                container = null;
             }
 
             // 2. Secondary fallback: structured jsPDF document
@@ -1822,8 +1836,9 @@ function generatePdfBlob(id) {
                 return;
             }
 
-            // 3. Fallback: HTML Document Blob
-            resolve(new Blob([reportMarkup], { type: 'text/html' }));
+            // 3. Fallback: Standalone HTML Document Blob
+            const fullHtml = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${s.name || 'Report'}</title><style>body{margin:20px;font-family:Arial,sans-serif;-webkit-print-color-adjust:exact;}table{width:100%;border-collapse:collapse;}th,td{border:1px solid #cbd5e1;padding:6px;}</style></head><body>${reportMarkup}</body></html>`;
+            resolve(new Blob([fullHtml], { type: 'text/html' }));
         } catch (err) {
             if (container && container.parentNode) document.body.removeChild(container);
             reject(err);
@@ -1839,11 +1854,12 @@ async function downloadReport(id) {
     toast('Generating PDF...', 'ok');
     try {
         const blob = await generatePdfBlob(id);
-        const name = (String(s.name || 'student').replace(/[^a-z0-9]/gi, '_')) + '_report.pdf';
-        await downloadBlobFile(blob, name, 'application/pdf');
-        toast('PDF downloaded.', 'ok');
+        const isHtml = blob.type === 'text/html';
+        const name = (String(s.name || 'student').replace(/[^a-z0-9]/gi, '_')) + (isHtml ? '_report.html' : '_report.pdf');
+        await downloadBlobFile(blob, name, isHtml ? 'text/html' : 'application/pdf');
+        toast('Report downloaded.', 'ok');
     } catch (e) {
-        console.warn('Direct PDF export encountered an issue, opening print sheet for instant PDF saving/printing:', e);
+        console.warn('Direct PDF export encountered an issue, opening print sheet:', e);
         previewReport(id);
         setTimeout(() => { printTeacherPreview(); }, 350);
     }
@@ -1857,21 +1873,35 @@ async function bulkDownload() {
     toast('Preparing class reports ZIP...', 'ok');
     const zip = new JSZip();
     let count = 0;
-    for (const s of list) {
+    for (let i = 0; i < list.length; i++) {
+        const s = list[i];
         try {
+            toast(`Building report ${i + 1} of ${list.length}...`, 'ok');
             const blob = await generatePdfBlob(s.id);
-            const fname = (String(s.name || 'student').replace(/[^a-z0-9]/gi, '_')) + '_report.pdf';
+            const isHtml = blob.type === 'text/html';
+            const fname = (String(s.name || 'student').replace(/[^a-z0-9]/gi, '_')) + (isHtml ? '_report.html' : '_report.pdf');
             zip.file(fname, blob);
             count++;
         } catch (e) {
             console.warn('Skipping student PDF in bulk:', s.id, e);
+            // Fallback to HTML string in zip
+            try {
+                const markup = buildUnifiedReportHTML(s.id);
+                if (markup) {
+                    const fullHtml = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${s.name}</title></head><body>${markup}</body></html>`;
+                    const fname = (String(s.name || 'student').replace(/[^a-z0-9]/gi, '_')) + '_report.html';
+                    zip.file(fname, fullHtml);
+                    count++;
+                }
+            } catch (err2) {}
         }
     }
     if (!count) return toast('No reports could be built.', 'bad');
-    const blob = await zip.generateAsync({ type: 'blob' });
+    toast('Compiling ZIP archive...', 'ok');
+    const zipBlob = await zip.generateAsync({ type: 'blob' });
     const name = (currentClass || 'class').replace(/\s/g, '_') + '_reports.zip';
-    await downloadBlobFile(blob, name, 'application/zip');
-    toast(`Downloaded ${count} report(s) in ZIP!`, 'ok');
+    await downloadBlobFile(zipBlob, name, 'application/zip');
+    toast(`Downloaded ${count} report(s) in ZIP successfully!`, 'ok');
 }
 
 function renderPerformance() {
