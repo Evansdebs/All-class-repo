@@ -1010,21 +1010,34 @@ async function saveStudent() {
     const data = { admissionNo, name, gender, dob, classId, class: resolveClass(classId), academicYearId, status, parentPhone, parentName };
 
     try {
+        let docId = id;
         if (id) {
-            await updateDocument('students', id, data);
-            const idx = adminState.students.findIndex(s => s.id === id);
+            const idx = adminState.students.findIndex(s => String(s.id) === String(id));
             if (idx >= 0) adminState.students[idx] = { ...adminState.students[idx], ...data };
             showToast('Student updated!', 'success');
-            await logActivity('Student Updated', `Updated student ${name}`, id);
         } else {
-            const newDoc = await addDocument('students', data);
-            adminState.students.push(newDoc);
+            docId = 'stu_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+            adminState.students.push({ id: docId, ...data });
             showToast('Student added!', 'success');
-            await logActivity('Student Added', `Added student ${name}`, newDoc.id);
         }
+        localStorage.setItem('students', JSON.stringify(adminState.students));
         closeModal('studentModal');
         renderStudentsTable();
         updateNavBadges();
+
+        // Remote database sync in background
+        (async () => {
+            if (id) {
+                await updateDocument('students', id, data);
+                await logActivity('Student Updated', `Updated student ${name}`, id);
+            } else {
+                await updateDocument('students', docId, data);
+                await logActivity('Student Added', `Added student ${name}`, docId);
+            }
+            if (typeof syncSaveCollection === 'function') {
+                await syncSaveCollection('students', adminState.students);
+            }
+        })().catch(err => console.warn('Background student save error:', err));
     } catch (e) {
         showToast(`Error: ${e.message}`, 'error');
     }
@@ -1213,61 +1226,70 @@ async function saveTeacher() {
 
     try {
         let teacherId = effectiveId;
+        let isNew = !effectiveId;
+        let docId = effectiveId;
+
         if (!effectiveId) {
-            let docId = null;
-            if (isFirebaseActive && password) {
-                try {
-                    const creds = await registerFirebaseUser(email, password, name, role, teacherData);
-                    docId = creds.user.uid;
-                    teacherData.userId = creds.user.uid;
-                } catch (err) {
-                    console.warn('Firebase user creation notice:', err);
-                }
-            }
-            if (!docId) {
-                docId = 't_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
-            }
+            docId = 't_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
             teacherData.id = docId;
             teacherData.createdAt = new Date().toISOString();
-            
-            await updateDocument('teachers', docId, teacherData);
             adminState.teachers.push(teacherData);
             teacherId = docId;
             showToast('Teacher added!', 'success');
-            await logActivity('Teacher Added', `Added teacher ${name}`, docId);
         } else {
-            await updateDocument('teachers', effectiveId, teacherData);
             const idx = adminState.teachers.findIndex(t => String(t.id) === String(effectiveId));
             if (idx >= 0) adminState.teachers[idx] = { ...adminState.teachers[idx], ...teacherData, id: effectiveId };
-            showToast('Teacher profile and password updated!', 'success');
-            await logActivity('Teacher Updated', `Updated teacher ${name}`, effectiveId);
+            showToast('Teacher profile updated!', 'success');
         }
-        teacherId = effectiveId || adminState.teachers.find(t => t.email === email)?.id;
+
         if (teacherId) {
             adminState.classes.forEach(c => {
                 if (String(c.classTeacherId) === String(teacherId)) c.classTeacherName = name;
             });
-            for (const c of adminState.classes.filter(c => String(c.classTeacherId) === String(teacherId))) {
-                try { await updateDocument('classes', c.id, { classTeacherName: name }); } catch (e) {}
-            }
             localStorage.setItem('classes', JSON.stringify(adminState.classes));
         }
 
         // Deduplicate any duplicates with matching email
         adminState.teachers = deduplicateTeachers(adminState.teachers);
-        await syncSaveCollection('teachers', adminState.teachers);
+        localStorage.setItem('teachers', JSON.stringify(adminState.teachers));
 
         if (role === 'Headteacher' && status !== 'inactive') {
             const settings = { ...(adminState.settings || {}), headTeacher: name };
             adminState.settings = settings;
-            try { await saveSchoolSettings(settings); } catch (e) {}
             persistSchoolInfoPatch({ headTeacher: name });
         }
+
         closeModal('teacherModal');
         renderTeachersTable();
         renderClassesTable();
         renderClassTeacherMap();
         updateNavBadges();
+
+        // Background cloud / REST persistence
+        (async () => {
+            if (isNew && isFirebaseActive && password) {
+                try {
+                    const creds = await registerFirebaseUser(email, password, name, role, teacherData);
+                    if (creds && creds.user) {
+                        teacherData.userId = creds.user.uid;
+                        teacherData.uid = creds.user.uid;
+                    }
+                } catch (err) {
+                    console.warn('Firebase user creation notice:', err);
+                }
+            }
+            await updateDocument('teachers', docId, teacherData);
+            if (typeof syncSaveCollection === 'function') {
+                await syncSaveCollection('teachers', adminState.teachers);
+            }
+            for (const c of adminState.classes.filter(c => String(c.classTeacherId) === String(teacherId))) {
+                try { await updateDocument('classes', c.id, { classTeacherName: name }); } catch (e) {}
+            }
+            if (role === 'Headteacher' && status !== 'inactive') {
+                try { await saveSchoolSettings({ ...(adminState.settings || {}), headTeacher: name }); } catch (e) {}
+            }
+            await logActivity(isNew ? 'Teacher Added' : 'Teacher Updated', `${isNew ? 'Added' : 'Updated'} teacher ${name}`, docId);
+        })().catch(e => console.warn('Background teacher save error:', e));
     } catch (e) {
         showToast(`Error: ${e.message}`, 'error');
     }
@@ -1455,21 +1477,18 @@ async function saveClass() {
 
     try {
         let classDocId = id;
+        const isNew = !id;
         if (id) {
-            await updateDocument('classes', id, data);
-            const idx = adminState.classes.findIndex(c => c.id === id);
+            const idx = adminState.classes.findIndex(c => String(c.id) === String(id));
             if (idx >= 0) adminState.classes[idx] = { ...adminState.classes[idx], ...data, id };
             showToast('Class updated!', 'success');
-            await logActivity('Class Updated', `Updated ${name}` + (teacher ? ` — class teacher ${teacher.name}` : ''), id);
         } else {
-            const newDoc = await addDocument('classes', data);
-            classDocId = newDoc.id;
-            adminState.classes.push(newDoc);
+            classDocId = 'cls_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+            adminState.classes.push({ id: classDocId, ...data });
             showToast('Class added!', 'success');
-            await logActivity('Class Added', `Created class ${name}`, newDoc.id);
         }
 
-        // Update assignedClasses on all teachers in teachers and users collections
+        // Update assignedClasses in memory
         for (const t of adminState.teachers) {
             const isAssigned = allAssignedTeacherIds.includes(String(t.id)) || allAssignedTeacherIds.includes(t.id);
             const classSet = new Set((t.assignedClasses || []).map(String));
@@ -1479,25 +1498,30 @@ async function saveClass() {
                 classSet.add(String(classDocId));
                 classSet.add(name);
                 t.assignedClasses = Array.from(classSet);
-                try { await updateDocument('teachers', t.id, { assignedClasses: t.assignedClasses }); } catch (e) {}
-                if (t.userId && isFirebaseActive) {
-                    try { await updateDocument('users', t.userId, { assignedClasses: t.assignedClasses }); } catch (e) {}
-                }
             }
         }
 
         localStorage.setItem('teachers', JSON.stringify(adminState.teachers));
         localStorage.setItem('classes', JSON.stringify(adminState.classes));
-        if (typeof syncSaveCollection === 'function') {
-            try { syncSaveCollection('teachers', adminState.teachers); } catch (e) {}
-            try { syncSaveCollection('classes', adminState.classes); } catch (e) {}
-            try { syncSaveCollection('users', adminState.users); } catch (e) {}
-        }
 
         closeModal('classModal');
         renderClassesTable();
         renderClassTeacherMap();
         populateAllDropdowns();
+
+        // Background cloud sync
+        (async () => {
+            if (id) {
+                await updateDocument('classes', id, data);
+            } else {
+                await updateDocument('classes', classDocId, data);
+            }
+            if (typeof syncSaveCollection === 'function') {
+                try { await syncSaveCollection('teachers', adminState.teachers); } catch (e) {}
+                try { await syncSaveCollection('classes', adminState.classes); } catch (e) {}
+            }
+            await logActivity(isNew ? 'Class Added' : 'Class Updated', `${isNew ? 'Created' : 'Updated'} class ${name}`, classDocId);
+        })().catch(e => console.warn('Background class save error:', e));
     } catch (e) {
         showToast(`Error: ${e.message}`, 'error');
     }
@@ -1577,24 +1601,34 @@ async function saveSubject() {
 
     const data = { code, name, status, classIds, isCore };
     try {
+        let subDocId = id;
+        const isNew = !id;
         if (id) {
-            await updateDocument('subjects', id, data);
-            const idx = adminState.subjects.findIndex(s => s.id === id);
-            if (idx >= 0) adminState.subjects[idx] = { ...adminState.subjects[idx], ...data };
+            const idx = adminState.subjects.findIndex(s => String(s.id) === String(id));
+            if (idx >= 0) adminState.subjects[idx] = { ...adminState.subjects[idx], ...data, id };
             showToast('Subject updated!', 'success');
         } else {
-            const newDoc = await addDocument('subjects', data);
-            adminState.subjects.push(newDoc);
+            subDocId = 'sub_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+            adminState.subjects.push({ id: subDocId, ...data });
             showToast('Subject added!', 'success');
-            await logActivity('Subject Added', `Created subject ${name}`, newDoc.id);
         }
         localStorage.setItem('subjects', JSON.stringify(adminState.subjects));
-        if (typeof syncSaveCollection === 'function') {
-            try { syncSaveCollection('subjects', adminState.subjects); } catch (e) {}
-        }
         closeModal('subjectModal');
         renderSubjectsTable();
         populateAllDropdowns();
+
+        // Background persistence
+        (async () => {
+            if (id) {
+                await updateDocument('subjects', id, data);
+            } else {
+                await updateDocument('subjects', subDocId, data);
+            }
+            if (typeof syncSaveCollection === 'function') {
+                try { await syncSaveCollection('subjects', adminState.subjects); } catch (e) {}
+            }
+            await logActivity(isNew ? 'Subject Added' : 'Subject Updated', `${isNew ? 'Created' : 'Updated'} subject ${name}`, subDocId);
+        })().catch(e => console.warn('Background subject save error:', e));
     } catch (e) {
         showToast(`Error: ${e.message}`, 'error');
     }
@@ -1605,6 +1639,10 @@ async function confirmDeleteSubject(id) {
     showConfirm(`Delete subject "${s?.name}"?`, async () => {
         await deleteDocument('subjects', id);
         adminState.subjects = adminState.subjects.filter(s => s.id !== id);
+        localStorage.setItem('subjects', JSON.stringify(adminState.subjects));
+        if (typeof syncSaveCollection === 'function') {
+            try { await syncSaveCollection('subjects', adminState.subjects); } catch (e) {}
+        }
         renderSubjectsTable();
         showToast('Subject deleted.', 'success');
     });
@@ -1665,101 +1703,150 @@ async function saveAcademicYear() {
 
     try {
         if (setActive) {
-            // Deactivate all other years
-            for (const y of adminState.academicYears) {
-                if (y.isActive) await updateDocument('academicYears', y.id, { isActive: false });
-            }
             adminState.academicYears.forEach(y => { y.isActive = false; });
-            // Deactivate all other terms
-            for (const t of adminState.terms) {
-                if (t.isActive) await updateDocument('terms', t.id, { isActive: false });
-            }
             adminState.terms.forEach(t => { t.isActive = false; });
         }
 
-        const yearDoc = await addDocument('academicYears', { name, isActive: setActive, isArchived: false });
+        const yearDocId = 'ay_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+        const yearDoc = { id: yearDocId, name, isActive: setActive, isArchived: false };
         adminState.academicYears.push(yearDoc);
 
-        // Create terms
+        const newTerms = [];
         for (let i = 0; i < termNames.length; i++) {
             const isFirstTerm = i === 0 && setActive;
-            const termDoc = await addDocument('terms', {
-                name:      termNames[i],
-                yearId:    yearDoc.id,
+            const termDoc = {
+                id:         'term_' + Date.now().toString(36) + '_' + i,
+                name:       termNames[i],
+                yearId:     yearDocId,
                 termNumber: i + 1,
-                isActive:  isFirstTerm,
-                isClosed:  false
-            });
+                isActive:   isFirstTerm,
+                isClosed:   false
+            };
             adminState.terms.push(termDoc);
+            newTerms.push(termDoc);
         }
 
-        showToast(`Academic year "${name}" created!`, 'success');
-        await logActivity('Academic Year Created', `Created year ${name}`, yearDoc.id);
+        localStorage.setItem('academicYears', JSON.stringify(adminState.academicYears));
+        localStorage.setItem('terms', JSON.stringify(adminState.terms));
+        if (setActive) persistSchoolInfoPatch({ academicYear: name, term: '1' });
+
         closeModal('academicYearModal');
         renderAcademicYears();
         populateAllDropdowns();
         setKPI('kpi-year', setActive ? name : document.getElementById('kpi-year')?.textContent);
+        showToast(`Academic year "${name}" created!`, 'success');
+
+        // Background persistence
+        (async () => {
+            if (setActive) {
+                for (const y of adminState.academicYears) {
+                    if (y.id !== yearDocId && y.isActive) await updateDocument('academicYears', y.id, { isActive: false });
+                }
+                for (const t of adminState.terms) {
+                    if (!newTerms.some(nt => nt.id === t.id) && t.isActive) await updateDocument('terms', t.id, { isActive: false });
+                }
+            }
+            await updateDocument('academicYears', yearDocId, yearDoc);
+            for (const t of newTerms) {
+                await updateDocument('terms', t.id, t);
+            }
+            if (typeof syncSaveCollection === 'function') {
+                try { await syncSaveCollection('academicYears', adminState.academicYears); } catch(e) {}
+                try { await syncSaveCollection('terms', adminState.terms); } catch(e) {}
+            }
+            await logActivity('Academic Year Created', `Created year ${name}`, yearDocId);
+        })().catch(e => console.warn('Background academic year save error:', e));
     } catch (e) {
         showToast(`Error: ${e.message}`, 'error');
     }
 }
 
 async function setActiveYear(id) {
-    for (const y of adminState.academicYears) {
-        if (y.isActive) await updateDocument('academicYears', y.id, { isActive: false });
-    }
-    await updateDocument('academicYears', id, { isActive: true });
     adminState.academicYears.forEach(y => { y.isActive = y.id === id; });
     const year = adminState.academicYears.find(y => y.id === id);
+    localStorage.setItem('academicYears', JSON.stringify(adminState.academicYears));
     persistSchoolInfoPatch({ academicYear: year?.name || '' });
     renderAcademicYears();
     showToast('Active academic year updated!', 'success');
-    await logActivity('Active Year Set', `Set academic year active`, id);
     loadDashboard();
+
+    (async () => {
+        for (const y of adminState.academicYears) {
+            await updateDocument('academicYears', y.id, { isActive: y.id === id });
+        }
+        if (typeof syncSaveCollection === 'function') {
+            try { await syncSaveCollection('academicYears', adminState.academicYears); } catch(e) {}
+        }
+        await logActivity('Active Year Set', `Set academic year active`, id);
+    })().catch(e => console.warn(e));
 }
 
 async function setActiveTerm(termId, yearId) {
-    for (const t of adminState.terms) {
-        if (t.isActive) await updateDocument('terms', t.id, { isActive: false });
-    }
-    await updateDocument('terms', termId, { isActive: true });
     adminState.terms.forEach(t => { t.isActive = t.id === termId; });
+    localStorage.setItem('terms', JSON.stringify(adminState.terms));
+    const term = adminState.terms.find(t => t.id === termId);
+    if (term) persistSchoolInfoPatch({ term: String(term.termNumber || term.name || '1') });
     renderAcademicYears();
     showToast('Active term updated!', 'success');
-    await logActivity('Active Term Set', `Set active term`, termId);
     loadDashboard();
+
+    (async () => {
+        for (const t of adminState.terms) {
+            await updateDocument('terms', t.id, { isActive: t.id === termId });
+        }
+        if (typeof syncSaveCollection === 'function') {
+            try { await syncSaveCollection('terms', adminState.terms); } catch(e) {}
+        }
+        await logActivity('Active Term Set', `Set active term`, termId);
+    })().catch(e => console.warn(e));
 }
 
 async function closeTerm(termId) {
     showConfirm('Close this term? School days on reports will be weekdays only (weekends excluded). Results for the term will lock.', async () => {
         const today = (typeof Attendance !== 'undefined' && Attendance.todayISO()) || new Date().toISOString().slice(0, 10);
-        await updateDocument('terms', termId, { isActive: false, isClosed: true, endDate: today });
         const t = adminState.terms.find(t => t.id === termId);
         if (t) { t.isActive = false; t.isClosed = true; t.endDate = today; }
+        localStorage.setItem('terms', JSON.stringify(adminState.terms));
         let days = 0;
         if (typeof Attendance !== 'undefined') {
             days = Attendance.finalizeClosedTerm(today);
         }
         renderAcademicYears();
         showToast(days ? `Term closed. Report attendance is now days present out of ${days} school days (weekends excluded).` : 'Term closed.', 'success');
-        await logActivity('Term Closed', `Closed term — ${days} weekday school days`, termId);
+        
+        (async () => {
+            await updateDocument('terms', termId, { isActive: false, isClosed: true, endDate: today });
+            if (typeof syncSaveCollection === 'function') {
+                try { await syncSaveCollection('terms', adminState.terms); } catch(e) {}
+            }
+            await logActivity('Term Closed', `Closed term — ${days} weekday school days`, termId);
+        })().catch(e => console.warn(e));
     });
 }
 
 async function confirmDeleteYear(id) {
     const y = adminState.academicYears.find(y => y.id === id);
     showConfirm(`Delete academic year "${y?.name}"? All associated terms will also be deleted.`, async () => {
-        await deleteDocument('academicYears', id);
         adminState.academicYears = adminState.academicYears.filter(y => y.id !== id);
         const termIds = adminState.terms.filter(t => t.yearId === id).map(t => t.id);
-        for (const tid of termIds) await deleteDocument('terms', tid);
         adminState.terms = adminState.terms.filter(t => t.yearId !== id);
+        localStorage.setItem('academicYears', JSON.stringify(adminState.academicYears));
+        localStorage.setItem('terms', JSON.stringify(adminState.terms));
         renderAcademicYears();
         showToast('Academic year deleted.', 'success');
+
+        (async () => {
+            await deleteDocument('academicYears', id);
+            for (const tid of termIds) await deleteDocument('terms', tid);
+            if (typeof syncSaveCollection === 'function') {
+                try { await syncSaveCollection('academicYears', adminState.academicYears); } catch(e) {}
+                try { await syncSaveCollection('terms', adminState.terms); } catch(e) {}
+            }
+        })().catch(e => console.warn(e));
     });
 }
 
-// ─── GRADING SYSTEM ───────────────────────────────────────────────────────────
+// ─── GRADING SYSTEM (MULTIPLE ACTIVE BY DEPARTMENT) ───────────────────────────
 function renderGradingScales() {
     const container = document.getElementById('gradingScalesContainer');
     if (!container) return;
@@ -1769,20 +1856,31 @@ function renderGradingScales() {
         return;
     }
 
-    container.innerHTML = adminState.gradingScales.map(scale => `
-        <div class="scale-card ${scale.isActive ? 'active-scale' : ''}">
+    container.innerHTML = adminState.gradingScales.map(scale => {
+        const dept = scale.department || 'All';
+        const isActive = scale.isActive !== false;
+        return `
+        <div class="scale-card ${isActive ? 'active-scale' : ''}">
             <div class="scale-card-header">
-                <div class="scale-name">${escHtml(scale.name)}</div>
+                <div>
+                    <div class="scale-name" style="font-weight:700;font-size:15px;">${escHtml(scale.name)}</div>
+                    <div style="margin-top:4px;display:flex;gap:6px;align-items:center;">
+                        <span class="status-pill published" style="font-size:11px;">Department: ${escHtml(dept)}</span>
+                        ${isActive ? '<span class="scale-active-badge">Active</span>' : '<span class="status-pill inactive" style="font-size:11px;">Inactive</span>'}
+                    </div>
+                </div>
                 <div style="display:flex;gap:8px;align-items:center;">
-                    ${scale.isActive ? '<span class="scale-active-badge">Active</span>' : `<button class="btn-admin btn-primary btn-sm" onclick="setActiveGradingScale('${scale.id}')">Set Active</button>`}
+                    ${isActive 
+                        ? `<button class="btn-admin btn-ghost btn-sm" onclick="toggleActiveGradingScale('${scale.id}')">Deactivate</button>` 
+                        : `<button class="btn-admin btn-primary btn-sm" onclick="toggleActiveGradingScale('${scale.id}')">Set Active</button>`}
                     <button class="action-btn" onclick="openGradingScaleModal('${scale.id}')"><i class="fas fa-edit"></i></button>
                     <button class="action-btn delete" onclick="confirmDeleteGradingScale('${scale.id}')"><i class="fas fa-trash"></i></button>
                 </div>
             </div>
-            <table class="scale-table">
+            <table class="scale-table" style="margin-top:10px;">
                 <thead><tr><th>Min</th><th>Max</th><th>Grade</th><th>Remark</th><th>Description</th></tr></thead>
                 <tbody>
-                    ${(scale.items || []).map(item => `<tr>
+                    ${(scale.items || scale.ranges || []).map(item => `<tr>
                         <td>${item.min}</td><td>${item.max}</td>
                         <td><strong>${escHtml(item.grade)}</strong></td>
                         <td>${escHtml(item.remark)}</td>
@@ -1790,14 +1888,17 @@ function renderGradingScales() {
                     </tr>`).join('')}
                 </tbody>
             </table>
-        </div>`).join('');
+        </div>`;
+    }).join('');
 }
 
 function openGradingScaleModal(id = null) {
     adminState.editingGrading = id;
     document.getElementById('gs-id').value = '';
     document.getElementById('gs-name').value = '';
-    document.getElementById('gs-isActive').checked = false;
+    const deptEl = document.getElementById('gs-department');
+    if (deptEl) deptEl.value = 'Primary';
+    document.getElementById('gs-isActive').checked = true;
 
     const defaultRows = [
         { min: 80, max: 100, grade: 'A',  remark: 'ADVANCE', description: '' },
@@ -1809,17 +1910,48 @@ function openGradingScaleModal(id = null) {
 
     let rows = defaultRows;
     if (id) {
-        const scale = adminState.gradingScales.find(s => s.id === id);
+        const scale = adminState.gradingScales.find(s => String(s.id) === String(id));
         if (scale) {
             document.getElementById('gs-id').value = scale.id;
             document.getElementById('gs-name').value = scale.name || '';
-            document.getElementById('gs-isActive').checked = scale.isActive || false;
-            rows = scale.items || defaultRows;
+            if (deptEl) deptEl.value = scale.department || 'Primary';
+            document.getElementById('gs-isActive').checked = scale.isActive !== false;
+            rows = scale.items || scale.ranges || defaultRows;
         }
     }
 
     renderGradeRows(rows);
     document.getElementById('gradingScaleModal').style.display = 'flex';
+}
+
+function applyGradingPreset(type) {
+    if (type === 'jhs') {
+        document.getElementById('gs-name').value = 'JHS Stanine Scale (1-9)';
+        const deptEl = document.getElementById('gs-department');
+        if (deptEl) deptEl.value = 'JHS';
+        renderGradeRows([
+            { min:80, max:100, grade:'1', remark:'EXCELLENT', description:'Highest standard' },
+            { min:70, max:79,  grade:'2', remark:'VERY GOOD', description:'High achievement' },
+            { min:65, max:69,  grade:'3', remark:'GOOD', description:'Above average' },
+            { min:60, max:64,  grade:'4', remark:'CREDIT', description:'Competent' },
+            { min:55, max:59,  grade:'5', remark:'AVERAGE', description:'Acceptable standard' },
+            { min:50, max:54,  grade:'6', remark:'PASS', description:'Borderline standard' },
+            { min:45, max:49,  grade:'7', remark:'WEAK PASS', description:'Marginal' },
+            { min:40, max:44,  grade:'8', remark:'FAIL', description:'Below minimum standard' },
+            { min:0,  max:39,  grade:'9', remark:'FAIL', description:'Lowest standard' }
+        ]);
+    } else if (type === 'primary') {
+        document.getElementById('gs-name').value = 'Ghana Primary Scale (A-B)';
+        const deptEl = document.getElementById('gs-department');
+        if (deptEl) deptEl.value = 'Primary';
+        renderGradeRows([
+            { min:80, max:100, grade:'A',  remark:'ADVANCE', description:'Demonstrates deep understanding' },
+            { min:68, max:79,  grade:'P',  remark:'PROFICIENCY', description:'Demonstrates sound understanding' },
+            { min:54, max:67,  grade:'AP', remark:'APPROACHING PROFICIENCY', description:'Developing required skills' },
+            { min:40, max:53,  grade:'D',  remark:'DEVELOPING', description:'Basic comprehension' },
+            { min:0,  max:39,  grade:'B',  remark:'BEGINNER', description:'Needs focused assistance' }
+        ]);
+    }
 }
 
 function renderGradeRows(rows) {
@@ -1840,7 +1972,6 @@ function gradeRowHTML(r = {}, i) {
 }
 
 function addGradeRow() {
- 
     const container = document.getElementById('gradeRowsContainer');
     if (!container) return;
     const div = document.createElement('div');
@@ -1849,9 +1980,10 @@ function addGradeRow() {
 }
 
 async function saveGradingScale() {
-    const id       = document.getElementById('gs-id')?.value || null;
-    const name     = document.getElementById('gs-name')?.value?.trim() || '';
-    const isActive = document.getElementById('gs-isActive')?.checked || false;
+    const id         = document.getElementById('gs-id')?.value || null;
+    const name       = document.getElementById('gs-name')?.value?.trim() || '';
+    const department = document.getElementById('gs-department')?.value || 'Primary';
+    const isActive   = document.getElementById('gs-isActive')?.checked || false;
 
     if (!name) { showToast('Grading scale name is required.', 'error'); return; }
 
@@ -1863,56 +1995,88 @@ async function saveGradingScale() {
         description: row.querySelector('.grade-description')?.value?.trim() || '',
     })).filter(r => r.grade);
 
-    try {
-        if (isActive) {
-            for (const s of adminState.gradingScales) {
-                if (s.isActive) await updateDocument('gradingScales', s.id, { isActive: false });
-            }
-            adminState.gradingScales.forEach(s => { s.isActive = false; });
-        }
+    const data = { name, department, isActive, items: rows, ranges: rows };
 
-        const data = { name, isActive, items: rows };
+    // 0ms instant UI update
+    if (isActive) {
+        adminState.gradingScales.forEach(s => {
+            if (s.department === department && String(s.id) !== String(id)) {
+                s.isActive = false;
+            }
+        });
+    }
+
+    let scaleId = id;
+    const isNew = !id;
+    if (id) {
+        const idx = adminState.gradingScales.findIndex(s => String(s.id) === String(id));
+        if (idx >= 0) adminState.gradingScales[idx] = { ...adminState.gradingScales[idx], ...data, id };
+    } else {
+        scaleId = 'gs_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+        adminState.gradingScales.push({ id: scaleId, ...data });
+    }
+
+    localStorage.setItem('gradingScales', JSON.stringify(adminState.gradingScales));
+    closeModal('gradingScaleModal');
+    renderGradingScales();
+    showToast('Grading scale saved!', 'success');
+
+    // Background sync
+    (async () => {
         if (id) {
             await updateDocument('gradingScales', id, data);
-            const idx = adminState.gradingScales.findIndex(s => s.id === id);
-            if (idx >= 0) adminState.gradingScales[idx] = { ...adminState.gradingScales[idx], ...data };
-            showToast('Grading scale updated!', 'success');
         } else {
-            const newDoc = await addDocument('gradingScales', data);
-            adminState.gradingScales.push(newDoc);
-            showToast('Grading scale created!', 'success');
-            await logActivity('Grading Scale Created', `Created scale ${name}`, newDoc.id);
+            await updateDocument('gradingScales', scaleId, data);
         }
-
-        if (isActive) {
-            localStorage.setItem('activeGradingScale', JSON.stringify(rows));
+        if (typeof syncSaveCollection === 'function') {
+            try { await syncSaveCollection('gradingScales', adminState.gradingScales); } catch (e) {}
         }
-
-        closeModal('gradingScaleModal');
-        renderGradingScales();
-    } catch (e) {
-        showToast(`Error: ${e.message}`, 'error');
-    }
+        await logActivity(isNew ? 'Grading Scale Created' : 'Grading Scale Updated', `Saved grading scale ${name} for ${department}`, scaleId);
+    })().catch(e => console.warn('Background grading save error:', e));
 }
 
-async function setActiveGradingScale(id) {
-    for (const s of adminState.gradingScales) {
-        await updateDocument('gradingScales', s.id, { isActive: s.id === id });
-        s.isActive = s.id === id;
+async function toggleActiveGradingScale(id) {
+    const target = adminState.gradingScales.find(s => String(s.id) === String(id));
+    if (!target) return;
+    const willBeActive = !target.isActive;
+    target.isActive = willBeActive;
+
+    if (willBeActive && target.department) {
+        adminState.gradingScales.forEach(s => {
+            if (s.department === target.department && String(s.id) !== String(id)) {
+                s.isActive = false;
+            }
+        });
     }
-    const active = adminState.gradingScales.find(s => s.id === id);
-    if (active) localStorage.setItem('activeGradingScale', JSON.stringify(active.items || []));
+
+    localStorage.setItem('gradingScales', JSON.stringify(adminState.gradingScales));
     renderGradingScales();
-    showToast('Grading scale activated!', 'success');
+    showToast(`Grading scale "${target.name}" is now ${willBeActive ? 'Active' : 'Inactive'}.`, 'success');
+
+    (async () => {
+        for (const s of adminState.gradingScales) {
+            try { await updateDocument('gradingScales', s.id, { isActive: s.isActive }); } catch(e) {}
+        }
+        if (typeof syncSaveCollection === 'function') {
+            try { await syncSaveCollection('gradingScales', adminState.gradingScales); } catch (e) {}
+        }
+    })().catch(e => console.warn(e));
 }
 
 async function confirmDeleteGradingScale(id) {
     const s = adminState.gradingScales.find(s => s.id === id);
     showConfirm(`Delete grading scale "${s?.name}"?`, async () => {
-        await deleteDocument('gradingScales', id);
         adminState.gradingScales = adminState.gradingScales.filter(s => s.id !== id);
+        localStorage.setItem('gradingScales', JSON.stringify(adminState.gradingScales));
         renderGradingScales();
         showToast('Grading scale deleted.', 'success');
+
+        (async () => {
+            await deleteDocument('gradingScales', id);
+            if (typeof syncSaveCollection === 'function') {
+                try { await syncSaveCollection('gradingScales', adminState.gradingScales); } catch(e) {}
+            }
+        })().catch(e => console.warn(e));
     });
 }
 
@@ -2021,19 +2185,42 @@ const JHS_SCALE = [
     { min:0,  max:39,  grade:'9', remark:'FAIL' }
 ];
 
-function getGradeForDept(score, isJHS) {
+function getGradeForDept(score, isJHS, deptOrClassName = '') {
     const t = Math.max(0, Math.min(100, Number(score) || 0));
-    if (isJHS) return JHS_SCALE.find(g => t >= g.min && t <= g.max) || JHS_SCALE[JHS_SCALE.length - 1];
-    const scale = (typeof getActiveGradingScale === 'function' ? getActiveGradingScale() : null) ||
-        adminState.gradingScales?.find(s => s.isActive)?.ranges ||
-        adminState.gradingScales?.find(s => s.isActive)?.items || [
+    let targetDept = 'Primary';
+    if (isJHS) {
+        targetDept = 'JHS';
+    } else if (typeof deptOrClassName === 'string' && deptOrClassName) {
+        const lower = deptOrClassName.toLowerCase();
+        if (lower.includes('jhs') || lower.includes('basic 7') || lower.includes('basic 8') || lower.includes('basic 9')) targetDept = 'JHS';
+        else if (lower.includes('kg') || lower.includes('nursery') || lower.includes('kindergarten')) targetDept = 'Kindergarten';
+        else targetDept = 'Primary';
+    }
+
+    const scales = adminState.gradingScales || [];
+    // 1. Look for active scale specifically for this department
+    const deptScale = scales.find(s => s.isActive && (s.department === targetDept || (targetDept === 'JHS' && (s.name || '').toLowerCase().includes('jhs')) || (targetDept === 'Primary' && (s.name || '').toLowerCase().includes('primary'))));
+    if (deptScale && (deptScale.items || deptScale.ranges)) {
+        const list = deptScale.items || deptScale.ranges;
+        return list.find(g => t >= g.min && t <= g.max) || list[list.length - 1];
+    }
+
+    // 2. Look for any active scale matching 'All'
+    const allScale = scales.find(s => s.isActive && s.department === 'All');
+    if (allScale && (allScale.items || allScale.ranges)) {
+        const list = allScale.items || allScale.ranges;
+        return list.find(g => t >= g.min && t <= g.max) || list[list.length - 1];
+    }
+
+    // Fallbacks
+    if (targetDept === 'JHS') return JHS_SCALE.find(g => t >= g.min && t <= g.max) || JHS_SCALE[JHS_SCALE.length - 1];
+    return [
         { min:80, max:100, grade:'A', remark:'ADVANCE' },
         { min:68, max:79,  grade:'P', remark:'PROFICIENCY' },
         { min:54, max:67,  grade:'AP', remark:'APPROACHING PROFICIENCY' },
-        { min:40, max:53,  grade:'D', remark:'DEVELOPING' },
-        { min:0,  max:39,  grade:'B', remark:'BEGINNER' }
-    ];
-    return scale.find(g => t >= g.min && t <= g.max) || scale[scale.length - 1];
+        { min:40, max:53,  grade:'D',  remark:'DEVELOPING' },
+        { min:0,  max:39,  grade:'B',  remark:'BEGINNER' }
+    ].find(g => t >= g.min && t <= g.max) || { grade: 'B', remark: 'BEGINNER' };
 }
 
 function populateAllDropdowns() {

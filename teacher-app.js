@@ -26,19 +26,51 @@ let currentTab = 'students';
 let currentSubject = '';
 let saveTimer = null;
 
-function gradeScale() {
-    if (typeof getActiveGradingScale === 'function') {
-        const scale = getActiveGradingScale();
-        if (scale && scale.length) return scale;
-    }
-    const cached = loadJSON('activeGradingScale', null);
-    if (cached && Array.isArray(cached) && cached.length) return cached;
+function gradeScale(className = '') {
     const allScales = loadJSON('gradingScales', []);
+    const clsName = String(className || currentClass || '').toLowerCase();
+    const jhsKeywords = ['basic 7','basic 8','basic 9','jhs 1','jhs 2','jhs 3','jhs'];
+    const isJHS = jhsKeywords.some(k => clsName.includes(k));
+    const targetDept = isJHS ? 'JHS' : (clsName.includes('kg') || clsName.includes('nursery') || clsName.includes('kindergarten') ? 'Kindergarten' : 'Primary');
+
     if (Array.isArray(allScales) && allScales.length) {
-        const active = allScales.find(s => s.isActive || s.status === 'active') || allScales[0];
-        if (active && (active.ranges || active.items)) return active.ranges || active.items;
+        // 1. Look for active scale specifically for this department
+        const activeDeptScale = allScales.find(s => s.isActive && (s.department === targetDept || (targetDept === 'JHS' && (s.name||'').toLowerCase().includes('jhs')) || (targetDept === 'Primary' && (s.name||'').toLowerCase().includes('primary'))));
+        if (activeDeptScale && (activeDeptScale.ranges || activeDeptScale.items)) {
+            return activeDeptScale.ranges || activeDeptScale.items;
+        }
+        // 2. Look for any active scale configured for 'All'
+        const allDeptScale = allScales.find(s => s.isActive && s.department === 'All');
+        if (allDeptScale && (allDeptScale.ranges || allDeptScale.items)) {
+            return allDeptScale.ranges || allDeptScale.items;
+        }
+        // 3. Any active scale
+        const anyActive = allScales.find(s => s.isActive);
+        if (anyActive && (anyActive.ranges || anyActive.items)) {
+            return anyActive.ranges || anyActive.items;
+        }
+    }
+
+    if (isJHS) {
+        return [
+            { min:80, max:100, grade:'1', remark:'EXCELLENT' },
+            { min:70, max:79,  grade:'2', remark:'VERY GOOD' },
+            { min:65, max:69,  grade:'3', remark:'GOOD' },
+            { min:60, max:64,  grade:'4', remark:'CREDIT' },
+            { min:55, max:59,  grade:'5', remark:'AVERAGE' },
+            { min:50, max:54,  grade:'6', remark:'PASS' },
+            { min:45, max:49,  grade:'7', remark:'WEAK PASS' },
+            { min:40, max:44,  grade:'8', remark:'FAIL' },
+            { min:0,  max:39,  grade:'9', remark:'FAIL' }
+        ];
     }
     return DEFAULT_GRADES;
+}
+
+function getGrade(score, className = '') {
+    const scale = gradeScale(className);
+    const t = Math.max(0, Math.min(100, Number(score) || 0));
+    return scale.find(g => t >= g.min && t <= g.max) || scale[scale.length - 1] || { grade: '—', remark: '—' };
 }
 
 function loadJSON(key, fallback) {
@@ -1512,27 +1544,12 @@ function buildUnifiedReportHTML(id) {
         ? `<img src="${logo}" style="width:70px;height:70px;object-fit:contain;border-radius:8px;" alt="Logo" crossorigin="anonymous">`
         : `<div style="width:70px;height:70px;border:2px dashed #cbd5e1;border-radius:8px;display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:11px;text-align:center;">No Logo</div>`;
 
-    const scale = typeof gradeScale === 'function' ? gradeScale() : DEFAULT_GRADES;
+    const scale = typeof gradeScale === 'function' ? gradeScale(className) : DEFAULT_GRADES;
     const jhsKeywords = ['basic 7','basic 8','basic 9','jhs 1','jhs 2','jhs 3','jhs'];
     const isJHS = jhsKeywords.some(k => String(className).toLowerCase().includes(k));
 
-    // JHS grading: Stanine 1-9
-    const jhsScale = [
-        { min:80, max:100, grade:'1', remark:'EXCELLENT' },
-        { min:70, max:79,  grade:'2', remark:'VERY GOOD' },
-        { min:65, max:69,  grade:'3', remark:'GOOD' },
-        { min:60, max:64,  grade:'4', remark:'CREDIT' },
-        { min:55, max:59,  grade:'5', remark:'AVERAGE' },
-        { min:50, max:54,  grade:'6', remark:'PASS' },
-        { min:45, max:49,  grade:'7', remark:'WEAK PASS' },
-        { min:40, max:44,  grade:'8', remark:'FAIL' },
-        { min:0,  max:39,  grade:'9', remark:'FAIL' }
-    ];
-
     function getEffectiveGrade(tot) {
-        const sc = isJHS ? jhsScale : (scale && scale.length ? scale : DEFAULT_GRADES);
-        const t = Math.max(0, Math.min(100, Number(tot) || 0));
-        return sc.find(g => t >= g.min && t <= g.max) || sc[sc.length - 1] || { grade: '—', remark: '—' };
+        return getGrade(tot, className);
     }
 
     let totalScoreSum = 0, scoredCount = 0;

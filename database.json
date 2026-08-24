@@ -24,6 +24,31 @@
   ],
   "teachers": [
     {
+      "id": "1tCyNAI7SNZ9VjgpBWrj5L0TFIt1",
+      "email": "kofi@school.com",
+      "role": "Teacher",
+      "displayName": "KOFI",
+      "assignedSubjects": [
+        "jWYE4s2vcfrEHoCFnPzd"
+      ],
+      "deletedAt": "2026-08-24T18:39:18.892Z",
+      "isDeleted": true,
+      "name": "KOFI",
+      "phone": "",
+      "status": "deleted",
+      "updatedAt": {
+        "seconds": 1787596741,
+        "nanoseconds": 911000000
+      },
+      "userId": "1tCyNAI7SNZ9VjgpBWrj5L0TFIt1",
+      "assignedClasses": [
+        "iPooVjMkWOUvEpY1UYDu"
+      ],
+      "uid": "1tCyNAI7SNZ9VjgpBWrj5L0TFIt1",
+      "createdAt": "2026-08-24T18:38:54.664Z",
+      "password": "kofi123"
+    },
+    {
       "id": "admin_mt4zbtij",
       "role": "Super Admin",
       "updatedAt": {
@@ -44,24 +69,20 @@
     },
     {
       "id": "ObCHu5hHpzmZuxAztBvm",
-      "name": "winie",
       "createdAt": {
-        "seconds": 1787590896,
-        "nanoseconds": 190000000
+        "seconds": 1787590895,
+        "nanoseconds": 4000000
       },
-      "assignedClasses": [
-        "iPooVjMkWOUvEpY1UYDu"
-      ],
-      "userId": "Ui2qpFZVF2Q5h4hhtLO0Avp7rAN2",
+      "password": "winie123",
+      "uid": "Ui2qpFZVF2Q5h4hhtLO0Avp7rAN2",
       "updatedAt": {
         "seconds": 1787590896,
         "nanoseconds": 190000000
       },
-      "status": "active",
-      "role": "Class Teacher",
-      "email": "winie@school.com",
-      "password": "winie123",
-      "phone": "",
+      "displayName": "winie",
+      "assignedClasses": [
+        "iPooVjMkWOUvEpY1UYDu"
+      ],
       "assignedSubjects": [
         "352qeuD45VdoqFGBYqrc",
         "7IaKzwCfG5T9al0tOuwK",
@@ -69,7 +90,13 @@
         "cgt2xbBwSElElQWu9P48",
         "hQUyb6MuBXwarz7ULmT5",
         "jWYE4s2vcfrEHoCFnPzd"
-      ]
+      ],
+      "role": "Class Teacher",
+      "email": "winie@school.com",
+      "name": "winie",
+      "phone": "",
+      "status": "inactive",
+      "userId": "Ui2qpFZVF2Q5h4hhtLO0Avp7rAN2"
     },
     {
       "id": "Ui2qpFZVF2Q5h4hhtLO0Avp7rAN2",
@@ -137,22 +164,29 @@
     },
     {
       "id": "id_1787595931904_tkbm",
-      "password": "kwame123",
+      "userId": "wkVM8ApFuGS9ta34v2SBKJatVb02",
+      "updatedAt": "2026-08-24T18:25:31.905Z",
+      "displayName": "kwame",
+      "status": "deleted",
+      "phone": "",
       "assignedSubjects": [
         "352qeuD45VdoqFGBYqrc",
         "hQUyb6MuBXwarz7ULmT5"
       ],
+      "createdAt": {
+        "seconds": 1787595937,
+        "nanoseconds": 317000000
+      },
       "email": "kwame@school.com",
-      "updatedAt": "2026-08-24T18:25:31.905Z",
-      "phone": "",
+      "uid": "wkVM8ApFuGS9ta34v2SBKJatVb02",
+      "password": "kwame123",
       "assignedClasses": [
         "iPooVjMkWOUvEpY1UYDu"
       ],
-      "name": "kwame",
-      "createdAt": "2026-08-24T18:25:31.905Z",
-      "status": "active",
+      "isDeleted": true,
+      "deletedAt": "2026-08-24T18:39:50.425Z",
       "role": "Teacher",
-      "userId": "wkVM8ApFuGS9ta34v2SBKJatVb02"
+      "name": "kwame"
     },
     {
       "id": "rtiZoMy7Wg1yE1IlDO96",
@@ -187,18 +221,24 @@
     },
     {
       "id": "wkVM8ApFuGS9ta34v2SBKJatVb02",
-      "assignedSubjects": [],
       "uid": "wkVM8ApFuGS9ta34v2SBKJatVb02",
-      "displayName": "kwame",
-      "status": "active",
-      "assignedClasses": [],
+      "email": "kwame@school.com",
       "role": "Teacher",
+      "displayName": "kwame",
+      "assignedSubjects": [],
       "name": "kwame",
       "createdAt": {
         "seconds": 1787595937,
         "nanoseconds": 317000000
       },
-      "email": "kwame@school.com"
+      "updatedAt": {
+        "seconds": 1787596809,
+        "nanoseconds": 255000000
+      },
+      "deletedAt": "2026-08-24T18:40:01.886Z",
+      "status": "deleted",
+      "isDeleted": true,
+      "assignedClasses": []
     }
   ],
   "classes": [

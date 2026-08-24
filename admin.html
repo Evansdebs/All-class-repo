@@ -582,9 +582,10 @@
                 </div>
             </div>
             <div class="card-admin">
-                <div class="results-bulk-actions" id="resultsBulkActions" style="display:none;">
-                    <span id="selectedResultsCount">0 selected</span>
+                <div class="results-bulk-actions" id="resultsBulkActions" style="display:none;gap:8px;align-items:center;">
+                    <span id="selectedResultsCount" style="font-weight:600;font-size:12px;">0 selected</span>
                     <button class="btn-admin btn-success btn-sm" onclick="bulkApproveResults()"><i class="fas fa-check"></i> Approve Selected</button>
+                    <button class="btn-admin btn-warning btn-sm" onclick="bulkUnlockResults()"><i class="fas fa-unlock"></i> Unlock Selected</button>
                     <button class="btn-admin btn-danger btn-sm" onclick="bulkDeleteResults()"><i class="fas fa-trash"></i> Delete Selected</button>
                 </div>
                 <div class="table-responsive">
@@ -1928,6 +1929,6 @@
 <script src="firebase-config.js?v=fb13"></script>
 <script src="files.js?v=dl9"></script>
 <script src="attendance.js?v=hub4"></script>
-<script src="admin.js?v=dash37"></script>
+<script src="admin.js?v=dash38"></script>
 </body>
 </html>
