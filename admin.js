@@ -366,7 +366,7 @@ async function loadAllData(opts = {}) {
     const refreshForms = opts.refreshForms !== false;
     try {
         const [students, teachers, classes, subjects, academicYears,
-               terms, results, reports, gradingScales] = await Promise.all([
+               terms, results, reports, gradingScales, scores, studentReportDetails] = await Promise.all([
             safeGetCollection('students'),
             safeGetCollection('teachers'),
             safeGetCollection('classes'),
@@ -376,17 +376,21 @@ async function loadAllData(opts = {}) {
             safeGetCollection('results'),
             safeGetCollection('reports'),
             safeGetCollection('gradingScales'),
+            safeGetCollection('scores'),
+            safeGetCollection('studentReportDetails')
         ]);
 
-        adminState.students      = students;
-        adminState.teachers      = teachers;
-        adminState.classes       = classes;
-        adminState.subjects      = subjects;
-        adminState.academicYears = academicYears;
-        adminState.terms         = terms;
-        adminState.results       = results;
-        adminState.reports       = reports;
-        adminState.gradingScales = gradingScales;
+        adminState.students             = students;
+        adminState.teachers             = teachers;
+        adminState.classes              = classes;
+        adminState.subjects             = subjects;
+        adminState.academicYears        = academicYears;
+        adminState.terms                = terms;
+        adminState.results              = results;
+        adminState.reports              = reports;
+        adminState.gradingScales        = gradingScales;
+        adminState.scores               = scores;
+        adminState.studentReportDetails = studentReportDetails;
         
         let localLogs = JSON.parse(localStorage.getItem('auditLogs') || '[]');
         if (!localLogs.length) {
@@ -2433,6 +2437,44 @@ function openGenerateReportModal() {
     });
 }
 
+// ── Helper to resolve a student's latest score for a subject from scores or results ──
+function getStudentSubjectScore(studentId, subjectName, subjectId) {
+    const sId = String(studentId);
+    const subName = String(subjectName || '').trim();
+    const scoresBag = JSON.parse(localStorage.getItem('scores') || '{}');
+    
+    // 1. Direct key match in scoresBag
+    let se = null;
+    if (scoresBag[subName]) se = scoresBag[subName][sId] || scoresBag[subName][Number(studentId)];
+    if (!se && scoresBag[subName.toUpperCase()]) se = scoresBag[subName.toUpperCase()][sId] || scoresBag[subName.toUpperCase()][Number(studentId)];
+    
+    // 2. Case-insensitive key match in scoresBag
+    if (!se) {
+        const matchingKey = Object.keys(scoresBag).find(k => k.toLowerCase().trim() === subName.toLowerCase());
+        if (matchingKey) se = scoresBag[matchingKey][sId] || scoresBag[matchingKey][Number(studentId)];
+    }
+    
+    // 3. Check in results collection (synced from teacher scores)
+    if (!se || (se.classScore === '' && se.examScore === '')) {
+        const resList = adminState.results || JSON.parse(localStorage.getItem('results') || '[]');
+        const r = resList.find(item => 
+            String(item.studentId) === sId && 
+            (String(item.subjectName || '').toLowerCase().trim() === subName.toLowerCase() || (subjectId && String(item.subjectId) === String(subjectId)))
+        );
+        if (r && (r.classScore !== '' || r.examScore !== '')) {
+            se = {
+                classScore: r.classScore,
+                examScore: r.examScore,
+                totalScore: r.totalScore,
+                grade: r.grade,
+                remark: r.remark
+            };
+        }
+    }
+    
+    return se;
+}
+
 async function generateReports() {
     const type      = document.getElementById('gr-type')?.value || 'class';
     const classId   = document.getElementById('gr-class')?.value || '';
@@ -2448,32 +2490,45 @@ async function generateReports() {
     if (!studentsToProcess.length) { showToast('No students to process.', 'warning'); return; }
 
     try {
-        const newReports = [];
+        const now = new Date().toISOString();
+        const currentUserId = getCurrentUserProfile()?.uid || 'admin';
+        let count = 0;
+
         for (const s of studentsToProcess) {
             const key = getReportApprovalKey(s.id, yearId, termId);
-            const existing = adminState.reports.find(r => (String(r.studentId) === String(s.id) && String(r.termId) === String(termId)) || r.approvalKey === key);
-            if (!existing) {
-                const rptDoc = await addDocument('reports', {
-                    studentId:     s.id,
-                    studentName:   s.name,
-                    classId:       s.classId || classId,
-                    academicYearId: yearId,
-                    termId,
-                    approvalKey:   key,
-                    status:        'Pending',
-                    generatedAt:   new Date().toISOString(),
-                    generatedBy:   getCurrentUserProfile()?.uid || 'admin'
-                });
-                newReports.push(rptDoc);
-                adminState.reports.push(rptDoc);
+            const existingIdx = adminState.reports.findIndex(r => 
+                (String(r.studentId) === String(s.id) && String(r.termId) === String(termId)) || 
+                r.approvalKey === key || 
+                (r.approvalKey && String(r.approvalKey).split('|')[0] === String(s.id))
+            );
+
+            const reportPayload = {
+                studentId:      String(s.id),
+                studentName:    s.name,
+                classId:        s.classId || classId || s.class,
+                academicYearId: yearId,
+                termId:         termId,
+                approvalKey:    key,
+                status:         existingIdx >= 0 ? adminState.reports[existingIdx].status : 'Pending',
+                generatedAt:    now,
+                generatedBy:    currentUserId
+            };
+
+            if (existingIdx >= 0) {
+                adminState.reports[existingIdx] = { ...adminState.reports[existingIdx], ...reportPayload };
+            } else {
+                const rptId = 'rpt_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+                adminState.reports.push({ id: rptId, ...reportPayload });
             }
+            count++;
         }
+
         persistReports();
-        showToast(`${newReports.length} reports generated!`, 'success');
-        await logActivity('Reports Generated', `Generated ${newReports.length} reports for term ${termId}`);
         closeModal('generateReportModal');
         renderReportsTable();
         loadDashboard();
+        showToast(`${count} report(s) generated/updated!`, 'success');
+        await logActivity('Reports Generated', `Generated ${count} reports for term ${termId}`);
     } catch (e) {
         showToast(`Error: ${e.message}`, 'error');
     }
@@ -2491,7 +2546,6 @@ function viewReport(id) {
     const yr = adminState.academicYears.find(y => String(y.id) === String(r.academicYearId))?.name || r.academicYearId || getSchoolInfo().academicYear || '2025/2026';
     const tm = adminState.terms.find(t => String(t.id) === String(r.termId))?.name || (r.termId ? ('Term ' + r.termId) : ('Term ' + (getSchoolInfo().term || '1')));
 
-    const scoresBag = JSON.parse(localStorage.getItem('scores') || '{}');
     const detailsBag = JSON.parse(localStorage.getItem('studentReportDetails') || '{}');
     const d = detailsBag[student.id] || detailsBag[String(student.id)] || {};
     const settings = adminState.settings || {};
@@ -2514,8 +2568,7 @@ function viewReport(id) {
 
     classSubs.forEach(sub => {
         const subName = sub.name || sub;
-        const bag = scoresBag[subName] || scoresBag[subName.toUpperCase()] || {};
-        const scoreEntry = bag[student.id] || bag[String(student.id)] || null;
+        const scoreEntry = getStudentSubjectScore(student.id, subName, sub.id);
 
         if (scoreEntry && scoreEntry.classScore !== '' && scoreEntry.examScore !== '') {
             const cs = Number(scoreEntry.classScore) || 0;
@@ -2753,11 +2806,15 @@ async function downloadAdminPreviewReport() {
 
 async function confirmDeleteReport(id) {
     showConfirm('Delete this report record?', async () => {
+        const sid = String(id);
         await deleteDocument('reports', id);
-        adminState.reports = adminState.reports.filter(r => r.id !== id);
+        adminState.reports = adminState.reports.filter(r => String(r.id) !== sid);
         persistReports();
         renderReportsTable();
+        updateNavBadges();
+        loadDashboard();
         showToast('Report deleted.', 'success');
+        await logActivity('Report Deleted', `Deleted report record ${id}`, id);
     });
 }
 
@@ -2799,7 +2856,6 @@ async function executeAdminBulkDownload() {
     }
 
     const zip = new JSZip();
-    const scoresBag = JSON.parse(localStorage.getItem('scores') || '{}');
     const detailsBag = JSON.parse(localStorage.getItem('studentReportDetails') || '{}');
     const settings = adminState.settings || {};
     const schoolInf = getSchoolInfo();
@@ -2826,8 +2882,7 @@ async function executeAdminBulkDownload() {
             const jhsSubjectResults = [];
             classSubs.forEach(sub => {
                 const subName = sub.name || sub;
-                const bag = scoresBag[subName] || {};
-                const se = bag[student.id] || bag[String(student.id)] || null;
+                const se = getStudentSubjectScore(student.id, subName, sub.id);
                 if (se && se.classScore !== '' && se.examScore !== '') {
                     const cs50 = Math.round((Number(se.classScore) / 100) * 50 * 10) / 10;
                     const es50 = Math.round((Number(se.examScore) / 100) * 50 * 10) / 10;
@@ -4493,3 +4548,17 @@ function parseConfigJsonInput() {
         }
     } catch (e) {}
 }
+
+window.addEventListener('storage', (e) => {
+    if (['reports', 'scores', 'results', 'students', 'classes', 'subjects', 'schoolSettings'].includes(e.key)) {
+        loadAllData({ refreshForms: false }).then(() => {
+            const activeSection = document.querySelector('.admin-section.active');
+            if (activeSection) {
+                const id = activeSection.id;
+                if (id === 'section-reports') renderReportsTable();
+                else if (id === 'section-results') renderResultsTable();
+                else if (id === 'section-overview') loadDashboard();
+            }
+        });
+    }
+});

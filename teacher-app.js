@@ -1326,11 +1326,20 @@ function renderReports() {
             <div class="report-grid" style="margin-top:14px;">
                 ${list.map(s => {
                     const p = studentPerf(s.id);
+                    const rec = reportRecord(s.id);
                     const ok = isApproved(s.id);
+                    let badgeHtml = '';
+                    if (!rec) {
+                        badgeHtml = '<span class="badge" style="background:#f1f5f9;color:#64748b;border:1px solid #cbd5e1;"><i class="fas fa-file"></i> Not Generated</span>';
+                    } else if (ok) {
+                        badgeHtml = '<span class="badge ok"><i class="fas fa-check-circle"></i> Approved</span>';
+                    } else {
+                        badgeHtml = '<span class="badge wait"><i class="fas fa-clock"></i> Pending Approval</span>';
+                    }
                     return `<div class="report-card">
                         <h4>${esc(s.name)}</h4>
                         <div class="muted">${p ? p.avg.toFixed(1) + '% · ' + p.grade : 'No complete scores'}</div>
-                        <div style="margin-top:8px;"><span class="badge ${ok ? 'ok' : 'wait'}">${ok ? 'Approved' : 'Pending Approval'}</span></div>
+                        <div style="margin-top:8px;">${badgeHtml}</div>
                         <div class="actions">
                             <button class="btn btn-ghost btn-sm" onclick="openRemarks('${s.id}')">Remarks</button>
                             <button class="btn btn-ghost btn-sm" onclick="previewReport('${s.id}')"><i class="fas fa-eye"></i> Preview</button>
@@ -2203,5 +2212,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 });
 
-;
+window.addEventListener('storage', (e) => {
+    if (['reports', 'scores', 'results', 'students', 'classes', 'subjects', 'schoolSettings', 'schoolInfo'].includes(e.key)) {
+        loadAll();
+        if (typeof currentTab !== 'undefined') {
+            if (currentTab === 'reports') renderReports();
+            else if (currentTab === 'scores') { renderScoresTable(); renderStats(); }
+            else if (currentTab === 'broadsheet') renderBroadsheet();
+        }
+    }
+});
 

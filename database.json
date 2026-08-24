@@ -308,40 +308,33 @@
   "results": [],
   "reports": [
     {
-      "id": "qTLimpKoX1RIPUfOW2pr",
-      "updatedAt": {
-        "nanoseconds": 516000000,
-        "seconds": 1787591101
-      },
-      "generatedBy": "admin",
-      "studentId": "D8X5RCgfRORZxlcSa2CR",
-      "classId": "iPooVjMkWOUvEpY1UYDu",
-      "approvedAt": "2026-08-24T17:04:55.015Z",
-      "createdAt": {
-        "nanoseconds": 134000000,
-        "seconds": 1787591073
-      },
+      "id": "id_1787593605125_4zbi",
+      "academicYearId": "",
       "approvalKey": "D8X5RCgfRORZxlcSa2CR|2026|1",
       "studentName": "ESTHER",
-      "status": "Approved",
-      "generatedAt": "2026-08-24T17:04:26.713Z",
+      "updatedAt": "2026-08-24T17:46:45.125Z",
+      "createdAt": "2026-08-24T17:46:45.125Z",
+      "status": "Pending",
+      "classId": "iPooVjMkWOUvEpY1UYDu",
       "termId": "",
-      "academicYearId": "mpFWQQVuxPNLr0tDQyN9"
+      "studentId": "D8X5RCgfRORZxlcSa2CR",
+      "generatedAt": "2026-08-24T17:46:45.125Z",
+      "generatedBy": "admin"
     },
     {
       "id": "rpt_mt7hjwbkjp0",
-      "studentName": "ESTHER",
       "studentId": "D8X5RCgfRORZxlcSa2CR",
-      "status": "Approved",
-      "approvalKey": "D8X5RCgfRORZxlcSa2CR|2026|1",
-      "academicYearId": "2026",
-      "classId": "BASIC 9",
       "updatedAt": {
         "nanoseconds": 139000000,
         "seconds": 1787591286
       },
-      "termId": "1",
+      "status": "Approved",
+      "academicYearId": "2026",
+      "studentName": "ESTHER",
       "approvedAt": "2026-08-24T17:07:57.234Z",
+      "termId": "1",
+      "classId": "BASIC 9",
+      "approvalKey": "D8X5RCgfRORZxlcSa2CR|2026|1",
       "generatedBy": "winie@school.com",
       "generatedAt": "2026-08-24T17:04:02.912Z"
     }
@@ -350,11 +343,11 @@
     "ENGLISH": {
       "D8X5RCgfRORZxlcSa2CR": {
         "classScore": 67,
-        "examScore": 78,
-        "totalScore": 72.5,
+        "examScore": 90,
+        "totalScore": 78.5,
         "assessments": {},
         "classScore50": 33.5,
-        "examScore50": 39,
+        "examScore50": 45,
         "grade": "2",
         "remark": "VERY GOOD"
       }
