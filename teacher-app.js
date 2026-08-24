@@ -261,15 +261,11 @@ function teacherById(id) {
 }
 function classTeacherName(className) {
     const cls = classRecord(className || currentClass);
-    const assigned = teacherById(cls?.classTeacherId);
-    if (assigned?.name) return assigned.name;
-    if (cls?.classTeacherName) return cls.classTeacherName;
-    const teachers = loadJSON('teachers', []);
-    const fallback = teachers.find(t =>
-        t.status !== 'inactive' &&
-        (t.assignedClasses || []).some(id => id === cls?.id || id === (className || currentClass))
-    );
-    return fallback?.name || '';
+    if (!cls) return '';
+    const assigned = teacherById(cls.classTeacherId);
+    if (assigned && assigned.name && assigned.status !== 'deleted' && !assigned.isDeleted) return assigned.name;
+    if (cls.classTeacherName) return cls.classTeacherName;
+    return '';
 }
 function headTeacherName() {
     const teachers = loadJSON('teachers', []);
@@ -821,6 +817,16 @@ function changeCaCount(count) {
     drawScoreSheet();
 }
 
+function isSubjectLocked(subjectName) {
+    const results = loadJSON('results', []);
+    const classStudentIds = classStudents().map(s => String(s.id));
+    return results.some(r =>
+        (r.subjectName === subjectName || r.subjectId === subjectName) &&
+        classStudentIds.includes(String(r.studentId)) &&
+        r.locked === true
+    );
+}
+
 function renderScores() {
     const subs = classSubjects();
     if (subs.length && (!currentSubject || !subs.includes(currentSubject))) {
@@ -853,10 +859,15 @@ function renderScores() {
                 </div>` : ''}
             </div>
             ${subs.length ? `<div class="subject-grid">
-                ${subs.map(sub => `<button class="subject-chip ${currentSubject === sub ? 'active' : ''}" onclick="openSubject('${sub.replace(/'/g, "\\'")}')">
-                    <strong>${esc(sub)}</strong>
-                    <small>${scoredCount(sub)} / ${classStudents().length} entered</small>
-                </button>`).join('')}
+                ${subs.map(sub => {
+                    const locked = isSubjectLocked(sub);
+                    return `<button class="subject-chip ${currentSubject === sub ? 'active' : ''} ${locked ? 'locked-chip' : ''}" onclick="openSubject('${sub.replace(/'/g, "\\'")}')"
+                        title="${locked ? 'This subject is locked by Admin' : sub}">
+                        ${locked ? '<i class="fas fa-lock" style="font-size:11px;color:#f59e0b;margin-right:4px;"></i>' : ''}
+                        <strong>${esc(sub)}</strong>
+                        <small>${scoredCount(sub)} / ${classStudents().length} entered${locked ? ' · Locked' : ''}</small>
+                    </button>`;
+                }).join('')}
             </div>` : `<div class="empty" style="text-align:center;padding:24px 12px;">
                 <i class="fas fa-lock" style="font-size:28px;opacity:0.6;margin-bottom:8px;display:block;"></i>
                 <strong>No subjects assigned to you for ${esc(currentClass)}</strong><br>
@@ -894,7 +905,6 @@ function getCaValue(assessments, index) {
     if (!assessments) return '';
     const direct = assessments['ca' + index];
     if (direct !== undefined && direct !== null) return direct;
-    // Backward compatibility for test1, test2, project, homework
     const legacyMap = { 1: 'test1', 2: 'test2', 3: 'project', 4: 'homework' };
     const legKey = legacyMap[index];
     if (legKey && assessments[legKey] !== undefined) return assessments[legKey];
@@ -906,12 +916,19 @@ function drawScoreSheet() {
     if (!wrap) return;
     const list = classStudents();
     const dept = getDepartmentForClass(currentClass);
+    const locked = isSubjectLocked(currentSubject);
+
+    const lockBanner = locked ? `<div style="background:#fffbeb;border:1px solid #fde68a;color:#92400e;padding:10px 14px;border-radius:8px;margin-bottom:12px;font-size:13px;display:flex;align-items:center;gap:8px;">
+        <i class="fas fa-lock" style="font-size:16px;color:#d97706;"></i>
+        <div><strong>Mark entry locked by Admin.</strong> Scores for this subject are approved and read-only. Contact the administrator to unlock if edits are required.</div>
+    </div>` : '';
 
     if (piecewiseMode) {
         const caHeaders = Array.from({ length: caCount }, (_, i) => `<th>CA ${i + 1}</th>`).join('');
         wrap.innerHTML = `
+            ${lockBanner}
             <div style="display:flex;align-items:center;justify-content:space-between;margin:8px 0 6px;">
-                <h3 style="margin:0;">${esc(currentSubject)}</h3>
+                <h3 style="margin:0;">${esc(currentSubject)} ${locked ? '<span style="font-size:12px;color:#d97706;font-weight:600;"><i class="fas fa-lock"></i> Locked</span>' : ''}</h3>
                 <span style="font-size:12px;color:var(--text-muted,#64748b);">Department: <strong>${esc(dept)}</strong></span>
             </div>
             <p class="hint" style="margin:0 0 10px;">Enter scores for each CA section. All CA entries sum up to <strong>Class Assessment /100</strong> (max 100%), converted to <strong>Class 50%</strong> + <strong>Exam 50%</strong> = <strong>Total 100%</strong>.</p>
@@ -939,7 +956,7 @@ function drawScoreSheet() {
                         const caInputs = Array.from({ length: caCount }, (_, idx) => {
                             const i = idx + 1;
                             const val = getCaValue(a, i);
-                            return `<td><input type="number" min="0" max="100" step="0.1" placeholder="CA ${i}" value="${val}" oninput="autosavePiece('${sid}','ca${i}',this)"></td>`;
+                            return `<td><input type="number" min="0" max="100" step="0.1" placeholder="CA ${i}" value="${val}" ${locked ? 'disabled title="Locked by Admin"' : ''} oninput="autosavePiece('${sid}','ca${i}',this)"></td>`;
                         }).join('');
 
                         return `<tr data-sid="${sid}">
@@ -947,7 +964,7 @@ function drawScoreSheet() {
                             ${caInputs}
                             <td class="cs-calc muted"><strong>${e.classScore !== '' ? e.classScore : '—'}</strong></td>
                             <td class="cs50 muted">${cs50 === '' ? '—' : cs50}</td>
-                            <td><input type="number" min="0" max="100" step="0.1" placeholder="0–100" value="${e.examScore}" oninput="autosaveScore('${sid}','examScore',this)"></td>
+                            <td><input type="number" min="0" max="100" step="0.1" placeholder="0–100" value="${e.examScore}" ${locked ? 'disabled title="Locked by Admin"' : ''} oninput="autosaveScore('${sid}','examScore',this)"></td>
                             <td class="es50 muted">${es50 === '' ? '—' : es50}</td>
                             <td class="tot"><strong>${tot === '' ? '—' : tot}</strong></td>
                             <td class="grd">${g ? `<span class="badge grade-${g.grade}">${g.grade}</span>` : '—'}</td>
@@ -957,8 +974,9 @@ function drawScoreSheet() {
             </table></div>`;
     } else {
         wrap.innerHTML = `
+            ${lockBanner}
             <div style="display:flex;align-items:center;justify-content:space-between;margin:8px 0 10px;">
-                <h3 style="margin:0;">${esc(currentSubject)}</h3>
+                <h3 style="margin:0;">${esc(currentSubject)} ${locked ? '<span style="font-size:12px;color:#d97706;font-weight:600;"><i class="fas fa-lock"></i> Locked</span>' : ''}</h3>
                 <span style="font-size:12px;color:var(--text-muted,#64748b);">Department: <strong>${esc(dept)}</strong></span>
             </div>
             <div class="table-wrap"><table class="score-table">
@@ -981,9 +999,9 @@ function drawScoreSheet() {
                         const g = ready ? getGrade(tot, currentClass) : null;
                         return `<tr data-sid="${esc(scoreKey(s.id))}">
                             <td><strong>${esc(s.name)}</strong></td>
-                            <td><input type="number" min="0" max="100" step="0.1" placeholder="0–100" value="${e.classScore}" oninput="autosaveScore('${esc(scoreKey(s.id))}','classScore',this)"></td>
+                            <td><input type="number" min="0" max="100" step="0.1" placeholder="0–100" value="${e.classScore}" ${locked ? 'disabled title="Locked by Admin"' : ''} oninput="autosaveScore('${esc(scoreKey(s.id))}','classScore',this)"></td>
                             <td class="cs50 muted">${cs50 === '' ? '—' : cs50}</td>
-                            <td><input type="number" min="0" max="100" step="0.1" placeholder="0–100" value="${e.examScore}" oninput="autosaveScore('${esc(scoreKey(s.id))}','examScore',this)"></td>
+                            <td><input type="number" min="0" max="100" step="0.1" placeholder="0–100" value="${e.examScore}" ${locked ? 'disabled title="Locked by Admin"' : ''} oninput="autosaveScore('${esc(scoreKey(s.id))}','examScore',this)"></td>
                             <td class="es50 muted">${es50 === '' ? '—' : es50}</td>
                             <td class="tot"><strong>${tot === '' ? '—' : tot}</strong></td>
                             <td class="grd">${g ? `<span class="badge grade-${g.grade}">${g.grade}</span>` : '—'}</td>
@@ -1556,9 +1574,18 @@ function buildUnifiedReportHTML(id) {
     const subjectRows = [];
     const jhsSubjectResults = [];
 
+    const allResults = loadJSON('results', []);
+
     (subs || []).forEach(sub => {
         const e = getScoreEntry(sub, id);
-        if (e && e.classScore !== '' && e.examScore !== '') {
+        // Check if this result is approved
+        const resultRecord = allResults.find(r =>
+            (String(r.studentId) === String(id) || String(r.studentId) === String(s.id)) &&
+            (r.subjectName === sub || r.subjectId === sub)
+        );
+        const resultApproved = resultRecord && ['approved','published'].includes(String(resultRecord.status || '').toLowerCase());
+
+        if (e && e.classScore !== '' && e.examScore !== '' && resultApproved) {
             const cs50 = fifty(e.classScore);
             const es50 = fifty(e.examScore);
             const tot = e.totalScore !== undefined && e.totalScore !== '' ? Number(e.totalScore) : (Number(cs50) + Number(es50));
@@ -1572,6 +1599,12 @@ function buildUnifiedReportHTML(id) {
                 <td style="padding:8px 10px;border:1px solid #cbd5e1;"><strong>${tot}</strong></td>
                 <td style="padding:8px 10px;border:1px solid #cbd5e1;"><span style="display:inline-block;padding:2px 8px;border-radius:4px;font-weight:700;background:rgba(79,70,229,.1);color:#4338ca;">${g.grade}</span></td>
                 <td style="padding:8px 10px;border:1px solid #cbd5e1;">${g.remark}</td>
+            </tr>`);
+        } else if (e && e.classScore !== '' && e.examScore !== '' && !resultApproved) {
+            jhsSubjectResults.push({ sub, tot: null, grade: 99 });
+            subjectRows.push(`<tr>
+                <td style="text-align:left;font-weight:600;padding:8px 10px;border:1px solid #cbd5e1;">${esc(sub)}</td>
+                <td colspan="5" style="padding:8px 10px;border:1px solid #fde68a;background:#fffbeb;color:#92400e;font-style:italic;"><i class="fas fa-clock"></i> Pending Admin Approval</td>
             </tr>`);
         } else {
             jhsSubjectResults.push({ sub, tot: null, grade: 99 });

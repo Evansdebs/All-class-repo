@@ -836,8 +836,8 @@ function populateAllDropdowns() {
     populateSelect('sm-class', adminState.classes, 'id', 'name', 'Select Class');
     populateSelect('sm-academicYear', adminState.academicYears, 'id', 'name', 'Select Year');
 
-    // Class form — teacher options
-    populateSelect('cm-classTeacher', adminState.teachers, 'id', 'name', 'None');
+    // Class form — teacher options (exclude deleted/inactive)
+    populateSelect('cm-classTeacher', adminState.teachers.filter(t => t.status !== 'deleted' && !t.isDeleted), 'id', 'name', 'None');
 
     // Subject form — class checkboxes
     renderCheckboxes('subm-classes-checkboxes', adminState.classes, 'id', 'name');
@@ -1356,31 +1356,61 @@ function generateRandomPassword(targetInputId) {
     }
 }
 
-async function toggleTeacherStatus(id) {
+function toggleTeacherStatus(id) {
     const t = adminState.teachers.find(t => t.id === id);
     if (!t) return;
     const newStatus = t.status === 'inactive' ? 'active' : 'inactive';
-    await updateDocument('teachers', id, { status: newStatus });
+    // Optimistic UI — update locally first, cloud write in background
     t.status = newStatus;
+    localStorage.setItem('teachers', JSON.stringify(adminState.teachers));
     renderTeachersTable();
-    showToast(`Teacher ${newStatus}.`, 'success');
-    await logActivity('Teacher Status Changed', `Set teacher ${t.name} to ${newStatus}`, id);
+    showToast(`Teacher account ${newStatus === 'active' ? 'activated' : 'deactivated'}.`, 'success');
+    (async () => {
+        try { await updateDocument('teachers', id, { status: newStatus }); } catch(e) {}
+        try { await syncSaveCollection('teachers', adminState.teachers); } catch(e) {}
+        try { await logActivity('Teacher Status Changed', `Set teacher ${t.name} to ${newStatus}`, id); } catch(e) {}
+    })().catch(e => console.warn('toggleTeacherStatus bg error:', e));
 }
 
 async function confirmDeleteTeacher(id) {
     const t = adminState.teachers.find(t => t.id === id);
     if (!t) return;
-    showConfirm(`Delete staff member "${t.name}"? (Their account will be deactivated and permanently barred from login while preserving database records)`, async () => {
+    showConfirm(`Permanently delete "${t.name}"? Their info will be completely removed from the system including class assignments.`, async () => {
+        // Purge teacher from all class assignments
+        adminState.classes.forEach(c => {
+            if (String(c.classTeacherId) === String(id)) {
+                c.classTeacherId = '';
+                c.classTeacherName = '';
+            }
+            if (Array.isArray(c.assignedTeacherIds)) {
+                c.assignedTeacherIds = c.assignedTeacherIds.filter(tid => String(tid) !== String(id));
+            }
+        });
+        localStorage.setItem('classes', JSON.stringify(adminState.classes));
+
+        // Mark teacher as deleted
         t.status = 'deleted';
         t.isDeleted = true;
         t.deletedAt = new Date().toISOString();
-        await updateDocument('teachers', id, { status: 'deleted', isDeleted: true, deletedAt: t.deletedAt });
-        await syncSaveCollection('teachers', adminState.teachers);
+        localStorage.setItem('teachers', JSON.stringify(adminState.teachers));
+
+        // Re-render immediately
         renderTeachersTable();
+        renderClassesTable();
         updateNavBadges();
-        showToast('Staff member deleted and login access permanently revoked.', 'success');
-        await logActivity('Teacher Deleted', `Deleted teacher ${t.name} and revoked login access`, id);
-        triggerAdminNotification('Staff Account Deleted', `Teacher ${t.name} (${t.email}) was deleted and login access revoked.`, 'warning', 'teachers');
+        showToast('Staff member deleted and removed from all class assignments.', 'success');
+
+        // Background cloud sync
+        (async () => {
+            try { await updateDocument('teachers', id, { status: 'deleted', isDeleted: true, deletedAt: t.deletedAt }); } catch(e) {}
+            try { await syncSaveCollection('teachers', adminState.teachers); } catch(e) {}
+            try { await syncSaveCollection('classes', adminState.classes); } catch(e) {}
+            for (const c of adminState.classes) {
+                try { await updateDocument('classes', c.id, { classTeacherId: c.classTeacherId || '', classTeacherName: c.classTeacherName || '' }); } catch(e) {}
+            }
+            try { await logActivity('Teacher Deleted', `Deleted teacher ${t.name} and removed from all class assignments`, id); } catch(e) {}
+            try { triggerAdminNotification('Staff Account Deleted', `Teacher ${t.name} (${t.email}) was deleted and removed from all class assignments.`, 'warning', 'teachers'); } catch(e) {}
+        })().catch(e => console.warn('deleteTeacher bg error:', e));
     });
 }
 
@@ -1423,7 +1453,7 @@ function openClassModal(id = null) {
     const gsEl = document.getElementById('cm-gradingScale');
     if (gsEl) gsEl.value = '';
     document.getElementById('cm-status').value = 'active';
-    populateSelect('cm-classTeacher', adminState.teachers, 'id', 'name', 'None');
+    populateSelect('cm-classTeacher', adminState.teachers.filter(t => t.status !== 'deleted' && !t.isDeleted), 'id', 'name', 'None');
 
     const teachersList = adminState.teachers.filter(t => t.status !== 'inactive');
 
@@ -2343,7 +2373,8 @@ function renderResultsTable() {
             <td>
                 <div class="action-btns">
                     <button class="action-btn" title="Edit Result" onclick="openEditResultModal('${r.id}')"><i class="fas fa-edit"></i></button>
-                    ${['submitted','draft'].includes((r.status||'').toLowerCase()) ? `<button class="action-btn success" title="Approve" onclick="approveResult('${r.id}')"><i class="fas fa-check"></i></button>` : ''}
+                    ${['submitted','draft','reviewed'].includes((r.status||'').toLowerCase()) ? `<button class="action-btn success" title="Approve Result" onclick="approveResult('${r.id}')"><i class="fas fa-check"></i></button>` : ''}
+                    ${['approved','published'].includes((r.status||'').toLowerCase()) ? `<button class="action-btn warning" title="Revoke Approval" onclick="revokeResult('${r.id}')"><i class="fas fa-undo"></i></button>` : ''}
                     <button class="action-btn ${r.locked ? 'warning' : 'secondary'}" title="${r.locked ? 'Unlock Mark Entry' : 'Lock Mark Entry'}" onclick="${r.locked ? `unlockResult('${r.id}')` : `lockResult('${r.id}')`}"><i class="fas fa-${r.locked ? 'unlock' : 'lock'}"></i></button>
                     <button class="action-btn delete" title="Delete Result" onclick="confirmDeleteResult('${r.id}')"><i class="fas fa-trash"></i></button>
                 </div>
@@ -2419,7 +2450,7 @@ function calculateErmTotal() {
     }
 }
 
-async function saveEditedResult() {
+function saveEditedResult() {
     const id = document.getElementById('erm-id')?.value;
     const r = adminState.results.find(x => String(x.id) === String(id));
     if (!r) return;
@@ -2438,50 +2469,43 @@ async function saveEditedResult() {
         const className = resolveClass(r.classId);
         const isJHS = isJHSDepartment(className);
         const g = getGradeForDept(tot, isJHS);
-
-        csVal = csNum;
-        esVal = esNum;
-        totVal = tot;
-        gradeVal = g.grade;
-        remarkVal = g.remark;
+        csVal = csNum; esVal = esNum; totVal = tot;
+        gradeVal = g.grade; remarkVal = g.remark;
     }
 
-    r.classScore = csVal;
-    r.examScore = esVal;
-    r.totalScore = totVal;
-    r.grade = gradeVal;
-    r.remark = remarkVal;
-    r.status = status;
+    // ── Instant in-memory + localStorage update ──────────────────────────────
+    r.classScore = csVal; r.examScore = esVal; r.totalScore = totVal;
+    r.grade = gradeVal;   r.remark = remarkVal; r.status = status;
     r.updatedAt = new Date().toISOString();
 
-    // 1. Persist results
-    persistResults();
-    try { await updateDocument('results', r.id, r); } catch (e) {}
-
-    // 2. Also update scores collection so Teacher Portal and Reports get updated
-    const scoresBag = JSON.parse(localStorage.getItem('scores') || '{}');
+    // Also sync into scores bag (teacher portal source)
     const subName = r.subjectName || r.subjectId || '';
+    const scoresBag = JSON.parse(localStorage.getItem('scores') || '{}');
     if (subName) {
         if (!scoresBag[subName]) scoresBag[subName] = {};
         scoresBag[subName][String(r.studentId)] = {
-            classScore: csVal,
-            examScore: esVal,
+            classScore: csVal, examScore: esVal,
             classScore50: csVal !== '' ? Math.round((Number(csVal) / 100) * 50 * 10) / 10 : '',
-            examScore50: esVal !== '' ? Math.round((Number(esVal) / 100) * 50 * 10) / 10 : '',
-            totalScore: totVal,
-            grade: gradeVal,
-            remark: remarkVal
+            examScore50:  esVal !== '' ? Math.round((Number(esVal) / 100) * 50 * 10) / 10 : '',
+            totalScore: totVal, grade: gradeVal, remark: remarkVal
         };
         localStorage.setItem('scores', JSON.stringify(scoresBag));
-        if (typeof syncSaveCollection === 'function') {
-            try { syncSaveCollection('scores', scoresBag); } catch (e) {}
-        }
     }
+    persistResults();
 
+    // ── Instant UI response ───────────────────────────────────────────────────
     closeModal('editResultModal');
     renderResultsTable();
-    showToast('Result updated and synced across portals!', 'success');
-    await logActivity('Result Updated', `Admin updated result for student ${r.studentId} in ${subName}`, r.id);
+    showToast('Result updated and synced!', 'success');
+
+    // ── Background cloud writes (non-blocking) ────────────────────────────────
+    (async () => {
+        try { await updateDocument('results', r.id, r); } catch(e) {}
+        if (subName) {
+            try { if (typeof syncSaveCollection === 'function') syncSaveCollection('scores', scoresBag); } catch(e) {}
+        }
+        try { await logActivity('Result Updated', `Admin updated result for student ${r.studentId} in ${subName}`, r.id); } catch(e) {}
+    })().catch(e => console.warn('saveEditedResult bg error:', e));
 }
 
 async function lockResult(id) {
@@ -2562,18 +2586,25 @@ async function bulkDeleteResults() {
     if (!ids.length) return showToast('Please select at least one result mark to delete.', 'warning');
     showConfirm(`Delete ${ids.length} selected results? This cannot be undone.`, async () => {
         try {
-            for (const id of ids) {
-                await deleteDocument('results', id);
-            }
+            // Purge scores from teacher portal bag first
+            ids.forEach(id => {
+                const r = adminState.results.find(r => r.id === id);
+                _purgeResultFromScoresBag(r);
+            });
             adminState.results = adminState.results.filter(r => !ids.includes(r.id));
-            if (typeof syncSaveCollection === 'function') {
-                try { await syncSaveCollection('results', adminState.results); } catch(e) {}
-            }
+            persistResults();
             renderResultsTable();
             handleResultCheckbox();
             updateNavBadges();
-            showToast(`${ids.length} results deleted successfully.`, 'success');
-            await logActivity('Bulk Results Deleted', `Deleted ${ids.length} results`);
+            showToast(`${ids.length} results deleted and cleared from teacher portal.`, 'success');
+            // Background cloud deletes
+            (async () => {
+                for (const id of ids) {
+                    try { await deleteDocument('results', id); } catch(e) {}
+                }
+                try { if (typeof syncSaveCollection === 'function') await syncSaveCollection('results', adminState.results); } catch(e) {}
+                try { await logActivity('Bulk Results Deleted', `Deleted ${ids.length} results`); } catch(e) {}
+            })().catch(e => console.warn('bulkDeleteResults bg error:', e));
         } catch(e) {
             showToast(e.message || 'Error deleting results', 'error');
         }
@@ -2632,21 +2663,85 @@ async function bulkPublishResults() {
     });
 }
 
+// Helper: remove a result's score from the teacher-portal scores bag
+function _purgeResultFromScoresBag(r) {
+    if (!r) return;
+    const subName = r.subjectName || r.subjectId || '';
+    if (!subName) return;
+    const scoresBag = JSON.parse(localStorage.getItem('scores') || '{}');
+    if (scoresBag[subName]) {
+        delete scoresBag[subName][String(r.studentId)];
+        localStorage.setItem('scores', JSON.stringify(scoresBag));
+        if (typeof syncSaveCollection === 'function') {
+            try { syncSaveCollection('scores', scoresBag); } catch(e) {}
+        }
+    }
+}
+
 async function confirmDeleteResult(id) {
-    showConfirm('Delete this result?', async () => {
+    const resultToDelete = adminState.results.find(r => r.id === id);
+    showConfirm('Delete this result? This will also clear the score from the teacher portal and report sheet.', async () => {
         try {
-            await deleteDocument('results', id);
+            // Purge from scores bag immediately (teacher portal + report sheet)
+            _purgeResultFromScoresBag(resultToDelete);
+
+            // Remove from state and re-render instantly
             adminState.results = adminState.results.filter(r => r.id !== id);
-            if (typeof syncSaveCollection === 'function') {
-                try { await syncSaveCollection('results', adminState.results); } catch(e) {}
-            }
+            persistResults();
             renderResultsTable();
             handleResultCheckbox();
             updateNavBadges();
-            showToast('Result deleted.', 'success');
+            showToast('Result deleted and cleared from teacher portal.', 'success');
+
+            // Background cloud delete
+            (async () => {
+                try { await deleteDocument('results', id); } catch(e) {}
+                try { if (typeof syncSaveCollection === 'function') await syncSaveCollection('results', adminState.results); } catch(e) {}
+                try { await logActivity('Result Deleted', `Admin deleted result ${id}`); } catch(e) {}
+            })().catch(e => console.warn('deleteResult bg error:', e));
         } catch(e) {
             showToast(e.message || 'Error deleting result', 'error');
         }
+    });
+}
+
+async function revokeResult(id) {
+    try {
+        const r = adminState.results.find(r => r.id === id);
+        if (!r) return;
+        r.status = 'Reviewed';
+        r.locked = false;
+        r.revokedAt = new Date().toISOString();
+        persistResults();
+        renderResultsTable();
+        updateNavBadges();
+        showToast('Result approval revoked. Teacher can re-edit.', 'info');
+        (async () => {
+            try { await updateDocument('results', id, { status: 'Reviewed', locked: false, revokedAt: r.revokedAt }); } catch(e) {}
+            try { await logActivity('Result Revoked', `Revoked approval for result ${id}`); } catch(e) {}
+        })().catch(e => console.warn('revokeResult bg error:', e));
+    } catch(e) {
+        showToast(e.message || 'Error revoking result', 'error');
+    }
+}
+
+async function bulkRevokeResults() {
+    const ids = getSelectedResultIds();
+    if (!ids.length) return showToast('Please select at least one result.', 'warning');
+    showConfirm(`Revoke approval for ${ids.length} selected results?`, async () => {
+        ids.forEach(id => {
+            const r = adminState.results.find(r => r.id === id);
+            if (r) { r.status = 'Reviewed'; r.locked = false; r.revokedAt = new Date().toISOString(); }
+        });
+        persistResults();
+        renderResultsTable();
+        handleResultCheckbox();
+        updateNavBadges();
+        showToast(`${ids.length} result approvals revoked.`, 'info');
+        (async () => {
+            try { if (typeof syncSaveCollection === 'function') await syncSaveCollection('results', adminState.results); } catch(e) {}
+            try { await logActivity('Bulk Results Revoked', `Revoked ${ids.length} results`); } catch(e) {}
+        })().catch(e => console.warn('bulkRevokeResults bg error:', e));
     });
 }
 
@@ -2777,6 +2872,95 @@ async function bulkDeleteSelectedReports() {
     });
 }
 
+// ── Helper: build a PDF blob for a report data object using jsPDF text API ────
+// Works without html2canvas. Returns a Uint8Array suitable for zip.file()
+function buildReportPDFBlob(data) {
+    // data: { studentName, className, yr, tm, schoolName, schoolAddress, headTeacher,
+    //         classTeacherName, subjects: [{name, cs50, es50, tot, grade, remark}],
+    //         avg, overallGrade, teacherRemark, headRemark, isJHS, jhsAggregate }
+    if (typeof window.jspdf === 'undefined' && typeof jsPDF === 'undefined') return null;
+    const JsPDF = (window.jspdf && window.jspdf.jsPDF) || jsPDF;
+    if (!JsPDF) return null;
+
+    const doc = new JsPDF({ unit: 'mm', format: 'a4' });
+    const W = doc.internal.pageSize.getWidth();
+    const margin = 15;
+    let y = 18;
+
+    const centerText = (text, yPos, size = 11, style = 'normal') => {
+        doc.setFontSize(size); doc.setFont('helvetica', style);
+        doc.text(String(text || ''), W / 2, yPos, { align: 'center' });
+    };
+    const lText = (text, yPos, size = 10, style = 'normal') => {
+        doc.setFontSize(size); doc.setFont('helvetica', style);
+        doc.text(String(text || ''), margin, yPos);
+    };
+
+    // Header
+    doc.setDrawColor(79, 70, 229);
+    doc.setLineWidth(0.8);
+    centerText(data.schoolName || 'School', y, 16, 'bold'); y += 6;
+    centerText(data.schoolAddress || '', y, 9); y += 5;
+    centerText(`END OF ${String(data.tm || '').toUpperCase()} REPORT SHEET`, y, 10, 'bold'); y += 4;
+    doc.line(margin, y, W - margin, y); y += 6;
+
+    // Student info table
+    doc.setFontSize(10); doc.setFont('helvetica', 'normal');
+    doc.text(`Student: ${data.studentName}`, margin, y);
+    doc.text(`Class: ${data.className}`, W / 2, y); y += 6;
+    doc.text(`Academic Year: ${data.yr}`, margin, y);
+    doc.text(`Term: ${data.tm}`, W / 2, y); y += 8;
+
+    // JHS Aggregate box
+    if (data.isJHS && data.jhsAggregate !== undefined) {
+        doc.setFillColor(30, 27, 75);
+        doc.rect(margin, y - 4, W - margin * 2, 8, 'F');
+        doc.setTextColor(255, 255, 255);
+        doc.setFontSize(10); doc.setFont('helvetica', 'bold');
+        doc.text(`JHS TOTAL AGGREGATE: ${data.jhsAggregate}`, margin + 4, y + 1);
+        doc.setTextColor(0, 0, 0); y += 12;
+    }
+
+    // Subjects table header
+    const cols = [65, 24, 24, 24, 18, 30]; // widths
+    const headers = ['SUBJECT', 'CLASS 50%', 'EXAM 50%', 'TOTAL', 'GRADE', 'REMARKS'];
+    doc.setFillColor(79, 70, 229);
+    doc.rect(margin, y - 4, W - margin * 2, 7, 'F');
+    doc.setTextColor(255, 255, 255); doc.setFontSize(8); doc.setFont('helvetica', 'bold');
+    let cx = margin + 2;
+    headers.forEach((h, i) => { doc.text(h, cx, y); cx += cols[i]; });
+    doc.setTextColor(0, 0, 0); y += 5;
+
+    // Subject rows
+    (data.subjects || []).forEach((sub, idx) => {
+        if (y > 265) { doc.addPage(); y = 18; }
+        if (idx % 2 === 0) { doc.setFillColor(248, 250, 252); doc.rect(margin, y - 4, W - margin * 2, 6, 'F'); }
+        doc.setFontSize(8); doc.setFont('helvetica', 'normal');
+        cx = margin + 2;
+        const cells = [sub.name, String(sub.cs50 ?? '—'), String(sub.es50 ?? '—'), String(sub.tot ?? '—'), String(sub.grade ?? '—'), String(sub.remark ?? '—')];
+        cells.forEach((c, i) => { doc.text(c.substring(0, 30), cx, y); cx += cols[i]; });
+        y += 6;
+    });
+
+    // Overall row
+    doc.setFillColor(238, 242, 255);
+    doc.rect(margin, y - 4, W - margin * 2, 7, 'F');
+    doc.setFontSize(9); doc.setFont('helvetica', 'bold');
+    doc.text(`AVERAGE: ${data.avg != null ? Number(data.avg).toFixed(1) + '%' : '—'}   OVERALL GRADE: ${data.overallGrade || '—'}`, margin + 2, y);
+    y += 10;
+
+    // Remarks / footer
+    doc.setFontSize(9); doc.setFont('helvetica', 'normal');
+    doc.text(`Teacher's Remark: ${data.teacherRemark || 'Satisfactory.'}`, margin, y); y += 6;
+    doc.text(`Headteacher's Remark: ${data.headRemark || 'Good progress.'}`, margin, y); y += 8;
+    doc.line(margin, y, W - margin, y); y += 5;
+    doc.setFontSize(9);
+    doc.text(`Class Teacher: ${data.classTeacherName || '________________'}`, margin, y);
+    doc.text(`Headteacher: ${data.headTeacher || '________________'}`, W / 2, y);
+
+    return doc.output('arraybuffer');
+}
+
 async function bulkDownloadSelectedReports() {
     const ids = getSelectedReportIds();
     if (!ids.length) return showToast('Please select at least one report.', 'warning');
@@ -2833,48 +3017,53 @@ async function bulkDownloadSelectedReports() {
             const logoSrc = settings.schoolLogo || schoolInf.schoolLogo;
 
             let jhsAggHTML = '';
+            // Build JHS aggregate value
+            let jhsAggValue;
             if (isJHS) {
                 const coreKw = ['english','mathematics','science','social studies','integrated science'];
                 const coreR = jhsSubjectResults.filter(r => r.tot !== null && coreKw.some(k => r.sub.toLowerCase().includes(k))).slice(0,4);
                 const elecR = jhsSubjectResults.filter(r => r.tot !== null && !coreKw.some(k => r.sub.toLowerCase().includes(k))).sort((a,b) => a.grade - b.grade).slice(0,2);
-                const allAgg = [...coreR, ...elecR];
-                const totalAgg = allAgg.reduce((s, r) => s + r.grade, 0);
-                jhsAggHTML = `<div style="background:#1e1b4b;color:#fff;padding:10px;border-radius:6px;margin-bottom:12px;font-size:12px;"><strong>JHS AGGREGATE: ${totalAgg}</strong> (${allAgg.map(r => r.sub + ':' + r.grade).join(', ')})</div>`;
+                jhsAggValue = [...coreR, ...elecR].reduce((s, r) => s + r.grade, 0);
             }
 
-            const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${student.name}</title><style>body{margin:20px;font-family:Arial,sans-serif;font-size:12px;-webkit-print-color-adjust:exact;}table{width:100%;border-collapse:collapse;}th,td{border:1px solid #cbd5e1;padding:6px 8px;}</style></head><body>
-<div style="display:flex;align-items:center;justify-content:space-between;border-bottom:2px solid #4f46e5;padding-bottom:12px;margin-bottom:16px;">
-    ${logoSrc ? `<img src="${logoSrc}" style="width:60px;height:60px;object-fit:contain;" alt="Logo">` : ''}
-    <div style="text-align:center;flex:1;">
-        <h2 style="font-size:18px;font-weight:800;color:#1e1b4b;margin:0 0 3px;">${escHtml(settings.schoolName || schoolInf.schoolName || 'School')}</h2>
-        <p style="font-size:11px;color:#64748b;margin:0 0 4px;">${escHtml(settings.schoolAddress || '')}</p>
-        <span style="display:inline-block;padding:2px 10px;border-radius:20px;background:#ede9fe;color:#4f46e5;font-weight:700;font-size:11px;">TERMINAL REPORT SHEET</span>
-    </div>
-</div>
-<table style="margin-bottom:14px;border:none;">
-    <tr style="border:none;">
-        <td style="border:none;padding:3px 0;width:50%;"><strong>Student:</strong> ${escHtml(student.name)}</td>
-        <td style="border:none;padding:3px 0;"><strong>Class:</strong> ${escHtml(className)}</td>
-    </tr>
-    <tr style="border:none;">
-        <td style="border:none;padding:3px 0;"><strong>Academic Year:</strong> ${escHtml(yr)}</td>
-        <td style="border:none;padding:3px 0;"><strong>Term:</strong> ${escHtml(tm)}</td>
-    </tr>
-</table>
-${jhsAggHTML}
-<table>
-    <thead><tr style="background:#f1f5f9;"><th>Subject</th><th>Class 50%</th><th>Exam 50%</th><th>Total</th><th>Grade</th><th>Remark</th></tr></thead>
-    <tbody>${rowsHtml}</tbody>
-    <tfoot><tr style="background:#f8fafc;font-weight:700;"><td colspan="3" style="text-align:right;">OVERALL AVERAGE / GRADE:</td><td>${avg.toFixed(1)}%</td><td colspan="2">${overallGrade.grade} (${overallGrade.remark})</td></tr></tfoot>
-</table>
-<div style="margin-top:16px;border-top:1px solid #cbd5e1;padding-top:12px;font-size:11.5px;">
-    <div><strong>Class Teacher's Remark:</strong> ${escHtml(d.teacherRemark || 'Satisfactory.')}</div>
-    <div style="margin-top:4px;"><strong>Headteacher's Remark:</strong> ${escHtml(d.headRemark || 'Good progress.')}</div>
-</div>
-</body></html>`;
+            // Resolve class teacher from classRec
+            const ctName = classRec?.classTeacherName || (adminState.teachers.find(t => String(t.id) === String(classRec?.classTeacherId) && !t.isDeleted)?.name) || '';
+            const htName = settings.headTeacher || schoolInf.headTeacher || '';
 
-            const fileName = `${student.name.replace(/[^a-zA-Z0-9]/g, '_')}_Report.html`;
-            zip.file(fileName, html);
+            // Build subjects array for PDF
+            const subjectsForPDF = classSubs.map(sub => {
+                const subName = sub.name || sub;
+                const se = getStudentSubjectScore(student.id, subName, sub.id);
+                if (se && se.classScore !== '' && se.examScore !== '') {
+                    const cs50 = Math.round((Number(se.classScore) / 100) * 50 * 10) / 10;
+                    const es50 = Math.round((Number(se.examScore) / 100) * 50 * 10) / 10;
+                    const tot = se.totalScore !== undefined && se.totalScore !== '' ? Number(se.totalScore) : (cs50 + es50);
+                    const g = getGradeForDept(tot, isJHS);
+                    return { name: subName, cs50, es50, tot, grade: g.grade, remark: g.remark };
+                }
+                return { name: subName, cs50: '—', es50: '—', tot: '—', grade: '—', remark: 'No scores' };
+            });
+
+            const pdfData = {
+                studentName: student.name, className, yr, tm,
+                schoolName: settings.schoolName || schoolInf.schoolName || 'School',
+                schoolAddress: settings.schoolAddress || settings.address || '',
+                headTeacher: htName, classTeacherName: ctName,
+                subjects: subjectsForPDF,
+                avg, overallGrade: `${overallGrade.grade} (${overallGrade.remark})`,
+                teacherRemark: d.teacherRemark || d.teacherRemarks || '',
+                headRemark: d.headRemark || '',
+                isJHS, jhsAggregate: jhsAggValue
+            };
+
+            const pdfBuffer = buildReportPDFBlob(pdfData);
+            const safeName = student.name.replace(/[^a-zA-Z0-9]/g, '_');
+            if (pdfBuffer) {
+                zip.file(`${safeName}_Report.pdf`, pdfBuffer);
+            } else {
+                // Fallback to HTML if jsPDF not available
+                zip.file(`${safeName}_Report.html`, `<html><body><h2>${student.name}</h2><p>Report for ${className} — ${yr} ${tm}</p></body></html>`);
+            }
             count++;
         } catch (e) {
             console.error('Error packaging report:', e);
@@ -2895,7 +3084,7 @@ ${jhsAggHTML}
     a.click();
     document.body.removeChild(a);
     setTimeout(() => URL.revokeObjectURL(url), 5000);
-    showToast(`Downloaded ZIP containing ${count} report(s)!`, 'success');
+    showToast(`Downloaded ZIP with ${count} PDF report(s)!`, 'success');
 }
 
 function getReportApprovalKey(studentId, yearId, termId) {
@@ -3437,58 +3626,49 @@ async function executeAdminBulkDownload() {
             const overallGrade = getGradeForDept(avg, isJHS);
             const logoSrc = settings.schoolLogo || schoolInf.schoolLogo;
 
-            let jhsAggHTML = '';
+            let jhsAggValue;
             if (isJHS) {
                 const coreKw = ['english','mathematics','science','social studies','integrated science'];
                 const coreR = jhsSubjectResults.filter(r => r.tot !== null && coreKw.some(k => r.sub.toLowerCase().includes(k))).slice(0,4);
                 const elecR = jhsSubjectResults.filter(r => r.tot !== null && !coreKw.some(k => r.sub.toLowerCase().includes(k))).sort((a,b) => a.grade - b.grade).slice(0,2);
-                const allAgg = [...coreR, ...elecR];
-                const totalAgg = allAgg.reduce((s, r) => s + r.grade, 0);
-                jhsAggHTML = `<div style="background:#1e1b4b;color:#fff;padding:10px;border-radius:6px;margin-bottom:12px;font-size:12px;"><strong>JHS AGGREGATE: ${totalAgg}</strong> (${allAgg.map(r => r.sub + ':' + r.grade).join(', ')})</div>`;
+                jhsAggValue = [...coreR, ...elecR].reduce((s, r) => s + r.grade, 0);
             }
 
-            const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${student.name}</title><style>body{margin:20px;font-family:Arial,sans-serif;font-size:12px;-webkit-print-color-adjust:exact;}table{width:100%;border-collapse:collapse;}th,td{border:1px solid #cbd5e1;padding:6px 8px;}</style></head><body>
-<div style="display:flex;align-items:center;justify-content:space-between;border-bottom:2px solid #4f46e5;padding-bottom:12px;margin-bottom:16px;">
-    ${logoSrc ? `<img src="${logoSrc}" style="width:60px;height:60px;object-fit:contain;" alt="Logo">` : ''}
-    <div style="text-align:center;flex:1;">
-        <h2 style="font-size:18px;font-weight:800;color:#1e1b4b;margin:0 0 3px;">${escHtml(settings.schoolName || schoolInf.schoolName || 'School')}</h2>
-        <p style="margin:0 0 2px;font-size:11px;color:#64748b;">${escHtml(settings.address || '')}</p>
-        <p style="margin:0 0 6px;font-size:11px;color:#4f46e5;"><em>&ldquo;${escHtml(settings.motto || '')}&rdquo;</em></p>
-        <div style="display:inline-block;background:#4f46e5;color:#fff;font-size:11px;font-weight:700;padding:3px 12px;border-radius:16px;">END OF ${escHtml(String(tm).toUpperCase())} REPORT SHEET</div>
-    </div>
-    ${logoSrc ? `<img src="${logoSrc}" style="width:60px;height:60px;object-fit:contain;" alt="Logo">` : ''}
-</div>
-<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;background:#f8fafc;padding:10px 14px;border-radius:6px;margin-bottom:14px;border:1px solid #e2e8f0;">
-    <div><span style="font-size:10px;font-weight:600;color:#64748b;display:block;">NAME</span><strong>${escHtml(student.name)}</strong></div>
-    <div><span style="font-size:10px;font-weight:600;color:#64748b;display:block;">CLASS</span><strong>${escHtml(className)}</strong></div>
-    <div><span style="font-size:10px;font-weight:600;color:#64748b;display:block;">YEAR</span><strong>${escHtml(yr)}</strong></div>
-    <div><span style="font-size:10px;font-weight:600;color:#64748b;display:block;">TERM</span><strong>${escHtml(tm)}</strong></div>
-    <div><span style="font-size:10px;font-weight:600;color:#64748b;display:block;">VACATION</span><strong>${escHtml(settings.closingDate || '')}</strong></div>
-    <div><span style="font-size:10px;font-weight:600;color:#64748b;display:block;">RE-OPENS</span><strong>${escHtml(settings.reopeningDate || '')}</strong></div>
-</div>
-<table><thead><tr style="background:#4f46e5;color:#fff;"><th>SUBJECT</th><th>CLASS 50%</th><th>EXAM 50%</th><th>TOTAL</th><th>GRADE</th><th>REMARKS</th></tr></thead><tbody>${rowsHtml}</tbody></table>
-${jhsAggHTML}
-<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;background:#eef2ff;padding:10px 14px;border-radius:6px;margin:14px 0;border:1px solid #c7d2fe;">
-    <div><span style="font-size:10px;font-weight:600;color:#4338ca;display:block;">AVERAGE</span><strong>${scoredCount ? avg.toFixed(1) + '%' : '—'}</strong></div>
-    <div><span style="font-size:10px;font-weight:600;color:#4338ca;display:block;">GRADE</span><strong>${overallGrade.grade} (${overallGrade.remark})</strong></div>
-    <div><span style="font-size:10px;font-weight:600;color:#4338ca;display:block;">SUBJECTS</span><strong>${scoredCount}/${classSubs.length}</strong></div>
-</div>
-<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px;">
-    <div style="background:#f8fafc;padding:8px 12px;border-radius:6px;border:1px solid #e2e8f0;"><div><strong>Attendance:</strong> ${escHtml(d.attendance || '—')}</div><div><strong>Conduct:</strong> ${escHtml(d.conduct || '—')}</div><div><strong>Interest:</strong> ${escHtml(d.interest || '—')}</div></div>
-    <div style="background:#f8fafc;padding:8px 12px;border-radius:6px;border:1px solid #e2e8f0;"><div><strong>Promoted to:</strong> ${escHtml(d.promotionTarget || d.promotionStatus || '—')}</div><div><strong>Remarks:</strong> <em>${escHtml(d.teacherRemarks || '—')}</em></div></div>
-</div>
-<div style="display:flex;justify-content:space-between;padding-top:12px;border-top:1px dashed #cbd5e1;font-size:11px;">
-    <div><strong>Class Teacher:</strong> ${escHtml(classRec?.classTeacherName || '—')}</div>
-    <div><strong>Headteacher:</strong> ${escHtml(settings.headTeacher || '—')}</div>
-</div>
-</body></html>`;
-
-            const blob = new Blob([html], { type: 'text/html' });
+            const ctName = classRec?.classTeacherName || (adminState.teachers.find(t => String(t.id) === String(classRec?.classTeacherId) && !t.isDeleted)?.name) || '';
+            const htName = settings.headTeacher || schoolInf.headTeacher || '';
+            const subjectsForPDF = classSubs.map(sub => {
+                const subName = sub.name || sub;
+                const se = getStudentSubjectScore(student.id, subName, sub.id);
+                if (se && se.classScore !== '' && se.examScore !== '') {
+                    const cs50 = Math.round((Number(se.classScore) / 100) * 50 * 10) / 10;
+                    const es50 = Math.round((Number(se.examScore) / 100) * 50 * 10) / 10;
+                    const tot = se.totalScore !== undefined && se.totalScore !== '' ? Number(se.totalScore) : (cs50 + es50);
+                    const g = getGradeForDept(tot, isJHS);
+                    return { name: subName, cs50, es50, tot, grade: g.grade, remark: g.remark };
+                }
+                return { name: subName, cs50: '—', es50: '—', tot: '—', grade: '—', remark: 'No scores' };
+            });
+            const pdfData = {
+                studentName: student.name, className, yr, tm,
+                schoolName: settings.schoolName || schoolInf.schoolName || 'School',
+                schoolAddress: settings.schoolAddress || settings.address || '',
+                headTeacher: htName, classTeacherName: ctName,
+                subjects: subjectsForPDF,
+                avg, overallGrade: `${overallGrade.grade} (${overallGrade.remark})`,
+                teacherRemark: d.teacherRemark || d.teacherRemarks || '',
+                headRemark: d.headRemark || '',
+                isJHS, jhsAggregate: jhsAggValue
+            };
+            const pdfBuffer = buildReportPDFBlob(pdfData);
             const safeName = (student.name || 'student').replace(/[^a-z0-9]/gi, '_');
             const folderName = classFilter
                 ? (adminState.classes.find(c => c.id === classFilter)?.name || 'class').replace(/\s/g, '_')
                 : 'all_classes';
-            zip.file(`${folderName}/${safeName}_report.html`, blob);
+            if (pdfBuffer) {
+                zip.file(`${folderName}/${safeName}_report.pdf`, pdfBuffer);
+            } else {
+                zip.file(`${folderName}/${safeName}_report.html`, `<html><body><h2>${student.name}</h2></body></html>`);
+            }
             count++;
         } catch(e) { console.warn('Bulk download error for report:', r.id, e); }
     }

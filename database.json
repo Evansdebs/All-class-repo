@@ -49,6 +49,32 @@
       "password": "kofi123"
     },
     {
+      "id": "7VInasxrMyejiLcKyc8Qt0G8ftp2",
+      "assignedClasses": [
+        "iPooVjMkWOUvEpY1UYDu"
+      ],
+      "deletedAt": "2026-08-24T19:17:05.238Z",
+      "status": "deleted",
+      "phone": "",
+      "displayName": "kwame",
+      "email": "kwame1@school.com",
+      "name": "kwame",
+      "createdAt": {
+        "seconds": 1787597270,
+        "nanoseconds": 689000000
+      },
+      "updatedAt": {
+        "seconds": 1787599031,
+        "nanoseconds": 998000000
+      },
+      "isDeleted": true,
+      "uid": "7VInasxrMyejiLcKyc8Qt0G8ftp2",
+      "assignedSubjects": [
+        "hQUyb6MuBXwarz7ULmT5"
+      ],
+      "role": "Teacher"
+    },
+    {
       "id": "admin_mt4zbtij",
       "role": "Super Admin",
       "updatedAt": {
@@ -69,20 +95,19 @@
     },
     {
       "id": "ObCHu5hHpzmZuxAztBvm",
+      "status": "active",
+      "assignedClasses": [
+        "iPooVjMkWOUvEpY1UYDu"
+      ],
+      "displayName": "winie",
+      "email": "winie@school.com",
       "createdAt": {
         "seconds": 1787590895,
         "nanoseconds": 4000000
       },
-      "password": "winie123",
+      "userId": "Ui2qpFZVF2Q5h4hhtLO0Avp7rAN2",
+      "name": "winie",
       "uid": "Ui2qpFZVF2Q5h4hhtLO0Avp7rAN2",
-      "updatedAt": {
-        "seconds": 1787590896,
-        "nanoseconds": 190000000
-      },
-      "displayName": "winie",
-      "assignedClasses": [
-        "iPooVjMkWOUvEpY1UYDu"
-      ],
       "assignedSubjects": [
         "352qeuD45VdoqFGBYqrc",
         "7IaKzwCfG5T9al0tOuwK",
@@ -91,12 +116,13 @@
         "hQUyb6MuBXwarz7ULmT5",
         "jWYE4s2vcfrEHoCFnPzd"
       ],
+      "updatedAt": {
+        "seconds": 1787590896,
+        "nanoseconds": 190000000
+      },
+      "password": "winie123",
       "role": "Class Teacher",
-      "email": "winie@school.com",
-      "name": "winie",
-      "phone": "",
-      "status": "inactive",
-      "userId": "Ui2qpFZVF2Q5h4hhtLO0Avp7rAN2"
+      "phone": ""
     },
     {
       "id": "Ui2qpFZVF2Q5h4hhtLO0Avp7rAN2",
@@ -220,6 +246,30 @@
       "userId": "VuqOGIjqMidFSe5MRTB8B1469eV2"
     },
     {
+      "id": "t_1787597262678_7inr",
+      "phone": "",
+      "createdAt": "2026-08-24T18:47:42.678Z",
+      "userId": "7VInasxrMyejiLcKyc8Qt0G8ftp2",
+      "status": "deleted",
+      "assignedSubjects": [
+        "hQUyb6MuBXwarz7ULmT5"
+      ],
+      "name": "kwame",
+      "uid": "7VInasxrMyejiLcKyc8Qt0G8ftp2",
+      "isDeleted": true,
+      "password": "kwame123",
+      "deletedAt": "2026-08-24T18:47:57.513Z",
+      "updatedAt": {
+        "seconds": 1787597285,
+        "nanoseconds": 101000000
+      },
+      "role": "Teacher",
+      "email": "kwame1@school.com",
+      "assignedClasses": [
+        "iPooVjMkWOUvEpY1UYDu"
+      ]
+    },
+    {
       "id": "wkVM8ApFuGS9ta34v2SBKJatVb02",
       "uid": "wkVM8ApFuGS9ta34v2SBKJatVb02",
       "email": "kwame@school.com",
@@ -244,25 +294,25 @@
   "classes": [
     {
       "id": "iPooVjMkWOUvEpY1UYDu",
-      "classTeacherId": "rtiZoMy7Wg1yE1IlDO96",
-      "name": "BASIC 9",
-      "level": "JHS",
-      "classTeacherName": "SIR GEORGE",
-      "assignedTeacherIds": [
-        "VuqOGIjqMidFSe5MRTB8B1469eV2",
-        "rtiZoMy7Wg1yE1IlDO96"
-      ],
-      "gradingScaleId": "",
-      "status": "active",
-      "department": "JHS",
+      "updatedAt": {
+        "seconds": 1787402825,
+        "nanoseconds": 746000000
+      },
       "createdAt": {
         "seconds": 1787402592,
         "nanoseconds": 372000000
       },
-      "updatedAt": {
-        "seconds": 1787402825,
-        "nanoseconds": 746000000
-      }
+      "gradingScaleId": "",
+      "department": "JHS",
+      "classTeacherId": "rtiZoMy7Wg1yE1IlDO96",
+      "classTeacherName": "SIR GEORGE",
+      "level": "JHS",
+      "assignedTeacherIds": [
+        "VuqOGIjqMidFSe5MRTB8B1469eV2",
+        "rtiZoMy7Wg1yE1IlDO96"
+      ],
+      "name": "BASIC 9",
+      "status": "active"
     }
   ],
   "subjects": [
@@ -383,15 +433,20 @@
   "reports": [
     {
       "id": "rpt_mt7k8dhrebt3",
-      "status": "Pending",
-      "classId": "iPooVjMkWOUvEpY1UYDu",
       "termId": "",
+      "approvedAt": "2026-08-24T18:50:42.976Z",
+      "status": "Approved",
+      "classId": "iPooVjMkWOUvEpY1UYDu",
       "studentName": "ESTHER",
       "approvalKey": "D8X5RCgfRORZxlcSa2CR|2026|1",
-      "generatedAt": "2026-08-24T18:19:04.143Z",
       "generatedBy": "admin",
+      "generatedAt": "2026-08-24T18:19:04.143Z",
       "studentId": "D8X5RCgfRORZxlcSa2CR",
-      "academicYearId": "mpFWQQVuxPNLr0tDQyN9"
+      "academicYearId": "mpFWQQVuxPNLr0tDQyN9",
+      "updatedAt": {
+        "seconds": 1787597413,
+        "nanoseconds": 843000000
+      }
     }
   ],
   "scores": {
@@ -435,12 +490,11 @@
       "D8X5RCgfRORZxlcSa2CR": {
         "classScore": 67,
         "examScore": 57,
-        "totalScore": 62,
-        "assessments": {},
         "classScore50": 33.5,
         "examScore50": 28.5,
-        "grade": "4",
-        "remark": "CREDIT"
+        "totalScore": 62,
+        "grade": "3",
+        "remark": "APPROACHING PROFICIENCY"
       }
     },
     "CAT": {
