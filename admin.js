@@ -362,6 +362,39 @@ function isAnyAdminModalOpen() {
     });
 }
 
+// ── Helper to deduplicate teacher accounts by email ─────────────────────────
+function deduplicateTeachers(teacherList) {
+    if (!Array.isArray(teacherList)) return [];
+    const map = new Map();
+    for (const t of teacherList) {
+        if (!t || t.status === 'deleted' || t.isDeleted) continue;
+        const key = (t.email || '').toLowerCase().trim() || String(t.id);
+        if (!map.has(key)) {
+            map.set(key, { ...t });
+        } else {
+            const existing = map.get(key);
+            const assignedClasses = (existing.assignedClasses && existing.assignedClasses.length) 
+                ? existing.assignedClasses 
+                : (t.assignedClasses || []);
+            const assignedSubjects = (existing.assignedSubjects && existing.assignedSubjects.length) 
+                ? existing.assignedSubjects 
+                : (t.assignedSubjects || []);
+            map.set(key, {
+                ...existing,
+                ...t,
+                id: existing.id || t.id,
+                name: (existing.name && existing.name.length > (t.name || '').length) ? existing.name : (t.name || existing.name),
+                role: existing.role || t.role || 'Teacher',
+                phone: existing.phone || t.phone || '',
+                password: existing.password || t.password || '',
+                assignedClasses,
+                assignedSubjects
+            });
+        }
+    }
+    return Array.from(map.values());
+}
+
 async function loadAllData(opts = {}) {
     const refreshForms = opts.refreshForms !== false;
     try {
@@ -381,7 +414,7 @@ async function loadAllData(opts = {}) {
         ]);
 
         adminState.students             = students;
-        adminState.teachers             = teachers;
+        adminState.teachers             = deduplicateTeachers(teachers);
         adminState.classes              = classes;
         adminState.subjects             = subjects;
         adminState.academicYears        = academicYears;
@@ -1070,7 +1103,7 @@ function renderTeachersTable() {
     const search  = (document.getElementById('teacherFilterSearch')?.value || '').toLowerCase();
     const statusF =  document.getElementById('teacherFilterStatus')?.value || '';
 
-    let data = adminState.teachers.filter(t => t.status !== 'deleted' && !t.isDeleted);
+    let data = deduplicateTeachers(adminState.teachers.filter(t => t.status !== 'deleted' && !t.isDeleted));
     if (search)  data = data.filter(t => `${t.name} ${t.email}`.toLowerCase().includes(search));
     if (statusF) data = data.filter(t => (t.status || 'active') === statusF);
 
@@ -1102,7 +1135,7 @@ function renderTeachersTable() {
     const countEl = document.getElementById('teachersCount');
     if (countEl) countEl.textContent = `${data.length} teacher${data.length === 1 ? '' : 's'}`;
 
-    const activeTeachers = adminState.teachers.filter(t => t.status !== 'deleted' && !t.isDeleted);
+    const activeTeachers = deduplicateTeachers(adminState.teachers.filter(t => t.status !== 'deleted' && !t.isDeleted));
     const headerBadge = document.getElementById('teachersHeaderBadge');
     if (headerBadge) headerBadge.textContent = activeTeachers.length;
 
@@ -1181,20 +1214,27 @@ async function saveTeacher() {
     try {
         let teacherId = effectiveId;
         if (!effectiveId) {
-            // Create Firebase Auth user for teacher if active
+            let docId = null;
             if (isFirebaseActive && password) {
                 try {
-                    const creds = await registerFirebaseUser(email, password, name, role);
+                    const creds = await registerFirebaseUser(email, password, name, role, teacherData);
+                    docId = creds.user.uid;
                     teacherData.userId = creds.user.uid;
                 } catch (err) {
                     console.warn('Firebase user creation notice:', err);
                 }
             }
-            const newDoc = await addDocument('teachers', teacherData);
-            teacherId = newDoc.id;
-            adminState.teachers.push(newDoc);
+            if (!docId) {
+                docId = 't_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
+            }
+            teacherData.id = docId;
+            teacherData.createdAt = new Date().toISOString();
+            
+            await updateDocument('teachers', docId, teacherData);
+            adminState.teachers.push(teacherData);
+            teacherId = docId;
             showToast('Teacher added!', 'success');
-            await logActivity('Teacher Added', `Added teacher ${name}`, newDoc.id);
+            await logActivity('Teacher Added', `Added teacher ${name}`, docId);
         } else {
             await updateDocument('teachers', effectiveId, teacherData);
             const idx = adminState.teachers.findIndex(t => String(t.id) === String(effectiveId));
@@ -1214,16 +1254,7 @@ async function saveTeacher() {
         }
 
         // Deduplicate any duplicates with matching email
-        const uniqueTeachers = [];
-        const seenEmails = new Set();
-        adminState.teachers.forEach(t => {
-            const em = (t.email || '').toLowerCase();
-            if (em && seenEmails.has(em)) return;
-            if (em) seenEmails.add(em);
-            uniqueTeachers.push(t);
-        });
-        adminState.teachers = uniqueTeachers;
-
+        adminState.teachers = deduplicateTeachers(adminState.teachers);
         await syncSaveCollection('teachers', adminState.teachers);
 
         if (role === 'Headteacher' && status !== 'inactive') {
@@ -2124,9 +2155,10 @@ function renderResultsTable() {
             <td><span class="lock-badge ${locked}"><i class="fas fa-${locked === 'locked' ? 'lock' : 'lock-open'}"></i></span></td>
             <td>
                 <div class="action-btns">
-                    ${status === 'Submitted' && isHeadteacher() ? `<button class="action-btn success" title="Approve" onclick="approveResult('${r.id}')"><i class="fas fa-check"></i></button>` : ''}
-                    ${r.locked && isAdmin() ? `<button class="action-btn warning" title="Unlock" onclick="unlockResult('${r.id}')"><i class="fas fa-unlock"></i></button>` : ''}
-                    ${isAdmin() ? `<button class="action-btn delete" onclick="confirmDeleteResult('${r.id}')"><i class="fas fa-trash"></i></button>` : ''}
+                    <button class="action-btn" title="Edit Result" onclick="openEditResultModal('${r.id}')"><i class="fas fa-edit"></i></button>
+                    ${['submitted','draft'].includes((r.status||'').toLowerCase()) ? `<button class="action-btn success" title="Approve" onclick="approveResult('${r.id}')"><i class="fas fa-check"></i></button>` : ''}
+                    <button class="action-btn ${r.locked ? 'warning' : 'secondary'}" title="${r.locked ? 'Unlock Mark Entry' : 'Lock Mark Entry'}" onclick="${r.locked ? `unlockResult('${r.id}')` : `lockResult('${r.id}')`}"><i class="fas fa-${r.locked ? 'unlock' : 'lock'}"></i></button>
+                    <button class="action-btn delete" title="Delete Result" onclick="confirmDeleteResult('${r.id}')"><i class="fas fa-trash"></i></button>
                 </div>
             </td>
         </tr>`;
@@ -2161,6 +2193,123 @@ function getSelectedResultIds() {
     return Array.from(document.querySelectorAll('.result-checkbox:checked')).map(c => c.value).filter(Boolean);
 }
 
+function openEditResultModal(id) {
+    const r = adminState.results.find(x => String(x.id) === String(id));
+    if (!r) { showToast('Result record not found.', 'error'); return; }
+    const student = adminState.students.find(s => String(s.id) === String(r.studentId));
+    
+    document.getElementById('erm-id').value = r.id;
+    document.getElementById('erm-student').value = student?.name || r.studentName || 'Student #' + r.studentId;
+    document.getElementById('erm-class').value = resolveClass(r.classId);
+    document.getElementById('erm-subject').value = r.subjectName || r.subjectId || '';
+    document.getElementById('erm-classScore').value = r.classScore ?? '';
+    document.getElementById('erm-examScore').value = r.examScore ?? '';
+    document.getElementById('erm-status').value = r.status || 'Draft';
+    calculateErmTotal();
+
+    document.getElementById('editResultModal').style.display = 'flex';
+}
+
+function calculateErmTotal() {
+    const cs = document.getElementById('erm-classScore')?.value;
+    const es = document.getElementById('erm-examScore')?.value;
+    const totEl = document.getElementById('erm-totalScore');
+    const grEl = document.getElementById('erm-grade');
+    if (!totEl || !grEl) return;
+
+    if (cs !== '' && es !== '' && !isNaN(cs) && !isNaN(es)) {
+        const cs50 = Math.round((Number(cs) / 100) * 50 * 10) / 10;
+        const es50 = Math.round((Number(es) / 100) * 50 * 10) / 10;
+        const tot = Math.round((cs50 + es50) * 10) / 10;
+        totEl.value = tot;
+        const className = document.getElementById('erm-class')?.value || '';
+        const isJHS = isJHSDepartment(className);
+        const g = getGradeForDept(tot, isJHS);
+        grEl.value = `${g.grade} — ${g.remark}`;
+    } else {
+        totEl.value = '';
+        grEl.value = '—';
+    }
+}
+
+async function saveEditedResult() {
+    const id = document.getElementById('erm-id')?.value;
+    const r = adminState.results.find(x => String(x.id) === String(id));
+    if (!r) return;
+
+    const cs = document.getElementById('erm-classScore')?.value?.trim();
+    const es = document.getElementById('erm-examScore')?.value?.trim();
+    const status = document.getElementById('erm-status')?.value || 'Submitted';
+
+    let csVal = '', esVal = '', totVal = '', gradeVal = '', remarkVal = '';
+    if (cs !== '' && es !== '' && !isNaN(cs) && !isNaN(es)) {
+        const csNum = Math.max(0, Math.min(100, Number(cs)));
+        const esNum = Math.max(0, Math.min(100, Number(es)));
+        const cs50 = Math.round((csNum / 100) * 50 * 10) / 10;
+        const es50 = Math.round((esNum / 100) * 50 * 10) / 10;
+        const tot = Math.round((cs50 + es50) * 10) / 10;
+        const className = resolveClass(r.classId);
+        const isJHS = isJHSDepartment(className);
+        const g = getGradeForDept(tot, isJHS);
+
+        csVal = csNum;
+        esVal = esNum;
+        totVal = tot;
+        gradeVal = g.grade;
+        remarkVal = g.remark;
+    }
+
+    r.classScore = csVal;
+    r.examScore = esVal;
+    r.totalScore = totVal;
+    r.grade = gradeVal;
+    r.remark = remarkVal;
+    r.status = status;
+    r.updatedAt = new Date().toISOString();
+
+    // 1. Persist results
+    persistResults();
+    try { await updateDocument('results', r.id, r); } catch (e) {}
+
+    // 2. Also update scores collection so Teacher Portal and Reports get updated
+    const scoresBag = JSON.parse(localStorage.getItem('scores') || '{}');
+    const subName = r.subjectName || r.subjectId || '';
+    if (subName) {
+        if (!scoresBag[subName]) scoresBag[subName] = {};
+        scoresBag[subName][String(r.studentId)] = {
+            classScore: csVal,
+            examScore: esVal,
+            classScore50: csVal !== '' ? Math.round((Number(csVal) / 100) * 50 * 10) / 10 : '',
+            examScore50: esVal !== '' ? Math.round((Number(esVal) / 100) * 50 * 10) / 10 : '',
+            totalScore: totVal,
+            grade: gradeVal,
+            remark: remarkVal
+        };
+        localStorage.setItem('scores', JSON.stringify(scoresBag));
+        if (typeof syncSaveCollection === 'function') {
+            try { syncSaveCollection('scores', scoresBag); } catch (e) {}
+        }
+    }
+
+    closeModal('editResultModal');
+    renderResultsTable();
+    showToast('Result updated and synced across portals!', 'success');
+    await logActivity('Result Updated', `Admin updated result for student ${r.studentId} in ${subName}`, r.id);
+}
+
+async function lockResult(id) {
+    try {
+        const r = adminState.results.find(r => r.id === id);
+        if (r) { r.locked = true; }
+        persistResults();
+        try { await updateDocument('results', id, { locked: true }); } catch(e) {}
+        renderResultsTable();
+        showToast('Result locked.', 'info');
+    } catch (e) {
+        showToast(e.message || 'Error locking result', 'error');
+    }
+}
+
 async function approveResult(id) {
     try {
         if (typeof approveResults === 'function') {
@@ -2168,9 +2317,8 @@ async function approveResult(id) {
         }
         const r = adminState.results.find(r => r.id === id);
         if (r) { r.status = 'Approved'; r.locked = true; }
-        if (typeof syncSaveCollection === 'function') {
-            try { await syncSaveCollection('results', adminState.results); } catch(e) {}
-        }
+        persistResults();
+        try { await updateDocument('results', id, { status: 'Approved', locked: true }); } catch(e) {}
         renderResultsTable();
         updateNavBadges();
         showToast('Result approved and locked.', 'success');
@@ -2186,9 +2334,8 @@ async function unlockResult(id) {
         }
         const r = adminState.results.find(r => r.id === id);
         if (r) { r.status = 'Reviewed'; r.locked = false; }
-        if (typeof syncSaveCollection === 'function') {
-            try { await syncSaveCollection('results', adminState.results); } catch(e) {}
-        }
+        persistResults();
+        try { await updateDocument('results', id, { status: 'Reviewed', locked: false }); } catch(e) {}
         renderResultsTable();
         updateNavBadges();
         showToast('Result unlocked for editing.', 'success');
@@ -2338,6 +2485,7 @@ function renderReportsTable() {
         const term    = adminState.terms.find(t => t.id === r.termId);
         const status  = r.status || 'Pending';
         return `<tr>
+            <td><input type="checkbox" class="report-checkbox" value="${r.id}" onchange="handleReportCheckbox()"></td>
             <td>${i + 1}</td>
             <td>${escHtml(student?.name || r.studentId || '—')}</td>
             <td>${escHtml(resolveClass(r.classId))}</td>
@@ -2354,10 +2502,213 @@ function renderReportsTable() {
                 </div>
             </td>
         </tr>`;
-    }).join('') : emptyRow(8, 'No reports found');
+    }).join('') : emptyRow(9, 'No reports found');
 
     const countEl = document.getElementById('reportsCount');
     if (countEl) countEl.textContent = `${data.length} reports`;
+}
+
+function handleReportCheckbox() {
+    const checkboxes = document.querySelectorAll('.report-checkbox');
+    const checked = Array.from(checkboxes).filter(c => c.checked).length;
+    const bulkBar = document.getElementById('reportsBulkActions');
+    const countEl = document.getElementById('selectedReportsCount');
+    const selectAllCb = document.getElementById('selectAllReports');
+    if (bulkBar) bulkBar.style.display = checked > 0 ? 'flex' : 'none';
+    if (countEl) countEl.textContent = `${checked} selected`;
+    if (selectAllCb) selectAllCb.checked = checked > 0 && checked === checkboxes.length;
+}
+
+function toggleSelectAllReports(cb) {
+    document.querySelectorAll('.report-checkbox').forEach(c => { c.checked = cb.checked; });
+    handleReportCheckbox();
+}
+
+function getSelectedReportIds() {
+    return Array.from(document.querySelectorAll('.report-checkbox:checked')).map(c => c.value).filter(Boolean);
+}
+
+async function bulkApproveSelectedReports() {
+    const ids = getSelectedReportIds();
+    if (!ids.length) return showToast('Please select at least one report.', 'warning');
+    const now = new Date().toISOString();
+    let count = 0;
+    ids.forEach(id => {
+        const r = adminState.reports.find(x => String(x.id) === String(id));
+        if (r) {
+            r.status = 'Approved';
+            r.approvedAt = now;
+            if (!r.approvalKey) {
+                r.approvalKey = getReportApprovalKey(r.studentId, r.academicYearId, r.termId);
+            }
+            count++;
+        }
+    });
+    persistReports();
+    renderReportsTable();
+    handleReportCheckbox();
+    updateNavBadges();
+    showToast(`${count} report(s) approved!`, 'success');
+    await logActivity('Reports Approved', `Bulk-approved ${count} selected reports`);
+}
+
+async function bulkRevokeSelectedReports() {
+    const ids = getSelectedReportIds();
+    if (!ids.length) return showToast('Please select at least one report.', 'warning');
+    let count = 0;
+    ids.forEach(id => {
+        const r = adminState.reports.find(x => String(x.id) === String(id));
+        if (r) {
+            r.status = 'Pending';
+            count++;
+        }
+    });
+    persistReports();
+    renderReportsTable();
+    handleReportCheckbox();
+    updateNavBadges();
+    showToast(`Approval revoked for ${count} report(s).`, 'warning');
+    await logActivity('Reports Revoked', `Bulk-revoked approval for ${count} selected reports`);
+}
+
+async function bulkDeleteSelectedReports() {
+    const ids = getSelectedReportIds();
+    if (!ids.length) return showToast('Please select at least one report.', 'warning');
+    showConfirm(`Delete ${ids.length} selected report(s)?`, async () => {
+        const idSet = new Set(ids.map(String));
+        for (const id of ids) {
+            try { await deleteDocument('reports', id); } catch(e) {}
+        }
+        adminState.reports = adminState.reports.filter(r => !idSet.has(String(r.id)));
+        persistReports();
+        renderReportsTable();
+        handleReportCheckbox();
+        updateNavBadges();
+        loadDashboard();
+        showToast(`${ids.length} report(s) deleted.`, 'success');
+        await logActivity('Reports Deleted', `Bulk-deleted ${ids.length} reports`);
+    });
+}
+
+async function bulkDownloadSelectedReports() {
+    const ids = getSelectedReportIds();
+    if (!ids.length) return showToast('Please select at least one report.', 'warning');
+    if (typeof JSZip === 'undefined') {
+        showToast('ZIP library not loaded.', 'error');
+        return;
+    }
+    showToast('Building ZIP for selected reports...', 'info');
+
+    const zip = new JSZip();
+    const detailsBag = JSON.parse(localStorage.getItem('studentReportDetails') || '{}');
+    const settings = adminState.settings || {};
+    const schoolInf = getSchoolInfo();
+
+    let count = 0;
+    for (const id of ids) {
+        try {
+            const r = adminState.reports.find(x => String(x.id) === String(id));
+            if (!r) continue;
+            const student = adminState.students.find(s => String(s.id) === String(r.studentId));
+            if (!student) continue;
+            const className = resolveClass(r.classId);
+            const yr = adminState.academicYears.find(y => String(y.id) === String(r.academicYearId))?.name || '';
+            const tm = adminState.terms.find(t => String(t.id) === String(r.termId))?.name || '';
+            const d = detailsBag[student.id] || detailsBag[String(student.id)] || {};
+            const classRec = adminState.classes.find(c => String(c.id) === String(r.classId));
+            let classSubs = adminState.subjects;
+            if (classRec && Array.isArray(classRec.subjectIds) && classRec.subjectIds.length) {
+                classSubs = adminState.subjects.filter(s => classRec.subjectIds.includes(s.id));
+            }
+            if (!classSubs.length) classSubs = adminState.subjects;
+            const isJHS = isJHSDepartment(className, classRec?.department || '');
+
+            let rowsHtml = '';
+            let totalScoreSum = 0, scoredCount = 0;
+            const jhsSubjectResults = [];
+            classSubs.forEach(sub => {
+                const subName = sub.name || sub;
+                const se = getStudentSubjectScore(student.id, subName, sub.id);
+                if (se && se.classScore !== '' && se.examScore !== '') {
+                    const cs50 = Math.round((Number(se.classScore) / 100) * 50 * 10) / 10;
+                    const es50 = Math.round((Number(se.examScore) / 100) * 50 * 10) / 10;
+                    const tot = se.totalScore !== undefined && se.totalScore !== '' ? Number(se.totalScore) : (cs50 + es50);
+                    const g = getGradeForDept(tot, isJHS);
+                    totalScoreSum += tot; scoredCount++;
+                    jhsSubjectResults.push({ sub: subName, tot, grade: Number(g.grade) || 99 });
+                    rowsHtml += `<tr><td style="text-align:left;font-weight:600;padding:6px 8px;border:1px solid #cbd5e1;">${escHtml(subName)}</td><td style="padding:6px 8px;border:1px solid #cbd5e1;">${cs50}</td><td style="padding:6px 8px;border:1px solid #cbd5e1;">${es50}</td><td style="padding:6px 8px;border:1px solid #cbd5e1;"><strong>${tot}</strong></td><td style="padding:6px 8px;border:1px solid #cbd5e1;">${g.grade}</td><td style="padding:6px 8px;border:1px solid #cbd5e1;">${g.remark}</td></tr>`;
+                } else {
+                    rowsHtml += `<tr><td style="text-align:left;color:#94a3b8;padding:6px 8px;border:1px solid #cbd5e1;">${escHtml(subName)}</td><td colspan="5" style="padding:6px 8px;border:1px solid #cbd5e1;color:#94a3b8;">No scores</td></tr>`;
+                }
+            });
+            const avg = scoredCount > 0 ? totalScoreSum / scoredCount : 0;
+            const overallGrade = getGradeForDept(avg, isJHS);
+            const logoSrc = settings.schoolLogo || schoolInf.schoolLogo;
+
+            let jhsAggHTML = '';
+            if (isJHS) {
+                const coreKw = ['english','mathematics','science','social studies','integrated science'];
+                const coreR = jhsSubjectResults.filter(r => r.tot !== null && coreKw.some(k => r.sub.toLowerCase().includes(k))).slice(0,4);
+                const elecR = jhsSubjectResults.filter(r => r.tot !== null && !coreKw.some(k => r.sub.toLowerCase().includes(k))).sort((a,b) => a.grade - b.grade).slice(0,2);
+                const allAgg = [...coreR, ...elecR];
+                const totalAgg = allAgg.reduce((s, r) => s + r.grade, 0);
+                jhsAggHTML = `<div style="background:#1e1b4b;color:#fff;padding:10px;border-radius:6px;margin-bottom:12px;font-size:12px;"><strong>JHS AGGREGATE: ${totalAgg}</strong> (${allAgg.map(r => r.sub + ':' + r.grade).join(', ')})</div>`;
+            }
+
+            const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${student.name}</title><style>body{margin:20px;font-family:Arial,sans-serif;font-size:12px;-webkit-print-color-adjust:exact;}table{width:100%;border-collapse:collapse;}th,td{border:1px solid #cbd5e1;padding:6px 8px;}</style></head><body>
+<div style="display:flex;align-items:center;justify-content:space-between;border-bottom:2px solid #4f46e5;padding-bottom:12px;margin-bottom:16px;">
+    ${logoSrc ? `<img src="${logoSrc}" style="width:60px;height:60px;object-fit:contain;" alt="Logo">` : ''}
+    <div style="text-align:center;flex:1;">
+        <h2 style="font-size:18px;font-weight:800;color:#1e1b4b;margin:0 0 3px;">${escHtml(settings.schoolName || schoolInf.schoolName || 'School')}</h2>
+        <p style="font-size:11px;color:#64748b;margin:0 0 4px;">${escHtml(settings.schoolAddress || '')}</p>
+        <span style="display:inline-block;padding:2px 10px;border-radius:20px;background:#ede9fe;color:#4f46e5;font-weight:700;font-size:11px;">TERMINAL REPORT SHEET</span>
+    </div>
+</div>
+<table style="margin-bottom:14px;border:none;">
+    <tr style="border:none;">
+        <td style="border:none;padding:3px 0;width:50%;"><strong>Student:</strong> ${escHtml(student.name)}</td>
+        <td style="border:none;padding:3px 0;"><strong>Class:</strong> ${escHtml(className)}</td>
+    </tr>
+    <tr style="border:none;">
+        <td style="border:none;padding:3px 0;"><strong>Academic Year:</strong> ${escHtml(yr)}</td>
+        <td style="border:none;padding:3px 0;"><strong>Term:</strong> ${escHtml(tm)}</td>
+    </tr>
+</table>
+${jhsAggHTML}
+<table>
+    <thead><tr style="background:#f1f5f9;"><th>Subject</th><th>Class 50%</th><th>Exam 50%</th><th>Total</th><th>Grade</th><th>Remark</th></tr></thead>
+    <tbody>${rowsHtml}</tbody>
+    <tfoot><tr style="background:#f8fafc;font-weight:700;"><td colspan="3" style="text-align:right;">OVERALL AVERAGE / GRADE:</td><td>${avg.toFixed(1)}%</td><td colspan="2">${overallGrade.grade} (${overallGrade.remark})</td></tr></tfoot>
+</table>
+<div style="margin-top:16px;border-top:1px solid #cbd5e1;padding-top:12px;font-size:11.5px;">
+    <div><strong>Class Teacher's Remark:</strong> ${escHtml(d.teacherRemark || 'Satisfactory.')}</div>
+    <div style="margin-top:4px;"><strong>Headteacher's Remark:</strong> ${escHtml(d.headRemark || 'Good progress.')}</div>
+</div>
+</body></html>`;
+
+            const fileName = `${student.name.replace(/[^a-zA-Z0-9]/g, '_')}_Report.html`;
+            zip.file(fileName, html);
+            count++;
+        } catch (e) {
+            console.error('Error packaging report:', e);
+        }
+    }
+
+    if (count === 0) {
+        showToast('Could not package selected reports.', 'warning');
+        return;
+    }
+
+    const content = await zip.generateAsync({ type: 'blob' });
+    const url = URL.createObjectURL(content);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `Selected_Student_Reports_${Date.now()}.zip`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+    showToast(`Downloaded ZIP containing ${count} report(s)!`, 'success');
 }
 
 function getReportApprovalKey(studentId, yearId, termId) {

@@ -136,6 +136,25 @@
       "password": "admin123"
     },
     {
+      "id": "id_1787595931904_tkbm",
+      "password": "kwame123",
+      "assignedSubjects": [
+        "352qeuD45VdoqFGBYqrc",
+        "hQUyb6MuBXwarz7ULmT5"
+      ],
+      "email": "kwame@school.com",
+      "updatedAt": "2026-08-24T18:25:31.905Z",
+      "phone": "",
+      "assignedClasses": [
+        "iPooVjMkWOUvEpY1UYDu"
+      ],
+      "name": "kwame",
+      "createdAt": "2026-08-24T18:25:31.905Z",
+      "status": "active",
+      "role": "Teacher",
+      "userId": "wkVM8ApFuGS9ta34v2SBKJatVb02"
+    },
+    {
       "id": "rtiZoMy7Wg1yE1IlDO96",
       "createdAt": {
         "seconds": 1787489702,
@@ -165,6 +184,21 @@
       "status": "deleted",
       "name": "SIR GEORGE",
       "userId": "VuqOGIjqMidFSe5MRTB8B1469eV2"
+    },
+    {
+      "id": "wkVM8ApFuGS9ta34v2SBKJatVb02",
+      "assignedSubjects": [],
+      "uid": "wkVM8ApFuGS9ta34v2SBKJatVb02",
+      "displayName": "kwame",
+      "status": "active",
+      "assignedClasses": [],
+      "role": "Teacher",
+      "name": "kwame",
+      "createdAt": {
+        "seconds": 1787595937,
+        "nanoseconds": 317000000
+      },
+      "email": "kwame@school.com"
     }
   ],
   "classes": [
@@ -308,48 +342,29 @@
   "results": [],
   "reports": [
     {
-      "id": "id_1787593605125_4zbi",
-      "academicYearId": "",
-      "approvalKey": "D8X5RCgfRORZxlcSa2CR|2026|1",
-      "studentName": "ESTHER",
-      "updatedAt": "2026-08-24T17:46:45.125Z",
-      "createdAt": "2026-08-24T17:46:45.125Z",
+      "id": "rpt_mt7k8dhrebt3",
       "status": "Pending",
       "classId": "iPooVjMkWOUvEpY1UYDu",
       "termId": "",
-      "studentId": "D8X5RCgfRORZxlcSa2CR",
-      "generatedAt": "2026-08-24T17:46:45.125Z",
-      "generatedBy": "admin"
-    },
-    {
-      "id": "rpt_mt7hjwbkjp0",
-      "studentId": "D8X5RCgfRORZxlcSa2CR",
-      "updatedAt": {
-        "nanoseconds": 139000000,
-        "seconds": 1787591286
-      },
-      "status": "Approved",
-      "academicYearId": "2026",
       "studentName": "ESTHER",
-      "approvedAt": "2026-08-24T17:07:57.234Z",
-      "termId": "1",
-      "classId": "BASIC 9",
       "approvalKey": "D8X5RCgfRORZxlcSa2CR|2026|1",
-      "generatedBy": "winie@school.com",
-      "generatedAt": "2026-08-24T17:04:02.912Z"
+      "generatedAt": "2026-08-24T18:19:04.143Z",
+      "generatedBy": "admin",
+      "studentId": "D8X5RCgfRORZxlcSa2CR",
+      "academicYearId": "mpFWQQVuxPNLr0tDQyN9"
     }
   ],
   "scores": {
     "ENGLISH": {
       "D8X5RCgfRORZxlcSa2CR": {
-        "classScore": 67,
+        "classScore": 90,
         "examScore": 90,
-        "totalScore": 78.5,
+        "totalScore": 90,
         "assessments": {},
-        "classScore50": 33.5,
+        "classScore50": 45,
         "examScore50": 45,
-        "grade": "2",
-        "remark": "VERY GOOD"
+        "grade": "1",
+        "remark": "EXCELLENT"
       }
     },
     "CAD": {

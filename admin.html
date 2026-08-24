@@ -650,10 +650,18 @@
                 </select>
             </div>
             <div class="card-admin">
+                <div class="results-bulk-actions" id="reportsBulkActions" style="display:none;align-items:center;gap:10px;margin-bottom:12px;padding:8px 14px;background:var(--card-bg, #f8fafc);border:1px solid var(--border,#e2e8f0);border-radius:8px;">
+                    <span id="selectedReportsCount" style="font-weight:600;">0 selected</span>
+                    <button class="btn-admin btn-success btn-sm" onclick="bulkApproveSelectedReports()"><i class="fas fa-check"></i> Approve Selected</button>
+                    <button class="btn-admin btn-warning btn-sm" onclick="bulkRevokeSelectedReports()"><i class="fas fa-undo"></i> Revoke Approval</button>
+                    <button class="btn-admin btn-danger btn-sm" onclick="bulkDeleteSelectedReports()"><i class="fas fa-trash"></i> Delete Selected</button>
+                    <button class="btn-admin btn-info btn-sm" onclick="bulkDownloadSelectedReports()"><i class="fas fa-file-archive"></i> Download ZIP</button>
+                </div>
                 <div class="table-responsive">
                     <table class="admin-table">
                         <thead>
                             <tr>
+                                <th style="width:36px;"><input type="checkbox" id="selectAllReports" onchange="toggleSelectAllReports(this)"></th>
                                 <th>#</th><th>Student</th><th>Class</th><th>Academic Year</th>
                                 <th>Term</th><th>Status</th><th>Generated At</th><th>Actions</th>
                             </tr>
@@ -1748,6 +1756,65 @@
     </div>
 </div>
 
+<!-- Edit Result Modal -->
+<div class="modal-overlay" id="editResultModal" style="display:none;" onclick="closeModal('editResultModal', event)">
+    <div class="modal-box small">
+        <div class="modal-header">
+            <h3><i class="fas fa-edit"></i> Edit Student Result</h3>
+            <button class="modal-close" onclick="closeModal('editResultModal')"><i class="fas fa-times"></i></button>
+        </div>
+        <div class="modal-body">
+            <input type="hidden" id="erm-id">
+            <div class="form-group-admin">
+                <label>Student</label>
+                <input type="text" id="erm-student" class="admin-input" readonly style="background:var(--bg,#f1f5f9);font-weight:600;">
+            </div>
+            <div class="form-row-2">
+                <div class="form-group-admin">
+                    <label>Class</label>
+                    <input type="text" id="erm-class" class="admin-input" readonly style="background:var(--bg,#f1f5f9);">
+                </div>
+                <div class="form-group-admin">
+                    <label>Subject</label>
+                    <input type="text" id="erm-subject" class="admin-input" readonly style="background:var(--bg,#f1f5f9);">
+                </div>
+            </div>
+            <div class="form-row-2">
+                <div class="form-group-admin">
+                    <label>Class Score (0 - 100) *</label>
+                    <input type="number" id="erm-classScore" class="admin-input" min="0" max="100" step="0.1" placeholder="e.g. 75" oninput="calculateErmTotal()">
+                </div>
+                <div class="form-group-admin">
+                    <label>Exam Score (0 - 100) *</label>
+                    <input type="number" id="erm-examScore" class="admin-input" min="0" max="100" step="0.1" placeholder="e.g. 80" oninput="calculateErmTotal()">
+                </div>
+            </div>
+            <div class="form-row-2">
+                <div class="form-group-admin">
+                    <label>Total Score (50% Class + 50% Exam)</label>
+                    <input type="number" id="erm-totalScore" class="admin-input" readonly style="font-weight:700;color:var(--primary);">
+                </div>
+                <div class="form-group-admin">
+                    <label>Grade & Remark</label>
+                    <input type="text" id="erm-grade" class="admin-input" readonly style="font-weight:600;">
+                </div>
+            </div>
+            <div class="form-group-admin">
+                <label>Status</label>
+                <select id="erm-status" class="admin-select">
+                    <option value="Draft">Draft</option>
+                    <option value="Submitted">Submitted</option>
+                    <option value="Approved">Approved</option>
+                </select>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn-admin btn-ghost" onclick="closeModal('editResultModal')">Cancel</button>
+            <button class="btn-admin btn-primary" onclick="saveEditedResult()"><i class="fas fa-save"></i> Save Changes</button>
+        </div>
+    </div>
+</div>
+
 <!-- Student Profile Drawer -->
 <div class="drawer-overlay" id="studentDrawerOverlay" style="display:none;" onclick="closeStudentDrawer()"></div>
 <div class="drawer" id="studentDrawer" style="transform:translateX(100%)">
@@ -1858,9 +1925,9 @@
 <script src="jspdf.umd.min.js"></script>
 <script src="jszip.min.js"></script>
 <script src="seed-data.js?v=prod1"></script>
-<script src="firebase-config.js?v=fb12"></script>
+<script src="firebase-config.js?v=fb13"></script>
 <script src="files.js?v=dl9"></script>
 <script src="attendance.js?v=hub4"></script>
-<script src="admin.js?v=dash36"></script>
+<script src="admin.js?v=dash37"></script>
 </body>
 </html>

@@ -226,7 +226,7 @@ async function loginFirebaseUser(email, password) {
     return creds;
 }
 
-async function registerFirebaseUser(email, password, displayName, role = 'Teacher') {
+async function registerFirebaseUser(email, password, displayName, role = 'Teacher', extraData = {}) {
     if (!auth) throw new Error('Firebase Auth not initialized.');
     // Use a secondary app so creating a teacher account does not replace
     // the administrator's own signed-in session.
@@ -234,7 +234,7 @@ async function registerFirebaseUser(email, password, displayName, role = 'Teache
     try {
         const creds = await secondary.auth().createUserWithEmailAndPassword(email, password);
 
-        // Create staff profile in Firestore teachers collection
+        // Create staff profile in Firestore teachers collection with all provided fields
         if (db) {
             await db.collection('teachers').doc(creds.user.uid).set({
                 id: creds.user.uid,
@@ -243,9 +243,10 @@ async function registerFirebaseUser(email, password, displayName, role = 'Teache
                 name: displayName || email,
                 displayName: displayName || email,
                 role,
-                assignedClasses: [],
-                assignedSubjects: [],
-                status: 'active',
+                assignedClasses: extraData.assignedClasses || [],
+                assignedSubjects: extraData.assignedSubjects || [],
+                phone: extraData.phone || '',
+                status: extraData.status || 'active',
                 createdAt: firebase.firestore.FieldValue.serverTimestamp()
             }, { merge: true });
         }
