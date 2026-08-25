@@ -466,12 +466,11 @@
       "D8X5RCgfRORZxlcSa2CR": {
         "classScore": 45,
         "examScore": 56,
-        "totalScore": 50.5,
-        "assessments": {},
         "classScore50": 22.5,
         "examScore50": 28,
-        "grade": "6",
-        "remark": "PASS"
+        "totalScore": 50.5,
+        "grade": "4",
+        "remark": "DEVELOPING"
       }
     },
     "MATHEMATICS": {

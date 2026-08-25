@@ -2297,12 +2297,14 @@ function populateAllDropdowns() {
 // ─── RESULTS ─────────────────────────────────────────────────────────────────
 function syncScoresIntoResults() {
     try {
+        // 1. Sync from localStorage 'results'
         const storedResults = JSON.parse(localStorage.getItem('results') || '[]');
         storedResults.forEach(r => {
             const existing = adminState.results.find(ar =>
-                String(ar.studentId) === String(r.studentId) &&
+                String(ar.id) === String(r.id) ||
+                (String(ar.studentId) === String(r.studentId) &&
                 (ar.subjectId === r.subjectId || ar.subjectName === r.subjectName) &&
-                ar.classId === r.classId
+                String(ar.classId) === String(r.classId))
             );
             if (existing) {
                 Object.assign(existing, r);
@@ -2310,7 +2312,65 @@ function syncScoresIntoResults() {
                 adminState.results.push(r);
             }
         });
-    } catch(e) {}
+
+        // 2. Also sync from localStorage 'scores' bag (teacher portal direct mark entries)
+        const scoresBag = JSON.parse(localStorage.getItem('scores') || '{}');
+        const activeYear = adminState.academicYears.find(y => y.isActive);
+        const activeTerm = adminState.terms.find(t => t.isActive);
+
+        Object.keys(scoresBag).forEach(subName => {
+            const studentScores = scoresBag[subName] || {};
+            Object.keys(studentScores).forEach(studentId => {
+                const se = studentScores[studentId];
+                if (!se || (se.classScore === '' && se.examScore === '')) return;
+
+                const student = adminState.students.find(s => String(s.id) === String(studentId));
+                const classId = student?.classId || student?.class || '';
+                
+                const existing = adminState.results.find(ar =>
+                    String(ar.studentId) === String(studentId) &&
+                    (ar.subjectId === subName || ar.subjectName === subName)
+                );
+
+                if (!existing) {
+                    const csVal = (se.classScore !== '' && se.classScore != null) ? Number(se.classScore) : '';
+                    const esVal = (se.examScore !== '' && se.examScore != null) ? Number(se.examScore) : '';
+                    const cs50 = csVal !== '' ? Math.round((csVal / 100) * 50 * 10) / 10 : '';
+                    const es50 = esVal !== '' ? Math.round((esVal / 100) * 50 * 10) / 10 : '';
+                    const totVal = (cs50 !== '' && es50 !== '') ? Math.round((cs50 + es50) * 10) / 10 : (se.totalScore || '');
+                    const className = resolveClass(classId);
+                    const isJHS = isJHSDepartment(className);
+                    const g = totVal !== '' ? getGradeForDept(totVal, isJHS) : { grade: se.grade || '', remark: se.remark || '' };
+
+                    const newRes = {
+                        id: 'res_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+                        studentId: String(studentId),
+                        studentName: student?.name || '',
+                        classId: classId,
+                        subjectId: subName,
+                        subjectName: subName,
+                        classScore: csVal,
+                        examScore: esVal,
+                        classScore50: cs50,
+                        examScore50: es50,
+                        totalScore: totVal,
+                        grade: g.grade,
+                        remark: g.remark,
+                        status: 'Submitted',
+                        locked: false,
+                        academicYearId: activeYear?.id || '',
+                        termId: activeTerm?.id || '',
+                        updatedAt: new Date().toISOString()
+                    };
+                    adminState.results.push(newRes);
+                }
+            });
+        });
+
+        persistResults();
+    } catch(e) {
+        console.warn('syncScoresIntoResults error:', e);
+    }
 }
 
 function renderResultsTable() {
@@ -2359,13 +2419,15 @@ function renderResultsTable() {
         const student = adminState.students.find(s => s.id === r.studentId);
         const status  = r.status || 'Draft';
         const locked  = r.locked ? 'locked' : 'unlocked';
+        const csDisplay = r.classScore50 !== undefined && r.classScore50 !== '' ? r.classScore50 : (r.classScore != null && r.classScore !== '' ? Math.round((Number(r.classScore)/100)*50*10)/10 : '—');
+        const esDisplay = r.examScore50 !== undefined && r.examScore50 !== '' ? r.examScore50 : (r.examScore != null && r.examScore !== '' ? Math.round((Number(r.examScore)/100)*50*10)/10 : '—');
         return `<tr>
             <td><input type="checkbox" class="result-checkbox" value="${r.id}" onchange="handleResultCheckbox()"></td>
             <td>${escHtml(student?.name || r.studentName || r.studentId || '—')}</td>
             <td>${escHtml(resolveClass(r.classId))}</td>
             <td>${escHtml(r.subjectId || r.subjectName || '—')}</td>
-            <td>${r.classScore ?? '—'}</td>
-            <td>${r.examScore ?? '—'}</td>
+            <td>${csDisplay}</td>
+            <td>${esDisplay}</td>
             <td><strong>${r.totalScore ?? '—'}</strong></td>
             <td>${r.grade ?? '—'}</td>
             <td><span class="status-pill ${status.toLowerCase()}">${status}</span></td>
@@ -2420,8 +2482,8 @@ function openEditResultModal(id) {
     document.getElementById('erm-student').value = student?.name || r.studentName || 'Student #' + r.studentId;
     document.getElementById('erm-class').value = resolveClass(r.classId);
     document.getElementById('erm-subject').value = r.subjectName || r.subjectId || '';
-    document.getElementById('erm-classScore').value = r.classScore ?? '';
-    document.getElementById('erm-examScore').value = r.examScore ?? '';
+    document.getElementById('erm-classScore').value = (r.classScore !== undefined && r.classScore !== null) ? r.classScore : '';
+    document.getElementById('erm-examScore').value = (r.examScore !== undefined && r.examScore !== null) ? r.examScore : '';
     document.getElementById('erm-status').value = r.status || 'Draft';
     calculateErmTotal();
 
@@ -2459,23 +2521,33 @@ function saveEditedResult() {
     const es = document.getElementById('erm-examScore')?.value?.trim();
     const status = document.getElementById('erm-status')?.value || 'Submitted';
 
-    let csVal = '', esVal = '', totVal = '', gradeVal = '', remarkVal = '';
-    if (cs !== '' && es !== '' && !isNaN(cs) && !isNaN(es)) {
-        const csNum = Math.max(0, Math.min(100, Number(cs)));
-        const esNum = Math.max(0, Math.min(100, Number(es)));
-        const cs50 = Math.round((csNum / 100) * 50 * 10) / 10;
-        const es50 = Math.round((esNum / 100) * 50 * 10) / 10;
-        const tot = Math.round((cs50 + es50) * 10) / 10;
+    let csVal = '', esVal = '', cs50 = '', es50 = '', totVal = '', gradeVal = '', remarkVal = '';
+    if (cs !== '' && !isNaN(cs)) {
+        csVal = Math.max(0, Math.min(100, Number(cs)));
+        cs50 = Math.round((csVal / 100) * 50 * 10) / 10;
+    }
+    if (es !== '' && !isNaN(es)) {
+        esVal = Math.max(0, Math.min(100, Number(es)));
+        es50 = Math.round((esVal / 100) * 50 * 10) / 10;
+    }
+    if (csVal !== '' && esVal !== '') {
+        totVal = Math.round((cs50 + es50) * 10) / 10;
         const className = resolveClass(r.classId);
         const isJHS = isJHSDepartment(className);
-        const g = getGradeForDept(tot, isJHS);
-        csVal = csNum; esVal = esNum; totVal = tot;
-        gradeVal = g.grade; remarkVal = g.remark;
+        const g = getGradeForDept(totVal, isJHS);
+        gradeVal = g.grade;
+        remarkVal = g.remark;
     }
 
     // ── Instant in-memory + localStorage update ──────────────────────────────
-    r.classScore = csVal; r.examScore = esVal; r.totalScore = totVal;
-    r.grade = gradeVal;   r.remark = remarkVal; r.status = status;
+    r.classScore = csVal;
+    r.examScore = esVal;
+    r.classScore50 = cs50;
+    r.examScore50 = es50;
+    r.totalScore = totVal;
+    r.grade = gradeVal;
+    r.remark = remarkVal;
+    r.status = status;
     r.updatedAt = new Date().toISOString();
 
     // Also sync into scores bag (teacher portal source)
@@ -2484,182 +2556,188 @@ function saveEditedResult() {
     if (subName) {
         if (!scoresBag[subName]) scoresBag[subName] = {};
         scoresBag[subName][String(r.studentId)] = {
-            classScore: csVal, examScore: esVal,
-            classScore50: csVal !== '' ? Math.round((Number(csVal) / 100) * 50 * 10) / 10 : '',
-            examScore50:  esVal !== '' ? Math.round((Number(esVal) / 100) * 50 * 10) / 10 : '',
-            totalScore: totVal, grade: gradeVal, remark: remarkVal
+            classScore: csVal,
+            examScore: esVal,
+            classScore50: cs50,
+            examScore50:  es50,
+            totalScore: totVal,
+            grade: gradeVal,
+            remark: remarkVal
         };
         localStorage.setItem('scores', JSON.stringify(scoresBag));
     }
     persistResults();
 
-    // ── Instant UI response ───────────────────────────────────────────────────
+    // ── Instant UI response (0ms latency) ────────────────────────────────────
     closeModal('editResultModal');
     renderResultsTable();
-    showToast('Result updated and synced!', 'success');
+    showToast('Result updated and synced across portals!', 'success');
 
     // ── Background cloud writes (non-blocking) ────────────────────────────────
     (async () => {
         try { await updateDocument('results', r.id, r); } catch(e) {}
         if (subName) {
-            try { if (typeof syncSaveCollection === 'function') syncSaveCollection('scores', scoresBag); } catch(e) {}
+            try { if (typeof syncSaveCollection === 'function') await syncSaveCollection('scores', scoresBag); } catch(e) {}
         }
         try { await logActivity('Result Updated', `Admin updated result for student ${r.studentId} in ${subName}`, r.id); } catch(e) {}
     })().catch(e => console.warn('saveEditedResult bg error:', e));
 }
 
-async function lockResult(id) {
-    try {
-        const r = adminState.results.find(r => r.id === id);
-        if (r) { r.locked = true; }
-        persistResults();
+function lockResult(id) {
+    const r = adminState.results.find(r => String(r.id) === String(id));
+    if (!r) return;
+    r.locked = true;
+    persistResults();
+    renderResultsTable();
+    showToast('Result mark entry locked.', 'info');
+    (async () => {
         try { await updateDocument('results', id, { locked: true }); } catch(e) {}
-        renderResultsTable();
-        showToast('Result locked.', 'info');
-    } catch (e) {
-        showToast(e.message || 'Error locking result', 'error');
-    }
+        try { if (typeof syncSaveCollection === 'function') await syncSaveCollection('results', adminState.results); } catch(e) {}
+        try { await logActivity('Result Locked', `Admin locked result ${id}`); } catch(e) {}
+    })().catch(e => console.warn('lockResult bg error:', e));
 }
 
-async function approveResult(id) {
-    try {
-        if (typeof approveResults === 'function') {
-            try { await approveResults([id], 'Approved'); } catch(e) {}
-        }
-        const r = adminState.results.find(r => r.id === id);
-        if (r) { r.status = 'Approved'; r.locked = true; }
-        persistResults();
-        try { await updateDocument('results', id, { status: 'Approved', locked: true }); } catch(e) {}
-        renderResultsTable();
-        updateNavBadges();
-        showToast('Result approved and locked.', 'success');
-    } catch (e) {
-        showToast(e.message || 'Error approving result', 'error');
-    }
+function approveResult(id) {
+    const r = adminState.results.find(r => String(r.id) === String(id));
+    if (!r) return;
+    r.status = 'Approved';
+    r.locked = true;
+    r.approvedAt = new Date().toISOString();
+    persistResults();
+    renderResultsTable();
+    updateNavBadges();
+    showToast('Result approved and locked.', 'success');
+    (async () => {
+        try { if (typeof approveResults === 'function') await approveResults([id], 'Approved'); } catch(e) {}
+        try { await updateDocument('results', id, { status: 'Approved', locked: true, approvedAt: r.approvedAt }); } catch(e) {}
+        try { if (typeof syncSaveCollection === 'function') await syncSaveCollection('results', adminState.results); } catch(e) {}
+        try { await logActivity('Result Approved', `Admin approved result ${id}`); } catch(e) {}
+    })().catch(e => console.warn('approveResult bg error:', e));
 }
 
-async function unlockResult(id) {
-    try {
-        if (typeof unlockResults === 'function') {
-            try { await unlockResults([id]); } catch(e) {}
-        }
-        const r = adminState.results.find(r => r.id === id);
-        if (r) { r.status = 'Reviewed'; r.locked = false; }
-        persistResults();
+function unlockResult(id) {
+    const r = adminState.results.find(r => String(r.id) === String(id));
+    if (!r) return;
+    r.status = 'Reviewed';
+    r.locked = false;
+    persistResults();
+    renderResultsTable();
+    updateNavBadges();
+    showToast('Result unlocked for editing.', 'success');
+    (async () => {
+        try { if (typeof unlockResults === 'function') await unlockResults([id]); } catch(e) {}
         try { await updateDocument('results', id, { status: 'Reviewed', locked: false }); } catch(e) {}
-        renderResultsTable();
-        updateNavBadges();
-        showToast('Result unlocked for editing.', 'success');
-    } catch (e) {
-        showToast(e.message || 'Error unlocking result', 'error');
-    }
+        try { if (typeof syncSaveCollection === 'function') await syncSaveCollection('results', adminState.results); } catch(e) {}
+        try { await logActivity('Result Unlocked', `Admin unlocked result ${id}`); } catch(e) {}
+    })().catch(e => console.warn('unlockResult bg error:', e));
 }
 
-async function bulkApproveResults() {
+function bulkApproveResults() {
     const ids = getSelectedResultIds();
     if (!ids.length) return showToast('Please select at least one result mark.', 'warning');
-    showConfirm(`Approve ${ids.length} selected results?`, async () => {
-        try {
-            if (typeof approveResults === 'function') {
-                try { await approveResults(ids, 'Approved'); } catch(e) {}
-            }
-            ids.forEach(id => {
-                const r = adminState.results.find(r => r.id === id);
-                if (r) { r.status = 'Approved'; r.locked = true; }
-            });
-            if (typeof syncSaveCollection === 'function') {
-                try { await syncSaveCollection('results', adminState.results); } catch(e) {}
-            }
-            renderResultsTable();
-            handleResultCheckbox();
-            updateNavBadges();
-            showToast(`${ids.length} results approved successfully.`, 'success');
-            await logActivity('Bulk Results Approved', `Approved ${ids.length} results`);
-        } catch(e) {
-            showToast(e.message || 'Error approving results', 'error');
-        }
+    showConfirm(`Approve ${ids.length} selected results?`, () => {
+        ids.forEach(id => {
+            const r = adminState.results.find(r => String(r.id) === String(id));
+            if (r) { r.status = 'Approved'; r.locked = true; r.approvedAt = new Date().toISOString(); }
+        });
+        persistResults();
+        renderResultsTable();
+        handleResultCheckbox();
+        updateNavBadges();
+        showToast(`${ids.length} results approved successfully.`, 'success');
+        (async () => {
+            try { if (typeof approveResults === 'function') await approveResults(ids, 'Approved'); } catch(e) {}
+            try { if (typeof syncSaveCollection === 'function') await syncSaveCollection('results', adminState.results); } catch(e) {}
+            try { await logActivity('Bulk Results Approved', `Approved ${ids.length} results`); } catch(e) {}
+        })().catch(e => console.warn('bulkApproveResults bg error:', e));
     });
 }
 
-async function bulkDeleteResults() {
+function bulkLockResults() {
+    const ids = getSelectedResultIds();
+    if (!ids.length) return showToast('Please select at least one result mark to lock.', 'warning');
+    showConfirm(`Lock mark entry for ${ids.length} selected results?`, () => {
+        ids.forEach(id => {
+            const r = adminState.results.find(r => String(r.id) === String(id));
+            if (r) { r.locked = true; }
+        });
+        persistResults();
+        renderResultsTable();
+        handleResultCheckbox();
+        updateNavBadges();
+        showToast(`${ids.length} results locked.`, 'info');
+        (async () => {
+            try { if (typeof syncSaveCollection === 'function') await syncSaveCollection('results', adminState.results); } catch(e) {}
+            try { await logActivity('Bulk Results Locked', `Locked ${ids.length} results`); } catch(e) {}
+        })().catch(e => console.warn('bulkLockResults bg error:', e));
+    });
+}
+
+function bulkUnlockResults() {
+    const ids = getSelectedResultIds();
+    if (!ids.length) return showToast('Please select at least one result.', 'warning');
+    showConfirm(`Unlock ${ids.length} results for editing?`, () => {
+        ids.forEach(id => {
+            const r = adminState.results.find(r => String(r.id) === String(id));
+            if (r) { r.status = 'Reviewed'; r.locked = false; }
+        });
+        persistResults();
+        renderResultsTable();
+        handleResultCheckbox();
+        updateNavBadges();
+        showToast(`${ids.length} results unlocked.`, 'success');
+        (async () => {
+            try { if (typeof unlockResults === 'function') await unlockResults(ids); } catch(e) {}
+            try { if (typeof syncSaveCollection === 'function') await syncSaveCollection('results', adminState.results); } catch(e) {}
+            try { await logActivity('Bulk Results Unlocked', `Unlocked ${ids.length} results`); } catch(e) {}
+        })().catch(e => console.warn('bulkUnlockResults bg error:', e));
+    });
+}
+
+function bulkPublishResults() {
+    const ids = getSelectedResultIds();
+    if (!ids.length) return showToast('Please select at least one result.', 'warning');
+    showConfirm(`Publish ${ids.length} results?`, () => {
+        ids.forEach(id => {
+            const r = adminState.results.find(r => String(r.id) === String(id));
+            if (r) { r.status = 'Published'; r.locked = true; }
+        });
+        persistResults();
+        renderResultsTable();
+        handleResultCheckbox();
+        updateNavBadges();
+        showToast(`${ids.length} results published.`, 'success');
+        (async () => {
+            try { if (typeof approveResults === 'function') await approveResults(ids, 'Published'); } catch(e) {}
+            try { if (typeof syncSaveCollection === 'function') await syncSaveCollection('results', adminState.results); } catch(e) {}
+            try { await logActivity('Bulk Results Published', `Published ${ids.length} results`); } catch(e) {}
+        })().catch(e => console.warn('bulkPublishResults bg error:', e));
+    });
+}
+
+function bulkDeleteResults() {
     const ids = getSelectedResultIds();
     if (!ids.length) return showToast('Please select at least one result mark to delete.', 'warning');
-    showConfirm(`Delete ${ids.length} selected results? This cannot be undone.`, async () => {
-        try {
-            // Purge scores from teacher portal bag first
-            ids.forEach(id => {
-                const r = adminState.results.find(r => r.id === id);
-                _purgeResultFromScoresBag(r);
-            });
-            adminState.results = adminState.results.filter(r => !ids.includes(r.id));
-            persistResults();
-            renderResultsTable();
-            handleResultCheckbox();
-            updateNavBadges();
-            showToast(`${ids.length} results deleted and cleared from teacher portal.`, 'success');
-            // Background cloud deletes
-            (async () => {
-                for (const id of ids) {
-                    try { await deleteDocument('results', id); } catch(e) {}
-                }
-                try { if (typeof syncSaveCollection === 'function') await syncSaveCollection('results', adminState.results); } catch(e) {}
-                try { await logActivity('Bulk Results Deleted', `Deleted ${ids.length} results`); } catch(e) {}
-            })().catch(e => console.warn('bulkDeleteResults bg error:', e));
-        } catch(e) {
-            showToast(e.message || 'Error deleting results', 'error');
-        }
-    });
-}
-
-async function bulkUnlockResults() {
-    const ids = getSelectedResultIds();
-    if (!ids.length) return showToast('Please select at least one result.', 'warning');
-    showConfirm(`Unlock ${ids.length} results for editing?`, async () => {
-        try {
-            if (typeof unlockResults === 'function') {
-                try { await unlockResults(ids); } catch(e) {}
+    showConfirm(`Delete ${ids.length} selected results? This cannot be undone.`, () => {
+        // Purge scores from teacher portal bag first
+        ids.forEach(id => {
+            const r = adminState.results.find(r => String(r.id) === String(id));
+            _purgeResultFromScoresBag(r);
+        });
+        adminState.results = adminState.results.filter(r => !ids.includes(r.id));
+        persistResults();
+        renderResultsTable();
+        handleResultCheckbox();
+        updateNavBadges();
+        showToast(`${ids.length} results deleted and cleared from teacher portal.`, 'success');
+        // Background cloud deletes
+        (async () => {
+            for (const id of ids) {
+                try { await deleteDocument('results', id); } catch(e) {}
             }
-            ids.forEach(id => {
-                const r = adminState.results.find(r => r.id === id);
-                if (r) { r.status = 'Reviewed'; r.locked = false; }
-            });
-            if (typeof syncSaveCollection === 'function') {
-                try { await syncSaveCollection('results', adminState.results); } catch(e) {}
-            }
-            renderResultsTable();
-            handleResultCheckbox();
-            updateNavBadges();
-            showToast(`${ids.length} results unlocked.`, 'success');
-            await logActivity('Bulk Results Unlocked', `Unlocked ${ids.length} results`);
-        } catch(e) {
-            showToast(e.message || 'Error unlocking results', 'error');
-        }
-    });
-}
-
-async function bulkPublishResults() {
-    const ids = getSelectedResultIds();
-    if (!ids.length) return showToast('Please select at least one result.', 'warning');
-    showConfirm(`Publish ${ids.length} results?`, async () => {
-        try {
-            if (typeof approveResults === 'function') {
-                try { await approveResults(ids, 'Published'); } catch(e) {}
-            }
-            ids.forEach(id => {
-                const r = adminState.results.find(r => r.id === id);
-                if (r) { r.status = 'Published'; r.locked = true; }
-            });
-            if (typeof syncSaveCollection === 'function') {
-                try { await syncSaveCollection('results', adminState.results); } catch(e) {}
-            }
-            renderResultsTable();
-            handleResultCheckbox();
-            updateNavBadges();
-            showToast(`${ids.length} results published.`, 'success');
-            await logActivity('Bulk Results Published', `Published ${ids.length} results`);
-        } catch(e) {
-            showToast(e.message || 'Error publishing results', 'error');
-        }
+            try { if (typeof syncSaveCollection === 'function') await syncSaveCollection('results', adminState.results); } catch(e) {}
+            try { await logActivity('Bulk Results Deleted', `Deleted ${ids.length} results`); } catch(e) {}
+        })().catch(e => console.warn('bulkDeleteResults bg error:', e));
     });
 }
 
@@ -2678,59 +2756,47 @@ function _purgeResultFromScoresBag(r) {
     }
 }
 
-async function confirmDeleteResult(id) {
-    const resultToDelete = adminState.results.find(r => r.id === id);
-    showConfirm('Delete this result? This will also clear the score from the teacher portal and report sheet.', async () => {
-        try {
-            // Purge from scores bag immediately (teacher portal + report sheet)
-            _purgeResultFromScoresBag(resultToDelete);
+function confirmDeleteResult(id) {
+    const resultToDelete = adminState.results.find(r => String(r.id) === String(id));
+    showConfirm('Delete this result? This will also clear the score from the teacher portal and report sheet.', () => {
+        _purgeResultFromScoresBag(resultToDelete);
+        adminState.results = adminState.results.filter(r => String(r.id) !== String(id));
+        persistResults();
+        renderResultsTable();
+        handleResultCheckbox();
+        updateNavBadges();
+        showToast('Result deleted and cleared from teacher portal.', 'success');
 
-            // Remove from state and re-render instantly
-            adminState.results = adminState.results.filter(r => r.id !== id);
-            persistResults();
-            renderResultsTable();
-            handleResultCheckbox();
-            updateNavBadges();
-            showToast('Result deleted and cleared from teacher portal.', 'success');
-
-            // Background cloud delete
-            (async () => {
-                try { await deleteDocument('results', id); } catch(e) {}
-                try { if (typeof syncSaveCollection === 'function') await syncSaveCollection('results', adminState.results); } catch(e) {}
-                try { await logActivity('Result Deleted', `Admin deleted result ${id}`); } catch(e) {}
-            })().catch(e => console.warn('deleteResult bg error:', e));
-        } catch(e) {
-            showToast(e.message || 'Error deleting result', 'error');
-        }
+        (async () => {
+            try { await deleteDocument('results', id); } catch(e) {}
+            try { if (typeof syncSaveCollection === 'function') await syncSaveCollection('results', adminState.results); } catch(e) {}
+            try { await logActivity('Result Deleted', `Admin deleted result ${id}`); } catch(e) {}
+        })().catch(e => console.warn('deleteResult bg error:', e));
     });
 }
 
-async function revokeResult(id) {
-    try {
-        const r = adminState.results.find(r => r.id === id);
-        if (!r) return;
-        r.status = 'Reviewed';
-        r.locked = false;
-        r.revokedAt = new Date().toISOString();
-        persistResults();
-        renderResultsTable();
-        updateNavBadges();
-        showToast('Result approval revoked. Teacher can re-edit.', 'info');
-        (async () => {
-            try { await updateDocument('results', id, { status: 'Reviewed', locked: false, revokedAt: r.revokedAt }); } catch(e) {}
-            try { await logActivity('Result Revoked', `Revoked approval for result ${id}`); } catch(e) {}
-        })().catch(e => console.warn('revokeResult bg error:', e));
-    } catch(e) {
-        showToast(e.message || 'Error revoking result', 'error');
-    }
+function revokeResult(id) {
+    const r = adminState.results.find(r => String(r.id) === String(id));
+    if (!r) return;
+    r.status = 'Reviewed';
+    r.locked = false;
+    r.revokedAt = new Date().toISOString();
+    persistResults();
+    renderResultsTable();
+    updateNavBadges();
+    showToast('Result approval revoked. Teacher can re-edit.', 'info');
+    (async () => {
+        try { await updateDocument('results', id, { status: 'Reviewed', locked: false, revokedAt: r.revokedAt }); } catch(e) {}
+        try { await logActivity('Result Revoked', `Revoked approval for result ${id}`); } catch(e) {}
+    })().catch(e => console.warn('revokeResult bg error:', e));
 }
 
-async function bulkRevokeResults() {
+function bulkRevokeResults() {
     const ids = getSelectedResultIds();
     if (!ids.length) return showToast('Please select at least one result.', 'warning');
-    showConfirm(`Revoke approval for ${ids.length} selected results?`, async () => {
+    showConfirm(`Revoke approval for ${ids.length} selected results?`, () => {
         ids.forEach(id => {
-            const r = adminState.results.find(r => r.id === id);
+            const r = adminState.results.find(r => String(r.id) === String(id));
             if (r) { r.status = 'Reviewed'; r.locked = false; r.revokedAt = new Date().toISOString(); }
         });
         persistResults();
@@ -3100,7 +3166,7 @@ function persistReports() {
     }
 }
 
-async function approveReport(id) {
+function approveReport(id) {
     const r = adminState.reports.find(x => String(x.id) === String(id));
     if (!r) { showToast('Report not found.', 'error'); return; }
     r.status = 'Approved';
@@ -3109,28 +3175,35 @@ async function approveReport(id) {
         r.approvalKey = getReportApprovalKey(r.studentId, r.academicYearId, r.termId);
     }
     persistReports();
-    try { await updateDocument('reports', r.id, { status: 'Approved', approvedAt: r.approvedAt, approvalKey: r.approvalKey }); } catch (e) {}
     renderReportsTable();
     updateNavBadges();
     showToast(`Approved ${r.studentName || 'report'} — teachers can now download it.`, 'success');
-    await logActivity('Report Approved', `Approved report for ${r.studentName || r.studentId}`, r.id);
+    (async () => {
+        try { await updateDocument('reports', r.id, { status: 'Approved', approvedAt: r.approvedAt, approvalKey: r.approvalKey }); } catch (e) {}
+        try { if (typeof syncSaveCollection === 'function') await syncSaveCollection('reports', adminState.reports); } catch (e) {}
+        try { await logActivity('Report Approved', `Approved report for ${r.studentName || r.studentId}`, r.id); } catch (e) {}
+    })().catch(e => console.warn('approveReport bg error:', e));
 }
 
-async function revokeReportApproval(id) {
+function revokeReportApproval(id) {
     const r = adminState.reports.find(x => String(x.id) === String(id));
     if (!r) return;
     r.status = 'Pending';
     persistReports();
-    try { await updateDocument('reports', r.id, { status: 'Pending' }); } catch (e) {}
     renderReportsTable();
     updateNavBadges();
     showToast('Approval revoked. Download is locked again.', 'warning');
+    (async () => {
+        try { await updateDocument('reports', r.id, { status: 'Pending' }); } catch (e) {}
+        try { if (typeof syncSaveCollection === 'function') await syncSaveCollection('reports', adminState.reports); } catch (e) {}
+        try { await logActivity('Report Approval Revoked', `Revoked approval for report ${id}`, r.id); } catch (e) {}
+    })().catch(e => console.warn('revokeReportApproval bg error:', e));
 }
 
-async function approveAllPendingReports() {
+function approveAllPendingReports() {
     const pending = adminState.reports.filter(r => !['approved','published'].includes(String(r.status||'').toLowerCase()));
     if (!pending.length) { showToast('No pending reports to approve.', 'info'); return; }
-    showConfirm(`Approve ${pending.length} pending report(s) for download?`, async () => {
+    showConfirm(`Approve ${pending.length} pending report(s) for download?`, () => {
         const now = new Date().toISOString();
         pending.forEach(r => {
             r.status = 'Approved';
@@ -3140,13 +3213,16 @@ async function approveAllPendingReports() {
             }
         });
         persistReports();
-        for (const r of pending) {
-            try { await updateDocument('reports', r.id, { status: 'Approved', approvedAt: r.approvedAt, approvalKey: r.approvalKey }); } catch (e) {}
-        }
         renderReportsTable();
         updateNavBadges();
         showToast(`${pending.length} reports approved. Teachers can download them now.`, 'success');
-        await logActivity('Reports Approved', `Bulk-approved ${pending.length} reports`);
+        (async () => {
+            for (const r of pending) {
+                try { await updateDocument('reports', r.id, { status: 'Approved', approvedAt: r.approvedAt, approvalKey: r.approvalKey }); } catch (e) {}
+            }
+            try { if (typeof syncSaveCollection === 'function') await syncSaveCollection('reports', adminState.reports); } catch (e) {}
+            try { await logActivity('Reports Approved', `Bulk-approved ${pending.length} reports`); } catch (e) {}
+        })().catch(e => console.warn('approveAllPendingReports bg error:', e));
     });
 }
 
