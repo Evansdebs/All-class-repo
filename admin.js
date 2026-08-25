@@ -2395,17 +2395,18 @@ function renderResultsTable() {
     if (termF)    data = data.filter(r => r.termId === termF);
     if (classF)   data = data.filter(r => r.classId === classF);
     if (statusF)  data = data.filter(r => r.status === statusF);
-    if (subjectF) data = data.filter(r => (r.subjectId === subjectF || r.subjectName === subjectF));
+    if (subjectF) data = data.filter(r => (resolveSubject(r.subjectName || r.subjectId) === subjectF || r.subjectId === subjectF || r.subjectName === subjectF));
     if (search)   data = data.filter(r => {
         const s = adminState.students.find(s => s.id === r.studentId);
         const stuName = (s?.name || r.studentName || '').toLowerCase();
-        return stuName.includes(search) || (r.subjectId || '').toLowerCase().includes(search);
+        const subName = (resolveSubject(r.subjectName || r.subjectId) || '').toLowerCase();
+        return stuName.includes(search) || subName.includes(search) || (r.subjectId || '').toLowerCase().includes(search);
     });
 
     // Populate subject filter dropdown if present
     const subjectFilterEl = document.getElementById('resultsFilterSubject');
     if (subjectFilterEl && subjectFilterEl.options.length <= 1) {
-        const allSubs = [...new Set(adminState.results.map(r => r.subjectId || r.subjectName).filter(Boolean))];
+        const allSubs = [...new Set(adminState.results.map(r => resolveSubject(r.subjectName || r.subjectId)).filter(Boolean))];
         allSubs.forEach(sub => {
             const opt = document.createElement('option');
             opt.value = sub;
@@ -2429,11 +2430,12 @@ function renderResultsTable() {
         const locked  = r.locked ? 'locked' : 'unlocked';
         const csDisplay = r.classScore50 !== undefined && r.classScore50 !== '' ? r.classScore50 : (r.classScore != null && r.classScore !== '' ? Math.round((Number(r.classScore)/100)*50*10)/10 : '—');
         const esDisplay = r.examScore50 !== undefined && r.examScore50 !== '' ? r.examScore50 : (r.examScore != null && r.examScore !== '' ? Math.round((Number(r.examScore)/100)*50*10)/10 : '—');
+        const displaySubject = resolveSubject(r.subjectName || r.subjectId) || '—';
         return `<tr>
             <td><input type="checkbox" class="result-checkbox" value="${r.id}" onchange="handleResultCheckbox()"></td>
             <td>${escHtml(student?.name || r.studentName || r.studentId || '—')}</td>
             <td>${escHtml(resolveClass(r.classId))}</td>
-            <td>${escHtml(r.subjectId || r.subjectName || '—')}</td>
+            <td>${escHtml(displaySubject)}</td>
             <td>${csDisplay}</td>
             <td>${esDisplay}</td>
             <td><strong>${r.totalScore ?? '—'}</strong></td>
@@ -2489,7 +2491,7 @@ function openEditResultModal(id) {
     document.getElementById('erm-id').value = r.id;
     document.getElementById('erm-student').value = student?.name || r.studentName || 'Student #' + r.studentId;
     document.getElementById('erm-class').value = resolveClass(r.classId);
-    document.getElementById('erm-subject').value = r.subjectName || r.subjectId || '';
+    document.getElementById('erm-subject').value = resolveSubject(r.subjectName || r.subjectId) || '';
     document.getElementById('erm-classScore').value = (r.classScore !== undefined && r.classScore !== null) ? r.classScore : '';
     document.getElementById('erm-examScore').value = (r.examScore !== undefined && r.examScore !== null) ? r.examScore : '';
     document.getElementById('erm-status').value = r.status || 'Draft';
@@ -2752,15 +2754,18 @@ function bulkDeleteResults() {
 // Helper: remove a result's score from the teacher-portal scores bag
 function _purgeResultFromScoresBag(r) {
     if (!r) return;
-    const subName = r.subjectName || r.subjectId || '';
-    if (!subName) return;
+    const subName = resolveSubject(r.subjectName || r.subjectId) || r.subjectName || r.subjectId || '';
+    const subId = r.subjectId || '';
     const scoresBag = JSON.parse(localStorage.getItem('scores') || '{}');
-    if (scoresBag[subName]) {
-        delete scoresBag[subName][String(r.studentId)];
-        localStorage.setItem('scores', JSON.stringify(scoresBag));
-        if (typeof syncSaveCollection === 'function') {
-            try { syncSaveCollection('scores', scoresBag); } catch(e) {}
+    [subName, subId, r.subjectName, r.subjectId].filter(Boolean).forEach(k => {
+        if (scoresBag[k]) {
+            delete scoresBag[k][String(r.studentId)];
+            delete scoresBag[k][Number(r.studentId)];
         }
+    });
+    localStorage.setItem('scores', JSON.stringify(scoresBag));
+    if (typeof syncSaveCollection === 'function') {
+        try { syncSaveCollection('scores', scoresBag); } catch(e) {}
     }
 }
 
