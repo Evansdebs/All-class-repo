@@ -324,13 +324,39 @@ function totalScore(cs, es) {
 }
 function scoreKey(studentId) { return String(studentId); }
 function getScoreEntry(subject, studentId) {
-    const bag = scores[subject] || {};
-    const id = scoreKey(studentId);
-    return bag[id] || bag[studentId] || bag[Number(studentId)] || { classScore: '', examScore: '', totalScore: '' };
+    const sId = String(studentId);
+    const subKey = String(subject || '').trim();
+    const bag = scores[subKey] || scores[subKey.toUpperCase()] || {};
+    let entry = bag[sId] || bag[studentId] || (typeof studentId === 'string' && !isNaN(Number(studentId)) ? bag[Number(studentId)] : null);
+    
+    // Check results collection in localStorage for latest edits
+    const results = loadJSON('results', []);
+    const r = results.find(res =>
+        String(res.studentId) === sId &&
+        (String(res.subjectName || '').toLowerCase().trim() === subKey.toLowerCase() || String(res.subjectId || '').toLowerCase().trim() === subKey.toLowerCase())
+    );
+    if (r && (r.classScore !== '' || r.examScore !== '')) {
+        if (!entry || (entry.classScore === '' && entry.examScore === '')) {
+            return {
+                classScore: r.classScore,
+                examScore: r.examScore,
+                classScore50: r.classScore50 !== undefined ? r.classScore50 : fifty(r.classScore),
+                examScore50: r.examScore50 !== undefined ? r.examScore50 : fifty(r.examScore),
+                totalScore: r.totalScore,
+                grade: r.grade,
+                remark: r.remark
+            };
+        }
+    }
+    return entry || { classScore: '', examScore: '', totalScore: '' };
 }
 function putScoreEntry(subject, studentId, data) {
-    if (!scores[subject]) scores[subject] = {};
-    scores[subject][scoreKey(studentId)] = data;
+    const subKey = String(subject || '').trim();
+    if (!scores[subKey]) scores[subKey] = {};
+    scores[subKey][scoreKey(studentId)] = data;
+    if (!isNaN(Number(studentId))) {
+        scores[subKey][Number(studentId)] = data;
+    }
 }
 function getDepartmentForClass(className) {
     const cls = classRecord(className || currentClass);

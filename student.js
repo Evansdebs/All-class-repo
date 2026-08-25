@@ -263,12 +263,15 @@ function handleStudentLogout() {
 
 function collectStudentResultRows(student) {
     const scores = JSON.parse(localStorage.getItem('scores') || '{}');
-    const rows = [];
+    const results = JSON.parse(localStorage.getItem('results') || '[]');
+    const rowsMap = new Map();
+
+    // 1. Load from scores
     Object.keys(scores).forEach(sub => {
         const bag = scores[sub] || {};
-        const entry = bag[student.id] || bag[String(student.id)];
-        if (!entry) return;
-        rows.push({
+        const entry = bag[student.id] || bag[String(student.id)] || (!isNaN(Number(student.id)) ? bag[Number(student.id)] : null);
+        if (!entry || (entry.classScore === '' && entry.examScore === '' && (entry.totalScore == null || entry.totalScore === ''))) return;
+        rowsMap.set(sub.toLowerCase().trim(), {
             Subject: sub,
             'Class Score': entry.classScore50 != null && entry.classScore50 !== '' ? entry.classScore50 : (entry.classScore ?? ''),
             'Exam Score': entry.examScore50 != null && entry.examScore50 !== '' ? entry.examScore50 : (entry.examScore ?? ''),
@@ -277,7 +280,23 @@ function collectStudentResultRows(student) {
             Remark: entry.remark || ''
         });
     });
-    return rows;
+
+    // 2. Overwrite / merge from results array (has admin edits)
+    results.filter(r => String(r.studentId) === String(student.id)).forEach(r => {
+        const sub = r.subjectName || r.subjectId || 'Subject';
+        if (r.classScore !== '' || r.examScore !== '' || (r.totalScore != null && r.totalScore !== '')) {
+            rowsMap.set(sub.toLowerCase().trim(), {
+                Subject: sub,
+                'Class Score': r.classScore50 != null && r.classScore50 !== '' ? r.classScore50 : (r.classScore != null && r.classScore !== '' ? Math.round((Number(r.classScore)/100)*50*10)/10 : ''),
+                'Exam Score': r.examScore50 != null && r.examScore50 !== '' ? r.examScore50 : (r.examScore != null && r.examScore !== '' ? Math.round((Number(r.examScore)/100)*50*10)/10 : ''),
+                Total: r.totalScore ?? '',
+                Grade: r.grade || '',
+                Remark: r.remark || ''
+            });
+        }
+    });
+
+    return Array.from(rowsMap.values());
 }
 
 function downloadStudentResultsCsv() {
