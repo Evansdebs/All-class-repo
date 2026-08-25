@@ -2295,6 +2295,13 @@ function populateAllDropdowns() {
 }
 
 // ─── RESULTS ─────────────────────────────────────────────────────────────────
+function persistResults() {
+    localStorage.setItem('results', JSON.stringify(adminState.results));
+    if (typeof syncSaveCollection === 'function') {
+        try { syncSaveCollection('results', adminState.results); } catch (e) {}
+    }
+}
+
 function syncScoresIntoResults() {
     try {
         // 1. Sync from localStorage 'results'
@@ -2306,9 +2313,7 @@ function syncScoresIntoResults() {
                 (ar.subjectId === r.subjectId || ar.subjectName === r.subjectName) &&
                 String(ar.classId) === String(r.classId))
             );
-            if (existing) {
-                Object.assign(existing, r);
-            } else {
+            if (!existing) {
                 adminState.results.push(r);
             }
         });
@@ -2322,7 +2327,7 @@ function syncScoresIntoResults() {
             const studentScores = scoresBag[subName] || {};
             Object.keys(studentScores).forEach(studentId => {
                 const se = studentScores[studentId];
-                if (!se || (se.classScore === '' && se.examScore === '')) return;
+                if (!se || (se.classScore === '' && se.examScore === '' && se.totalScore === '')) return;
 
                 const student = adminState.students.find(s => String(s.id) === String(studentId));
                 const classId = student?.classId || student?.class || '';
@@ -2367,7 +2372,10 @@ function syncScoresIntoResults() {
             });
         });
 
-        persistResults();
+        localStorage.setItem('results', JSON.stringify(adminState.results));
+        if (typeof syncSaveCollection === 'function') {
+            try { syncSaveCollection('results', adminState.results); } catch (e) {}
+        }
     } catch(e) {
         console.warn('syncScoresIntoResults error:', e);
     }
