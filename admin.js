@@ -425,6 +425,8 @@ async function loadAllData(opts = {}) {
         adminState.scores               = scores;
         adminState.studentReportDetails = studentReportDetails;
         
+        syncScoresIntoResults();
+        
         let localLogs = JSON.parse(localStorage.getItem('auditLogs') || '[]');
         if (!localLogs.length) {
             try {
@@ -471,17 +473,11 @@ async function safeGetCollection(name) {
     try {
         const cached = JSON.parse(localStorage.getItem(name) || '[]');
         if (cached && (Array.isArray(cached) ? cached.length > 0 : Object.keys(cached).length > 0)) {
-            if (isFirebaseActive && typeof getCollection === 'function') {
-                getCollection(name).then(fresh => {
-                    if (fresh && fresh.length) {
-                        adminState[name] = fresh;
-                    }
-                }).catch(() => {});
-            }
             return cached;
         }
         if (isFirebaseActive && typeof getCollection === 'function') {
-            return await getCollection(name);
+            const fresh = await getCollection(name);
+            if (fresh) return fresh;
         }
         return cached;
     } catch (e) {
@@ -2304,6 +2300,7 @@ function persistResults() {
 
 function syncScoresIntoResults() {
     try {
+        let addedCount = 0;
         // 1. Sync from localStorage 'results'
         const storedResults = JSON.parse(localStorage.getItem('results') || '[]');
         storedResults.forEach(r => {
@@ -2315,6 +2312,7 @@ function syncScoresIntoResults() {
             );
             if (!existing) {
                 adminState.results.push(r);
+                addedCount++;
             }
         });
 
@@ -2368,13 +2366,16 @@ function syncScoresIntoResults() {
                         updatedAt: new Date().toISOString()
                     };
                     adminState.results.push(newRes);
+                    addedCount++;
                 }
             });
         });
 
-        localStorage.setItem('results', JSON.stringify(adminState.results));
-        if (typeof syncSaveCollection === 'function') {
-            try { syncSaveCollection('results', adminState.results); } catch (e) {}
+        if (addedCount > 0) {
+            localStorage.setItem('results', JSON.stringify(adminState.results));
+            if (typeof syncSaveCollection === 'function') {
+                try { syncSaveCollection('results', adminState.results); } catch (e) {}
+            }
         }
     } catch(e) {
         console.warn('syncScoresIntoResults error:', e);
@@ -2382,7 +2383,6 @@ function syncScoresIntoResults() {
 }
 
 function renderResultsTable() {
-    syncScoresIntoResults();
     const yearF    = document.getElementById('resultsFilterYear')?.value   || '';
     const termF    = document.getElementById('resultsFilterTerm')?.value   || '';
     const classF   = document.getElementById('resultsFilterClass')?.value  || '';
