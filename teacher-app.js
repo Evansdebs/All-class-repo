@@ -937,6 +937,13 @@ function getCaValue(assessments, index) {
     return '';
 }
 
+function setAutosaveStatus(text, color, icon) {
+    const el = document.getElementById('autosaveStatus');
+    if (!el) return;
+    el.style.color = color || '#64748b';
+    el.innerHTML = icon ? `<i class="fas ${icon}"></i> ${text}` : text;
+}
+
 function drawScoreSheet() {
     const wrap = document.getElementById('scoreSheet');
     if (!wrap) return;
@@ -949,12 +956,17 @@ function drawScoreSheet() {
         <div><strong>Mark entry locked by Admin.</strong> Scores for this subject are approved and read-only. Contact the administrator to unlock if edits are required.</div>
     </div>` : '';
 
+    const statusBadge = `<span id="autosaveStatus" style="font-size:12px;font-weight:600;color:#94a3b8;margin-left:12px;display:inline-flex;align-items:center;gap:5px;"><i class="fas fa-check"></i> Autosaved</span>`;
+
     if (piecewiseMode) {
         const caHeaders = Array.from({ length: caCount }, (_, i) => `<th>CA ${i + 1}</th>`).join('');
         wrap.innerHTML = `
             ${lockBanner}
             <div style="display:flex;align-items:center;justify-content:space-between;margin:8px 0 6px;">
-                <h3 style="margin:0;">${esc(currentSubject)} ${locked ? '<span style="font-size:12px;color:#d97706;font-weight:600;"><i class="fas fa-lock"></i> Locked</span>' : ''}</h3>
+                <h3 style="margin:0;display:flex;align-items:center;">
+                    ${esc(currentSubject)} ${locked ? '<span style="font-size:12px;color:#d97706;font-weight:600;margin-left:8px;"><i class="fas fa-lock"></i> Locked</span>' : ''}
+                    ${statusBadge}
+                </h3>
                 <span style="font-size:12px;color:var(--text-muted,#64748b);">Department: <strong>${esc(dept)}</strong></span>
             </div>
             <p class="hint" style="margin:0 0 10px;">Enter scores for each CA section. All CA entries sum up to <strong>Class Assessment /100</strong> (max 100%), converted to <strong>Class 50%</strong> + <strong>Exam 50%</strong> = <strong>Total 100%</strong>.</p>
@@ -1002,7 +1014,10 @@ function drawScoreSheet() {
         wrap.innerHTML = `
             ${lockBanner}
             <div style="display:flex;align-items:center;justify-content:space-between;margin:8px 0 10px;">
-                <h3 style="margin:0;">${esc(currentSubject)} ${locked ? '<span style="font-size:12px;color:#d97706;font-weight:600;"><i class="fas fa-lock"></i> Locked</span>' : ''}</h3>
+                <h3 style="margin:0;display:flex;align-items:center;">
+                    ${esc(currentSubject)} ${locked ? '<span style="font-size:12px;color:#d97706;font-weight:600;margin-left:8px;"><i class="fas fa-lock"></i> Locked</span>' : ''}
+                    ${statusBadge}
+                </h3>
                 <span style="font-size:12px;color:var(--text-muted,#64748b);">Department: <strong>${esc(dept)}</strong></span>
             </div>
             <div class="table-wrap"><table class="score-table">
@@ -1106,11 +1121,14 @@ function autosavePiece(studentId, part, inputEl) {
     }
     putScoreEntry(currentSubject, studentId, row);
     refreshScoreRow(studentId);
+    setAutosaveStatus('Autosaving in 5s…', '#d97706', 'fa-clock');
     clearTimeout(saveTimer);
     saveTimer = setTimeout(() => {
         persistScores();
         syncScoresToResults();
         renderStats();
+        setAutosaveStatus('All marks saved & updated', '#059669', 'fa-check-circle');
+        setTimeout(() => { setAutosaveStatus('Autosaved', '#94a3b8', 'fa-check'); }, 2500);
     }, 5000);
 }
 
@@ -1119,8 +1137,10 @@ function syncScoresToResults() {
     try {
         const existingResults = JSON.parse(localStorage.getItem('results') || '[]');
         const classes = JSON.parse(localStorage.getItem('classes') || '[]');
-        const classRec = classes.find(c => c.name === currentClass || c.id === currentClass);
+        const subjectsList = JSON.parse(localStorage.getItem('subjects') || '[]');
+        const classRec = classes.find(c => c.name === currentClass || String(c.id) === String(currentClass));
         const classId = classRec ? classRec.id : currentClass;
+        const className = classRec ? classRec.name : currentClass;
         const subs = allClassSubjects(currentClass);
         const studs = classStudents();
         const years = JSON.parse(localStorage.getItem('academicYears') || '[]');
@@ -1132,34 +1152,54 @@ function syncScoresToResults() {
         studs.forEach(stu => {
             subs.forEach(sub => {
                 const e = getScoreEntry(sub, stu.id);
-                if (!e || (e.classScore === '' && e.examScore === '')) return;
+                if (!e || (e.classScore === '' && e.examScore === '' && (e.totalScore == null || e.totalScore === ''))) return;
+
+                const subObj = subjectsList.find(s => s.name === sub || String(s.id) === String(sub) || s.code === sub);
+                const subName = subObj?.name || sub;
+                const subId = subObj?.id || sub;
+
+                const csVal = (e.classScore !== '' && e.classScore != null) ? Number(e.classScore) : '';
+                const esVal = (e.examScore !== '' && e.examScore != null) ? Number(e.examScore) : '';
+                const cs50 = csVal !== '' ? (e.classScore50 !== undefined && e.classScore50 !== '' ? Number(e.classScore50) : fifty(csVal)) : '';
+                const es50 = esVal !== '' ? (e.examScore50 !== undefined && e.examScore50 !== '' ? Number(e.examScore50) : fifty(esVal)) : '';
+                const totVal = (cs50 !== '' && es50 !== '') ? Math.round((Number(cs50) + Number(es50)) * 10) / 10 : (e.totalScore || '');
+                const dept = getDepartmentForClass(className);
+                const g = totVal !== '' ? getGrade(totVal, className) : { grade: e.grade || '', remark: e.remark || '' };
+
                 const existing = results.find(r =>
                     String(r.studentId) === String(stu.id) &&
-                    (r.subjectId === sub || r.subjectName === sub) &&
-                    r.classId === classId
+                    (
+                        String(r.subjectName || '').toLowerCase().trim() === subName.toLowerCase().trim() ||
+                        String(r.subjectId || '').toLowerCase().trim() === String(subId).toLowerCase().trim() ||
+                        String(r.subjectId || '').toLowerCase().trim() === subName.toLowerCase().trim()
+                    )
                 );
-                const entry = {
+
+                const entryData = {
                     studentId: String(stu.id),
                     studentName: stu.name,
-                    classId,
-                    subjectId: sub,
-                    subjectName: sub,
-                    classScore: e.classScore,
-                    examScore: e.examScore,
-                    totalScore: e.totalScore,
-                    grade: e.grade,
-                    remark: e.remark,
-                    status: 'Submitted',
+                    classId: classId,
+                    subjectId: subId,
+                    subjectName: subName,
+                    classScore: csVal,
+                    examScore: esVal,
+                    classScore50: cs50,
+                    examScore50: es50,
+                    totalScore: totVal,
+                    grade: g.grade,
+                    remark: g.remark,
+                    status: existing?.status === 'Approved' ? 'Approved' : 'Submitted',
                     academicYearId: activeYear?.id || schoolInfo.academicYear || '',
                     termId: activeTerm?.id || schoolInfo.term || '',
                     updatedAt: new Date().toISOString()
                 };
+
                 if (existing) {
-                    Object.assign(existing, entry);
+                    Object.assign(existing, entryData);
                 } else {
-                    entry.id = 'res_' + Date.now().toString(36) + Math.random().toString(36).slice(2,5);
-                    entry.locked = false;
-                    results.push(entry);
+                    entryData.id = 'res_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
+                    entryData.locked = false;
+                    results.push(entryData);
                 }
             });
         });
@@ -1213,11 +1253,14 @@ function autosaveScore(studentId, field, inputEl) {
     }
     putScoreEntry(currentSubject, studentId, row);
     refreshScoreRow(studentId);
+    setAutosaveStatus('Autosaving in 5s…', '#d97706', 'fa-clock');
     clearTimeout(saveTimer);
     saveTimer = setTimeout(() => {
         persistScores();
         syncScoresToResults();
         renderStats();
+        setAutosaveStatus('All marks saved & updated', '#059669', 'fa-check-circle');
+        setTimeout(() => { setAutosaveStatus('Autosaved', '#94a3b8', 'fa-check'); }, 2500);
     }, 5000);
 }
 
