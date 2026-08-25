@@ -1111,7 +1111,7 @@ function autosavePiece(studentId, part, inputEl) {
         persistScores();
         syncScoresToResults();
         renderStats();
-    }, 280);
+    }, 5000);
 }
 
 // Sync scores to the shared results collection so admin can see them
@@ -1218,7 +1218,7 @@ function autosaveScore(studentId, field, inputEl) {
         persistScores();
         syncScoresToResults();
         renderStats();
-    }, 280);
+    }, 5000);
 }
 
 function marksTemplateRows() {
@@ -2292,8 +2292,14 @@ window.addEventListener('storage', (e) => {
     if (['reports', 'scores', 'results', 'students', 'classes', 'subjects', 'schoolSettings', 'schoolInfo'].includes(e.key)) {
         loadAll();
         if (typeof currentTab !== 'undefined') {
+            const isTyping = document.activeElement && ['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement.tagName);
             if (currentTab === 'reports') renderReports();
-            else if (currentTab === 'scores') { renderScoresTable(); renderStats(); }
+            else if (currentTab === 'scores') {
+                if (!isTyping) {
+                    renderScores();
+                    renderStats();
+                }
+            }
             else if (currentTab === 'broadsheet') renderBroadsheet();
         }
     }
