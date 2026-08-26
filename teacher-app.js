@@ -262,9 +262,14 @@ function teacherById(id) {
 function classTeacherName(className) {
     const cls = classRecord(className || currentClass);
     if (!cls) return '';
-    const assigned = teacherById(cls.classTeacherId);
-    if (assigned && assigned.name && assigned.status !== 'deleted' && !assigned.isDeleted) return assigned.name;
-    if (cls.classTeacherName) return cls.classTeacherName;
+    // Only use the teacher who is explicitly assigned via classTeacherId
+    // Never fall back to the stale cached cls.classTeacherName string
+    if (cls.classTeacherId) {
+        const assigned = teacherById(cls.classTeacherId);
+        if (assigned && assigned.name && assigned.status !== 'deleted' && !assigned.isDeleted) {
+            return assigned.name;
+        }
+    }
     return '';
 }
 function headTeacherName() {
@@ -274,6 +279,9 @@ function headTeacherName() {
 }
 function schoolLogoSrc() {
     return schoolSettings.schoolLogo || schoolInfo.schoolLogo || null;
+}
+function headTeacherSignatureSrc() {
+    return schoolSettings.signature || schoolSettings.headTeacherSignature || schoolInfo.signature || schoolInfo.headTeacherSignature || null;
 }
 function applyAdminCalendar() {
     const years = loadJSON('academicYears', []);
@@ -285,6 +293,7 @@ function applyAdminCalendar() {
     if (schoolSettings.closingDate) schoolInfo.closingDate = schoolSettings.closingDate;
     if (schoolSettings.reopeningDate) schoolInfo.reopeningDate = schoolSettings.reopeningDate;
     if (schoolSettings.headTeacher) schoolInfo.headTeacher = schoolSettings.headTeacher;
+    if (schoolSettings.signature) schoolInfo.signature = schoolSettings.signature;
 }
 function termHeading() {
     const terms = loadJSON('terms', []);
@@ -1787,10 +1796,10 @@ function buildUnifiedReportHTML(id) {
         const allAgg = [...coreResults, ...bestTwo];
         const totalAgg = allAgg.reduce((s, r) => s + (Number(r.grade) || 0), 0);
         jhsAggregateHTML = `
-        <div style="background:#1e1b4b;color:#fff;padding:12px 16px;border-radius:8px;margin-bottom:16px;font-size:12.5px;">
-            <div style="font-weight:700;font-size:14px;margin-bottom:6px;">JHS TOTAL AGGREGATE</div>
-            <div style="font-size:22px;font-weight:800;letter-spacing:-1px;">${totalAgg}</div>
-            ${allAgg.length < 6 ? '<div style="font-size:11px;margin-top:4px;color:#fbbf24;">⚠ Not all 6 aggregate subjects have scores</div>' : ''}
+        <div style="background:#1e1b4b;color:#fff;padding:6px 12px;border-radius:8px;margin-bottom:10px;font-size:12.5px;">
+            <div style="font-weight:700;font-size:13px;margin-bottom:3px;">JHS TOTAL AGGREGATE</div>
+            <div style="font-size:20px;font-weight:800;letter-spacing:-1px;">${totalAgg}</div>
+            ${allAgg.length < 6 ? '<div style="font-size:10.5px;margin-top:3px;color:#fbbf24;">⚠ Not all 6 aggregate subjects have scores</div>' : ''}
         </div>`;
     }
 
@@ -1853,9 +1862,17 @@ function buildUnifiedReportHTML(id) {
             </div>
         </div>
 
-        <div style="display:flex;justify-content:space-between;padding-top:14px;border-top:1px dashed #cbd5e1;font-size:12px;color:#475569;">
-            <div><strong>Class Teacher:</strong> ${esc(classTeacherName(className) || '—')}</div>
-            <div><strong>Headteacher:</strong> ${esc(headTeacherName() || '—')}</div>
+        <div style="display:flex;justify-content:space-between;padding-top:14px;border-top:1px dashed #cbd5e1;font-size:12px;color:#475569;gap:20px;">
+            <div style="flex:1;">
+                <div><strong>Class Teacher:</strong> ${esc(classTeacherName(className) || '—')}</div>
+                <div style="height:24px;margin-top:4px;"></div>
+                <div style="border-top:1px solid #94a3b8;padding-top:3px;font-size:10.5px;color:#94a3b8;">Signature</div>
+            </div>
+            <div style="flex:1;text-align:right;">
+                <div><strong>Headteacher:</strong> ${esc(headTeacherName() || '—')}</div>
+                ${headTeacherSignatureSrc() ? `<div style="height:28px;margin-top:2px;display:flex;justify-content:flex-end;align-items:flex-end;"><img src="${headTeacherSignatureSrc()}" style="max-height:26px;object-fit:contain;" alt="Signature" crossorigin="anonymous"></div>` : '<div style="height:24px;margin-top:4px;"></div>'}
+                <div style="border-top:1px solid #94a3b8;padding-top:3px;font-size:10.5px;color:#94a3b8;">Signature</div>
+            </div>
         </div>
     </div>`;
 }

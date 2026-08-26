@@ -3107,9 +3107,11 @@ async function bulkDownloadSelectedReports() {
                 jhsAggValue = [...coreR, ...elecR].reduce((s, r) => s + r.grade, 0);
             }
 
-            // Resolve class teacher from classRec
-            const ctName = classRec?.classTeacherName || (adminState.teachers.find(t => String(t.id) === String(classRec?.classTeacherId) && !t.isDeleted)?.name) || '';
-            const htName = settings.headTeacher || schoolInf.headTeacher || '';
+            // Resolve class teacher strictly from assigned teacher ID
+            const assignedTeacher = classRec?.classTeacherId ? adminState.teachers.find(t => String(t.id) === String(classRec.classTeacherId) && !t.isDeleted && t.status !== 'deleted') : null;
+            const ctName = assignedTeacher?.name || '';
+            const htTeacher = adminState.teachers.find(t => t.role === 'Headteacher' && t.status !== 'inactive' && !t.isDeleted);
+            const htName = htTeacher?.name || settings.headTeacher || schoolInf.headTeacher || '';
 
             // Build subjects array for PDF
             const subjectsForPDF = classSubs.map(sub => {
@@ -3442,13 +3444,18 @@ function viewReport(id) {
         const allAgg = [...coreResults, ...bestTwo];
         const totalAgg = allAgg.reduce((s, r) => s + r.grade, 0);
         jhsAggregateHTML = `
-        <div style="background:#1e1b4b;color:#fff;padding:12px 16px;border-radius:8px;margin-bottom:16px;font-size:12.5px;">
-            <div style="font-weight:700;font-size:14px;margin-bottom:6px;">JHS TOTAL AGGREGATE</div>
-            <div style="font-size:22px;font-weight:800;letter-spacing:-1px;">${totalAgg}</div>
-            ${allAgg.length < 6 ? '<div style="font-size:11px;margin-top:4px;color:#fbbf24;">&#9888; Not all 6 aggregate subjects have scores</div>' : ''}
+        <div style="background:#1e1b4b;color:#fff;padding:6px 12px;border-radius:8px;margin-bottom:10px;font-size:12.5px;">
+            <div style="font-weight:700;font-size:13px;margin-bottom:3px;">JHS TOTAL AGGREGATE</div>
+            <div style="font-size:20px;font-weight:800;letter-spacing:-1px;">${totalAgg}</div>
+            ${allAgg.length < 6 ? '<div style="font-size:10.5px;margin-top:3px;color:#fbbf24;">&#9888; Not all 6 aggregate subjects have scores</div>' : ''}
         </div>`;
     }
 
+    const assignedTeacher = classRec?.classTeacherId ? adminState.teachers.find(t => String(t.id) === String(classRec.classTeacherId) && !t.isDeleted && t.status !== 'deleted') : null;
+    const ctName = assignedTeacher?.name || '';
+    const htTeacher = adminState.teachers.find(t => t.role === 'Headteacher' && t.status !== 'inactive' && !t.isDeleted);
+    const htName = htTeacher?.name || settings.headTeacher || schoolInf.headTeacher || '';
+    const htSignature = settings.signature || schoolInf.signature || null;
 
     const modalBody = document.getElementById('adminPreviewReportBody');
     if (!modalBody) return;
@@ -3513,9 +3520,17 @@ function viewReport(id) {
                 </div>
             </div>
 
-            <div style="display:flex;justify-content:space-between;padding-top:14px;border-top:1px dashed #cbd5e1;font-size:12px;color:#475569;">
-                <div><strong>Class Teacher:</strong> ${escHtml(classRec?.classTeacherName || '—')}</div>
-                <div><strong>Headteacher:</strong> ${escHtml(settings.headTeacher || '—')}</div>
+            <div style="display:flex;justify-content:space-between;padding-top:14px;border-top:1px dashed #cbd5e1;font-size:12px;color:#475569;gap:20px;">
+                <div style="flex:1;">
+                    <div><strong>Class Teacher:</strong> ${escHtml(ctName || '—')}</div>
+                    <div style="height:24px;margin-top:4px;"></div>
+                    <div style="border-top:1px solid #94a3b8;padding-top:3px;font-size:10.5px;color:#94a3b8;">Signature</div>
+                </div>
+                <div style="flex:1;text-align:right;">
+                    <div><strong>Headteacher:</strong> ${escHtml(htName || '—')}</div>
+                    ${htSignature ? `<div style="height:28px;margin-top:2px;display:flex;justify-content:flex-end;align-items:flex-end;"><img src="${htSignature}" style="max-height:26px;object-fit:contain;" alt="Signature"></div>` : '<div style="height:24px;margin-top:4px;"></div>'}
+                    <div style="border-top:1px solid #94a3b8;padding-top:3px;font-size:10.5px;color:#94a3b8;">Signature</div>
+                </div>
             </div>
         </div>
     `;
@@ -3722,8 +3737,10 @@ async function executeAdminBulkDownload() {
                 jhsAggValue = [...coreR, ...elecR].reduce((s, r) => s + r.grade, 0);
             }
 
-            const ctName = classRec?.classTeacherName || (adminState.teachers.find(t => String(t.id) === String(classRec?.classTeacherId) && !t.isDeleted)?.name) || '';
-            const htName = settings.headTeacher || schoolInf.headTeacher || '';
+            const assignedTeacher = classRec?.classTeacherId ? adminState.teachers.find(t => String(t.id) === String(classRec.classTeacherId) && !t.isDeleted && t.status !== 'deleted') : null;
+            const ctName = assignedTeacher?.name || '';
+            const htTeacher = adminState.teachers.find(t => t.role === 'Headteacher' && t.status !== 'inactive' && !t.isDeleted);
+            const htName = htTeacher?.name || settings.headTeacher || schoolInf.headTeacher || '';
             const subjectsForPDF = classSubs.map(sub => {
                 const subName = sub.name || sub;
                 const se = getStudentSubjectScore(student.id, subName, sub.id);
