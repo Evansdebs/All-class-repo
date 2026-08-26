@@ -994,7 +994,7 @@ function drawScoreSheet() {
                         const caInputs = Array.from({ length: caCount }, (_, idx) => {
                             const i = idx + 1;
                             const val = getCaValue(a, i);
-                            return `<td><input type="number" min="0" max="100" step="0.1" placeholder="CA ${i}" value="${val}" ${locked ? 'disabled title="Locked by Admin"' : ''} oninput="autosavePiece('${sid}','ca${i}',this)"></td>`;
+                            return `<td><input type="number" min="0" max="100" step="0.1" placeholder="CA ${i}" value="${val}" ${locked ? 'disabled title="Locked by Admin"' : ''} oninput="autosavePiece('${sid}','ca${i}',this)" onblur="flushScores()"></td>`;
                         }).join('');
 
                         return `<tr data-sid="${sid}">
@@ -1002,7 +1002,7 @@ function drawScoreSheet() {
                             ${caInputs}
                             <td class="cs-calc muted"><strong>${e.classScore !== '' ? e.classScore : '—'}</strong></td>
                             <td class="cs50 muted">${cs50 === '' ? '—' : cs50}</td>
-                            <td><input type="number" min="0" max="100" step="0.1" placeholder="0–100" value="${e.examScore}" ${locked ? 'disabled title="Locked by Admin"' : ''} oninput="autosaveScore('${sid}','examScore',this)"></td>
+                            <td><input type="number" min="0" max="100" step="0.1" placeholder="0–100" value="${e.examScore}" ${locked ? 'disabled title="Locked by Admin"' : ''} oninput="autosaveScore('${sid}','examScore',this)" onblur="flushScores()"></td>
                             <td class="es50 muted">${es50 === '' ? '—' : es50}</td>
                             <td class="tot"><strong>${tot === '' ? '—' : tot}</strong></td>
                             <td class="grd">${g ? `<span class="badge grade-${g.grade}">${g.grade}</span>` : '—'}</td>
@@ -1040,9 +1040,9 @@ function drawScoreSheet() {
                         const g = ready ? getGrade(tot, currentClass) : null;
                         return `<tr data-sid="${esc(scoreKey(s.id))}">
                             <td><strong>${esc(s.name)}</strong></td>
-                            <td><input type="number" min="0" max="100" step="0.1" placeholder="0–100" value="${e.classScore}" ${locked ? 'disabled title="Locked by Admin"' : ''} oninput="autosaveScore('${esc(scoreKey(s.id))}','classScore',this)"></td>
+                            <td><input type="number" min="0" max="100" step="0.1" placeholder="0–100" value="${e.classScore}" ${locked ? 'disabled title="Locked by Admin"' : ''} oninput="autosaveScore('${esc(scoreKey(s.id))}','classScore',this)" onblur="flushScores()"></td>
                             <td class="cs50 muted">${cs50 === '' ? '—' : cs50}</td>
-                            <td><input type="number" min="0" max="100" step="0.1" placeholder="0–100" value="${e.examScore}" ${locked ? 'disabled title="Locked by Admin"' : ''} oninput="autosaveScore('${esc(scoreKey(s.id))}','examScore',this)"></td>
+                            <td><input type="number" min="0" max="100" step="0.1" placeholder="0–100" value="${e.examScore}" ${locked ? 'disabled title="Locked by Admin"' : ''} oninput="autosaveScore('${esc(scoreKey(s.id))}','examScore',this)" onblur="flushScores()"></td>
                             <td class="es50 muted">${es50 === '' ? '—' : es50}</td>
                             <td class="tot"><strong>${tot === '' ? '—' : tot}</strong></td>
                             <td class="grd">${g ? `<span class="badge grade-${g.grade}">${g.grade}</span>` : '—'}</td>
@@ -1074,7 +1074,17 @@ function refreshScoreRow(studentId) {
     if (grdCell) grdCell.innerHTML = g ? `<span class="badge grade-${g.grade}">${g.grade}</span>` : '—';
 }
 
-// Piecewise: autosave an individual assessment part and recalculate class score as sum (max 100)
+// Flush in-memory scores to localStorage — called on blur and by the inactivity timer.
+// Kept separate so oninput stays lightweight and never blocks typing.
+function flushScores() {
+    persistScores();
+    syncScoresToResults();
+    setAutosaveStatus('All marks saved & updated', '#059669', 'fa-check-circle');
+    setTimeout(() => { setAutosaveStatus('Autosaved', '#94a3b8', 'fa-check'); }, 2500);
+}
+
+// Piecewise: update in-memory entry for an individual CA component and refresh the row display.
+// localStorage is NOT written here — that happens on blur (flushScores) or the inactivity timer.
 function autosavePiece(studentId, part, inputEl) {
     if (!currentSubject) return;
     const row = Object.assign({ classScore: '', examScore: '', totalScore: '', assessments: {} }, getScoreEntry(currentSubject, studentId));
@@ -1119,18 +1129,16 @@ function autosavePiece(studentId, part, inputEl) {
         row.grade = '';
         row.remark = '';
     }
+    // Update in-memory map only — fast, no localStorage writes while user is still typing
     putScoreEntry(currentSubject, studentId, row);
-    // Immediately flush to localStorage so sync cycles & storage events never see stale data
-    persistScores();
-    syncScoresToResults();
     refreshScoreRow(studentId);
-    setAutosaveStatus('Saving…', '#d97706', 'fa-clock');
+    setAutosaveStatus('Unsaved changes…', '#d97706', 'fa-clock');
+    // Inactivity timer: if user stops typing for 1.5s, flush to localStorage automatically
     clearTimeout(saveTimer);
     saveTimer = setTimeout(() => {
+        flushScores();
         renderStats();
-        setAutosaveStatus('All marks saved & updated', '#059669', 'fa-check-circle');
-        setTimeout(() => { setAutosaveStatus('Autosaved', '#94a3b8', 'fa-check'); }, 2500);
-    }, 600);
+    }, 1500);
 }
 
 // Sync scores to the shared results collection so admin can see them
@@ -1252,18 +1260,16 @@ function autosaveScore(studentId, field, inputEl) {
         row.grade = '';
         row.remark = '';
     }
+    // Update in-memory map only — fast, no localStorage writes while user is still typing
     putScoreEntry(currentSubject, studentId, row);
-    // Immediately flush to localStorage so sync cycles & storage events never see stale data
-    persistScores();
-    syncScoresToResults();
     refreshScoreRow(studentId);
-    setAutosaveStatus('Saving…', '#d97706', 'fa-clock');
+    setAutosaveStatus('Unsaved changes…', '#d97706', 'fa-clock');
+    // Inactivity timer: if user stops typing for 1.5s, flush to localStorage automatically
     clearTimeout(saveTimer);
     saveTimer = setTimeout(() => {
+        flushScores();
         renderStats();
-        setAutosaveStatus('All marks saved & updated', '#059669', 'fa-check-circle');
-        setTimeout(() => { setAutosaveStatus('Autosaved', '#94a3b8', 'fa-check'); }, 2500);
-    }, 600);
+    }, 1500);
 }
 
 function marksTemplateRows() {
