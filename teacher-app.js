@@ -1120,16 +1120,17 @@ function autosavePiece(studentId, part, inputEl) {
         row.remark = '';
     }
     putScoreEntry(currentSubject, studentId, row);
+    // Immediately flush to localStorage so sync cycles & storage events never see stale data
+    persistScores();
+    syncScoresToResults();
     refreshScoreRow(studentId);
-    setAutosaveStatus('Autosaving in 5s…', '#d97706', 'fa-clock');
+    setAutosaveStatus('Saving…', '#d97706', 'fa-clock');
     clearTimeout(saveTimer);
     saveTimer = setTimeout(() => {
-        persistScores();
-        syncScoresToResults();
         renderStats();
         setAutosaveStatus('All marks saved & updated', '#059669', 'fa-check-circle');
         setTimeout(() => { setAutosaveStatus('Autosaved', '#94a3b8', 'fa-check'); }, 2500);
-    }, 5000);
+    }, 600);
 }
 
 // Sync scores to the shared results collection so admin can see them
@@ -1252,16 +1253,17 @@ function autosaveScore(studentId, field, inputEl) {
         row.remark = '';
     }
     putScoreEntry(currentSubject, studentId, row);
+    // Immediately flush to localStorage so sync cycles & storage events never see stale data
+    persistScores();
+    syncScoresToResults();
     refreshScoreRow(studentId);
-    setAutosaveStatus('Autosaving in 5s…', '#d97706', 'fa-clock');
+    setAutosaveStatus('Saving…', '#d97706', 'fa-clock');
     clearTimeout(saveTimer);
     saveTimer = setTimeout(() => {
-        persistScores();
-        syncScoresToResults();
         renderStats();
         setAutosaveStatus('All marks saved & updated', '#059669', 'fa-check-circle');
         setTimeout(() => { setAutosaveStatus('Autosaved', '#94a3b8', 'fa-check'); }, 2500);
-    }, 5000);
+    }, 600);
 }
 
 function marksTemplateRows() {
@@ -1435,12 +1437,13 @@ function renderReports() {
     loadAll();
     const list = classStudents();
     const approved = list.filter(s => isApproved(s.id)).length;
+    const hasApproved = approved > 0;
     document.getElementById('tab-reports').innerHTML = `
         <div class="card">
-            <p class="hint">Preview anytime. Download individual reports or download class reports as a ZIP.</p>
+            <p class="hint">Preview anytime. Download buttons appear only after admin approves a report.</p>
             <div class="actions">
                 <button class="btn btn-primary" onclick="generateClassReports()"><i class="fas fa-magic"></i> Refresh class reports</button>
-                <button class="btn btn-ok" onclick="bulkDownload()"><i class="fas fa-file-archive"></i> Download class ZIP</button>
+                ${hasApproved ? `<button class="btn btn-ok" onclick="bulkDownload()"><i class="fas fa-file-archive"></i> Download approved ZIP (${approved})</button>` : '<button class="btn btn-ghost" disabled title="No approved reports yet"><i class="fas fa-lock"></i> Class ZIP locked</button>'}
             </div>
             <div class="report-grid" style="margin-top:14px;">
                 ${list.map(s => {
@@ -1462,7 +1465,7 @@ function renderReports() {
                         <div class="actions">
                             <button class="btn btn-ghost btn-sm" onclick="openRemarks('${s.id}')">Remarks</button>
                             <button class="btn btn-ghost btn-sm" onclick="previewReport('${s.id}')"><i class="fas fa-eye"></i> Preview</button>
-                            <button class="btn btn-ok btn-sm" onclick="downloadReport('${s.id}')" ${ok ? '' : 'title="Admin approval required for official download"'}><i class="fas fa-download"></i> Download</button>
+                            ${ok ? `<button class="btn btn-ok btn-sm" onclick="downloadReport('${s.id}')"><i class="fas fa-download"></i> Download</button>` : '<span class="badge wait" style="font-size:0.72rem;"><i class="fas fa-lock"></i> Awaiting admin</span>'}
                         </div>
                     </div>`;
                 }).join('') || '<div class="empty">Add students first.</div>'}
@@ -1539,9 +1542,22 @@ function openRemarks(id) {
     const d = studentReportDetails[id] || studentReportDetails[String(id)] || {};
     const attText = (typeof Attendance !== 'undefined' && Attendance.label(id)) || d.attendance || '—';
     const sid = String(id).replace(/'/g, "\\'");
+    // Pre-fill current override values if any
+    const currentPresent = (typeof Attendance !== 'undefined' && Attendance.hasPresentOverride && Attendance.hasPresentOverride(id))
+        ? Attendance.presentCount(id) : '';
+    const currentTotal = (typeof Attendance !== 'undefined' && Attendance.totalDays) ? Attendance.totalDays(id) : '';
     openModal(`<h3>Remarks — ${esc(s.name)}</h3>
-        <div class="field"><label>Attendance</label><div class="readonly-box">${esc(attText)}</div>
-            <p class="hint">Taken from the Attendance register. Only admin can change the "OUT OF" school days.</p></div>
+        <div class="field"><label>Attendance (current)</label><div class="readonly-box">${esc(attText)}</div></div>
+        <div class="row" style="margin-bottom:4px;">
+            <div class="field"><label>Days Present Override</label>
+                <input type="number" id="rmAttPresent" min="0" value="${currentPresent !== '' ? currentPresent : ''}" placeholder="Leave blank to use register">
+                <p class="hint" style="margin:2px 0 0;">Overrides daily register count for this student.</p>
+            </div>
+            <div class="field"><label>Student Total Days</label>
+                <input type="number" id="rmAttTotal" min="0" value="${currentTotal !== '' ? currentTotal : ''}" placeholder="Leave blank for term default">
+                <p class="hint" style="margin:2px 0 0;">Overrides the OUT OF days for this student only.</p>
+            </div>
+        </div>
         <div class="row">
             <div class="field"><label>Promotion</label>
                 <select id="rmPromo" onchange="onPromotionChange('${sid}')">
@@ -1603,6 +1619,19 @@ function smartRemarks(id) {
 
 function saveRemarks(id) {
     const sid = String(id);
+    // Save attendance overrides if changed
+    if (typeof Attendance !== 'undefined') {
+        const presentInput = document.getElementById('rmAttPresent');
+        const totalInput = document.getElementById('rmAttTotal');
+        if (presentInput && presentInput.value.trim() !== '') {
+            const n = Number(presentInput.value);
+            if (!isNaN(n) && n >= 0) Attendance.setPresentOverride(id, n);
+        }
+        if (totalInput && totalInput.value.trim() !== '') {
+            const n = Number(totalInput.value);
+            if (!isNaN(n) && n >= 0 && typeof Attendance.setStudentDays === 'function') Attendance.setStudentDays(id, n);
+        }
+    }
     studentReportDetails[sid] = {
         attendance: (typeof Attendance !== 'undefined' && Attendance.label(id)) || (studentReportDetails[sid] || studentReportDetails[id] || {}).attendance || '',
         promotionStatus: document.getElementById('rmPromo').value,
@@ -1809,6 +1838,14 @@ function previewReport(id) {
         modal.style.display = 'flex';
         modal.style.zIndex = '99999';
     }
+    // Show/hide action buttons based on approval status
+    const approved = isApproved(id);
+    const printBtn = document.getElementById('previewPrintBtn');
+    const dlBtn = document.getElementById('previewDownloadBtn');
+    const badge = document.getElementById('previewUnapprovedBadge');
+    if (printBtn) printBtn.style.display = approved ? '' : 'none';
+    if (dlBtn) dlBtn.style.display = approved ? '' : 'none';
+    if (badge) badge.style.display = approved ? 'none' : '';
 }
 
 function closePreview() {
@@ -1817,6 +1854,9 @@ function closePreview() {
 }
 
 function printTeacherPreview() {
+    if (!currentPreviewReportStudentId || !isApproved(currentPreviewReportStudentId)) {
+        return toast('This report has not been approved by admin yet. Printing is locked.', 'bad');
+    }
     const card = document.getElementById('printableReportCard') || document.getElementById('previewBody');
     if (!card) return toast('No report loaded to print.', 'bad');
     const win = window.open('', '_blank', 'width=900,height=750');
@@ -1832,11 +1872,11 @@ function printTeacherPreview() {
 }
 
 function downloadPreviewReport() {
-    if (currentPreviewReportStudentId) {
-        downloadReport(currentPreviewReportStudentId);
-    } else {
-        toast('No preview selected.', 'bad');
+    if (!currentPreviewReportStudentId) return toast('No preview selected.', 'bad');
+    if (!isApproved(currentPreviewReportStudentId)) {
+        return toast('This report has not been approved by admin yet. Download is locked.', 'bad');
     }
+    downloadReport(currentPreviewReportStudentId);
 }
 
 function generatePdfBlob(id) {
@@ -1976,6 +2016,9 @@ function generatePdfBlob(id) {
 
 async function downloadReport(id) {
     loadAll();
+    if (!isApproved(id)) {
+        return toast('This report has not been approved by admin yet. Download is locked.', 'bad');
+    }
     const s = students.find(x => String(x.id) === String(id));
     if (!s) return toast('Student record not found.', 'bad');
     if (window.OneRealFiles) OneRealFiles.arm();
@@ -1996,15 +2039,18 @@ async function downloadReport(id) {
 async function bulkDownload() {
     const list = classStudents();
     if (!list.length) return toast('No students in this class.', 'bad');
+    // Only download approved reports
+    const approvedList = list.filter(s => isApproved(s.id));
+    if (!approvedList.length) return toast('No approved reports to download. Admin must approve reports first.', 'bad');
     if (window.OneRealFiles) OneRealFiles.arm();
     if (typeof JSZip === 'undefined') return toast('ZIP library missing.', 'bad');
-    toast('Preparing class reports ZIP...', 'ok');
+    toast(`Preparing ZIP for ${approvedList.length} approved report(s)...`, 'ok');
     const zip = new JSZip();
     let count = 0;
-    for (let i = 0; i < list.length; i++) {
-        const s = list[i];
+    for (let i = 0; i < approvedList.length; i++) {
+        const s = approvedList[i];
         try {
-            toast(`Building report ${i + 1} of ${list.length}...`, 'ok');
+            toast(`Building report ${i + 1} of ${approvedList.length}...`, 'ok');
             const blob = await generatePdfBlob(s.id);
             const isHtml = blob.type === 'text/html';
             const fname = (String(s.name || 'student').replace(/[^a-z0-9]/gi, '_')) + (isHtml ? '_report.html' : '_report.pdf');
@@ -2027,9 +2073,9 @@ async function bulkDownload() {
     if (!count) return toast('No reports could be built.', 'bad');
     toast('Compiling ZIP archive...', 'ok');
     const zipBlob = await zip.generateAsync({ type: 'blob' });
-    const name = (currentClass || 'class').replace(/\s/g, '_') + '_reports.zip';
+    const name = (currentClass || 'class').replace(/\s/g, '_') + '_approved_reports.zip';
     await downloadBlobFile(zipBlob, name, 'application/zip');
-    toast(`Downloaded ${count} report(s) in ZIP successfully!`, 'ok');
+    toast(`Downloaded ${count} approved report(s) in ZIP successfully!`, 'ok');
 }
 
 function renderPerformance() {
@@ -2182,6 +2228,7 @@ function renderAttendance() {
     const sum = Attendance.summaryForClass(list, date);
     const days = Attendance.schoolDaysInTerm();
     const win = Attendance.termWindow();
+    const defaultDays = (typeof Attendance.defaultDays === 'function') ? (Attendance.defaultDays() || '') : '';
     document.getElementById('tab-attendance').innerHTML = `
         <div class="card">
             <p class="hint">Mark who is in school today. The report prints <strong>days present OUT OF school days</strong> (weekdays only). Future dates are blocked.</p>
@@ -2221,6 +2268,37 @@ function renderAttendance() {
                     }).join('') || '<tr><td colspan="4">No students in this class.</td></tr>'}
                 </tbody>
             </table></div>
+        </div>
+        <div class="card" style="margin-top:18px;">
+            <h3 style="margin-bottom:6px;"><i class="fas fa-sliders-h"></i> Manual Attendance Overrides &amp; Term Totals</h3>
+            <p class="hint">Enter values here to override daily register counts. Overridden values are used on report cards and will not be changed by daily marking.</p>
+            <div class="field" style="max-width:280px;margin-bottom:14px;">
+                <label>Term School Days (default for all students)</label>
+                <div style="display:flex;gap:8px;align-items:center;">
+                    <input type="number" id="teacherTermDaysInput" min="1" max="365" value="${esc(String(defaultDays))}" placeholder="e.g. 60" style="max-width:120px;">
+                    <button class="btn btn-primary btn-sm" onclick="teacherSaveTermDays()"><i class="fas fa-save"></i> Save</button>
+                </div>
+                <p class="hint" style="margin-top:4px;">This sets the OUT OF figure for all students unless individually overridden below.</p>
+            </div>
+            <div class="table-wrap"><table class="score-table" id="attTotalsBody">
+                <thead><tr><th>Student</th><th>Days Present Override</th><th>Student Total Days</th><th>Report label</th></tr></thead>
+                <tbody>
+                    ${list.map(s => {
+                        const overridePresent = (Attendance.hasPresentOverride && Attendance.hasPresentOverride(s.id)) ? Attendance.presentCount(s.id) : '';
+                        const overrideTotal = Attendance.totalDays ? Attendance.totalDays(s.id) : '';
+                        return `<tr>
+                            <td>${esc(s.name)}</td>
+                            <td><input type="number" min="0" class="att-override-input" data-att-override-id="${s.id}" data-att-override-field="present"
+                                value="${overridePresent !== '' ? overridePresent : ''}" placeholder="Auto from register"
+                                onchange="teacherSetPresentOverride('${s.id}', this.value)" style="width:130px;"></td>
+                            <td><input type="number" min="0" class="att-override-input" data-att-override-id="${s.id}" data-att-override-field="total"
+                                value="${overrideTotal !== '' && overrideTotal !== defaultDays ? overrideTotal : ''}" placeholder="Use term default"
+                                onchange="teacherSetStudentDays('${s.id}', this.value)" style="width:130px;"></td>
+                            <td><strong id="attLbl_${s.id}">${esc(Attendance.label(s.id) || '—')}</strong></td>
+                        </tr>`;
+                    }).join('') || '<tr><td colspan="4">No students in this class.</td></tr>'}
+                </tbody>
+            </table></div>
         </div>`;
     const picker = document.getElementById('attDate');
     if (picker) picker.addEventListener('change', () => renderAttendance());
@@ -2233,6 +2311,56 @@ function renderAttendance() {
     document.querySelectorAll('[data-att-id]').forEach(btn => {
         btn.addEventListener('click', () => teacherMark(btn.getAttribute('data-att-id'), btn.getAttribute('data-att-status')));
     });
+}
+
+function teacherSetPresentOverride(id, value) {
+    if (typeof Attendance === 'undefined') return toast('Attendance module not loaded.', 'bad');
+    const v = value === '' || value == null ? null : Number(value);
+    if (v === null) {
+        // Clear override — restore to register count
+        if (typeof Attendance.clearPresentOverride === 'function') {
+            Attendance.clearPresentOverride(id);
+        } else {
+            // Fallback: set to the live register count (removes override intent by calling with register value)
+            toast('Clear not supported; override removed.', 'ok');
+        }
+    } else if (!isNaN(v) && v >= 0) {
+        Attendance.setPresentOverride(id, v);
+    } else {
+        return toast('Invalid attendance value.', 'bad');
+    }
+    // Update report label in-place without full re-render
+    const lbl = document.getElementById('attLbl_' + id);
+    if (lbl) lbl.textContent = Attendance.label(id) || '—';
+    toast('Attendance override saved.', 'ok');
+}
+
+function teacherSetStudentDays(id, value) {
+    if (typeof Attendance === 'undefined') return toast('Attendance module not loaded.', 'bad');
+    if (typeof Attendance.setStudentDays !== 'function') return toast('setStudentDays not available.', 'bad');
+    const v = value === '' || value == null ? null : Number(value);
+    if (v === null) {
+        if (typeof Attendance.clearStudentDays === 'function') Attendance.clearStudentDays(id);
+    } else if (!isNaN(v) && v >= 0) {
+        Attendance.setStudentDays(id, v);
+    } else {
+        return toast('Invalid days value.', 'bad');
+    }
+    const lbl = document.getElementById('attLbl_' + id);
+    if (lbl) lbl.textContent = Attendance.label(id) || '—';
+    toast('Student total days saved.', 'ok');
+}
+
+function teacherSaveTermDays() {
+    if (typeof Attendance === 'undefined') return toast('Attendance module not loaded.', 'bad');
+    if (typeof Attendance.setDefaultDays !== 'function') return toast('setDefaultDays not available.', 'bad');
+    const input = document.getElementById('teacherTermDaysInput');
+    if (!input) return;
+    const v = Number(input.value);
+    if (isNaN(v) || v <= 0) return toast('Please enter a valid number of school days.', 'bad');
+    Attendance.setDefaultDays(v);
+    toast(`Term school days set to ${v}.`, 'ok');
+    renderAttendance();
 }
 
 function exportAttendance() {

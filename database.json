@@ -95,33 +95,37 @@
     },
     {
       "id": "ObCHu5hHpzmZuxAztBvm",
-      "status": "active",
-      "assignedClasses": [
-        "iPooVjMkWOUvEpY1UYDu"
-      ],
-      "displayName": "winie",
-      "email": "winie@school.com",
-      "createdAt": {
-        "seconds": 1787590895,
-        "nanoseconds": 4000000
+      "updatedAt": {
+        "nanoseconds": 190000000,
+        "seconds": 1787590896
       },
-      "userId": "Ui2qpFZVF2Q5h4hhtLO0Avp7rAN2",
-      "name": "winie",
-      "uid": "Ui2qpFZVF2Q5h4hhtLO0Avp7rAN2",
+      "email": "winie@school.com",
       "assignedSubjects": [
         "352qeuD45VdoqFGBYqrc",
         "7IaKzwCfG5T9al0tOuwK",
         "QEdtA5Hwjy7pU7F1ulyX",
         "cgt2xbBwSElElQWu9P48",
         "hQUyb6MuBXwarz7ULmT5",
-        "jWYE4s2vcfrEHoCFnPzd"
+        "jWYE4s2vcfrEHoCFnPzd",
+        "sub_mt9p5pfcby8b",
+        "sub_mt9p6juh2ehk",
+        "sub_mt9p7yu8mpoy",
+        "sub_mt9p8bx9i54c"
       ],
-      "updatedAt": {
-        "seconds": 1787590896,
-        "nanoseconds": 190000000
-      },
-      "password": "winie123",
+      "status": "active",
       "role": "Class Teacher",
+      "assignedClasses": [
+        "iPooVjMkWOUvEpY1UYDu"
+      ],
+      "userId": "Ui2qpFZVF2Q5h4hhtLO0Avp7rAN2",
+      "createdAt": {
+        "seconds": 1787590895,
+        "nanoseconds": 4000000
+      },
+      "uid": "Ui2qpFZVF2Q5h4hhtLO0Avp7rAN2",
+      "password": "winie123",
+      "displayName": "winie",
+      "name": "winie",
       "phone": ""
     },
     {
@@ -424,6 +428,62 @@
         "nanoseconds": 700000000,
         "seconds": 1787482573
       }
+    },
+    {
+      "id": "sub_mt9p5pfcby8b",
+      "name": "FRENCH",
+      "code": "FRE121",
+      "status": "active",
+      "classIds": [
+        "iPooVjMkWOUvEpY1UYDu"
+      ],
+      "isCore": false,
+      "updatedAt": {
+        "nanoseconds": 445000000,
+        "seconds": 1787724757
+      }
+    },
+    {
+      "id": "sub_mt9p6juh2ehk",
+      "isCore": false,
+      "status": "active",
+      "updatedAt": {
+        "nanoseconds": 587000000,
+        "seconds": 1787724796
+      },
+      "name": "SOCIAL STD.",
+      "code": "SOC656",
+      "classIds": [
+        "iPooVjMkWOUvEpY1UYDu"
+      ]
+    },
+    {
+      "id": "sub_mt9p7yu8mpoy",
+      "updatedAt": {
+        "nanoseconds": 382000000,
+        "seconds": 1787724863
+      },
+      "name": "ABACUS",
+      "classIds": [
+        "iPooVjMkWOUvEpY1UYDu"
+      ],
+      "code": "AC65",
+      "isCore": false,
+      "status": "active"
+    },
+    {
+      "id": "sub_mt9p8bx9i54c",
+      "classIds": [
+        "iPooVjMkWOUvEpY1UYDu"
+      ],
+      "isCore": false,
+      "status": "active",
+      "updatedAt": {
+        "seconds": 1787724879,
+        "nanoseconds": 469000000
+      },
+      "code": "BD",
+      "name": "BDT"
     }
   ],
   "academicYears": [],
@@ -433,33 +493,33 @@
   "reports": [
     {
       "id": "rpt_mt7k8dhrebt3",
-      "status": "Pending",
-      "generatedAt": "2026-08-25T22:49:18.212Z",
-      "approvedAt": "2026-08-25T22:47:23.022Z",
       "classId": "BASIC 9",
-      "termId": "",
+      "approvedAt": "2026-08-26T06:34:39.029Z",
+      "approvalKey": "D8X5RCgfRORZxlcSa2CR|2026|1",
       "studentName": "ESTHER",
+      "academicYearId": "mpFWQQVuxPNLr0tDQyN9",
+      "termId": "",
       "studentId": "D8X5RCgfRORZxlcSa2CR",
       "updatedAt": {
         "nanoseconds": 843000000,
         "seconds": 1787597413
       },
-      "approvalKey": "D8X5RCgfRORZxlcSa2CR|2026|1",
-      "academicYearId": "mpFWQQVuxPNLr0tDQyN9",
-      "generatedBy": "admin"
+      "generatedBy": "admin",
+      "status": "Approved",
+      "generatedAt": "2026-08-25T22:49:18.212Z"
     }
   ],
   "scores": {
     "ENGLISH": {
       "D8X5RCgfRORZxlcSa2CR": {
-        "classScore": 67,
+        "classScore": 90,
         "examScore": 80,
-        "totalScore": 73.5,
+        "totalScore": 85,
         "assessments": {},
-        "classScore50": 33.5,
+        "classScore50": 45,
         "examScore50": 40,
-        "grade": "2",
-        "remark": "VERY GOOD"
+        "grade": "1",
+        "remark": "EXCELLENT"
       }
     },
     "CAD": {
@@ -518,6 +578,18 @@
         "grade": "1",
         "remark": "ADVANCE"
       }
+    },
+    "FRENCH": {
+      "D8X5RCgfRORZxlcSa2CR": {
+        "classScore": 65,
+        "examScore": 77,
+        "totalScore": 71,
+        "assessments": {},
+        "classScore50": 32.5,
+        "examScore50": 38.5,
+        "grade": "2",
+        "remark": "VERY GOOD"
+      }
     }
   },
   "schoolInfo": {
@@ -572,7 +644,7 @@
   },
   "studentReportDetails": {
     "D8X5RCgfRORZxlcSa2CR": {
-      "attendance": "1 OUT OF 1",
+      "attendance": "8 OUT OF 13",
       "promotionStatus": "Promoted",
       "promotionTarget": "SHS 1",
       "conduct": "Very well behaved and courteous",
@@ -597,6 +669,13 @@
         "termKey": "2026|1",
         "by": "winie@school.com",
         "at": "2026-08-25T22:43:37.081Z"
+      },
+      "2026-08-26": {
+        "status": "present",
+        "className": "BASIC 9",
+        "termKey": "2026|3",
+        "by": "winie@school.com",
+        "at": "2026-08-26T06:24:32.831Z"
       }
     }
   },
@@ -604,8 +683,16 @@
     "defaultDays": {
       "2026|1": 1
     },
-    "studentDays": {},
-    "studentPresentOverride": {},
+    "studentDays": {
+      "D8X5RCgfRORZxlcSa2CR": {
+        "2026|3": 13
+      }
+    },
+    "studentPresentOverride": {
+      "D8X5RCgfRORZxlcSa2CR": {
+        "2026|3": 8
+      }
+    },
     "termRange": {
       "2026|1": {
         "start": "2026-08-24",
@@ -613,6 +700,6 @@
         "closedOn": "2026-08-24"
       }
     },
-    "updatedAt": "2026-08-24T17:06:55.989Z"
+    "updatedAt": "2026-08-26T06:36:39.871Z"
   }
 }

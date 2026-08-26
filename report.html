@@ -113,8 +113,9 @@
         <div class="modal-head" style="display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--line);padding-bottom:12px;margin-bottom:14px;">
             <h3 style="margin:0;"><i class="fas fa-file-alt"></i> Report Sheet Preview</h3>
             <div style="display:flex;align-items:center;gap:8px;">
-                <button class="btn btn-primary btn-sm" onclick="printTeacherPreview()"><i class="fas fa-print"></i> Print</button>
-                <button class="btn btn-ok btn-sm" onclick="downloadPreviewReport()"><i class="fas fa-download"></i> Download PDF</button>
+                <span id="previewUnapprovedBadge" class="badge wait" style="display:none;font-size:11px;padding:4px 8px;"><i class="fas fa-lock"></i> Unapproved — Download & Print Locked</span>
+                <button class="btn btn-primary btn-sm" id="previewPrintBtn" onclick="printTeacherPreview()"><i class="fas fa-print"></i> Print</button>
+                <button class="btn btn-ok btn-sm" id="previewDownloadBtn" onclick="downloadPreviewReport()"><i class="fas fa-download"></i> Download PDF</button>
                 <button class="icon-btn" onclick="closePreview()" title="Close">&times;</button>
             </div>
         </div>
