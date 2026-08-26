@@ -2249,55 +2249,6 @@ function getGradeForDept(score, isJHS, deptOrClassName = '') {
     ].find(g => t >= g.min && t <= g.max) || { grade: 'B', remark: 'BEGINNER' };
 }
 
-function populateAllDropdowns() {
-    populateDepartmentDropdowns();
-
-    // Populate class dropdowns
-    const activeClasses = adminState.classes.filter(c => c.status !== 'inactive');
-    const classSelectors = [
-        '#resultsFilterClass', '#reportsFilterClass', '#studentsFilterClass',
-        '#sm-class', '#gradeDistClassFilter', '#subjectAvgClassFilter',
-        '#bulkDownloadClassSelect'
-    ];
-    classSelectors.forEach(sel => {
-        document.querySelectorAll(sel).forEach(el => {
-            const cur = el.value;
-            const hasAll = el.querySelector('option[value=""]');
-            const allText = hasAll ? hasAll.textContent : 'All Classes';
-            el.innerHTML = `<option value="">${allText}</option>` +
-                activeClasses.map(c => `<option value="${escHtml(c.id)}" ${cur === c.id ? 'selected' : ''}>${escHtml(c.name)}</option>`).join('');
-        });
-    });
-
-    // Populate academic year dropdowns
-    const yearSelectors = ['#resultsFilterYear', '#reportsFilterYear'];
-    yearSelectors.forEach(sel => {
-        document.querySelectorAll(sel).forEach(el => {
-            const cur = el.value;
-            el.innerHTML = '<option value="">All Academic Years</option>' +
-                adminState.academicYears.map(y => `<option value="${escHtml(y.id)}" ${cur === y.id ? 'selected' : ''}>${escHtml(y.name)}</option>`).join('');
-        });
-    });
-
-    // Populate term dropdowns
-    const termSelectors = ['#resultsFilterTerm', '#reportsFilterTerm'];
-    termSelectors.forEach(sel => {
-        document.querySelectorAll(sel).forEach(el => {
-            const cur = el.value;
-            el.innerHTML = '<option value="">All Terms</option>' +
-                adminState.terms.map(t => `<option value="${escHtml(t.id)}" ${cur === t.id ? 'selected' : ''}>${escHtml(t.name)}</option>`).join('');
-        });
-    });
-}
-
-// ─── RESULTS ─────────────────────────────────────────────────────────────────
-function persistResults() {
-    localStorage.setItem('results', JSON.stringify(adminState.results));
-    if (typeof syncSaveCollection === 'function') {
-        try { syncSaveCollection('results', adminState.results); } catch (e) {}
-    }
-}
-
 function syncScoresIntoResults() {
     try {
         let addedCount = 0;
@@ -2329,10 +2280,25 @@ function syncScoresIntoResults() {
 
                 const student = adminState.students.find(s => String(s.id) === String(studentId));
                 const classId = student?.classId || student?.class || '';
-                
+
+                // Resolve real subject object so we store the proper ID, not just the name
+                const subjectsList = adminState.subjects || JSON.parse(localStorage.getItem('subjects') || '[]');
+                const subObj = subjectsList.find(s => s.name === subName || String(s.id) === subName || s.code === subName);
+                const resolvedSubName = subObj?.name || subName;
+                const resolvedSubId   = subObj?.id   || subName;
+
+                // Normalize for dedup comparison
+                const subNameN = resolvedSubName.toLowerCase().trim();
+                const subIdN   = String(resolvedSubId).toLowerCase().trim();
+
                 const existing = adminState.results.find(ar =>
                     String(ar.studentId) === String(studentId) &&
-                    (ar.subjectId === subName || ar.subjectName === subName)
+                    (
+                        String(ar.subjectName || '').toLowerCase().trim() === subNameN ||
+                        String(ar.subjectId   || '').toLowerCase().trim() === subIdN   ||
+                        String(ar.subjectId   || '').toLowerCase().trim() === subNameN ||
+                        String(ar.subjectName || '').toLowerCase().trim() === subIdN
+                    )
                 );
 
                 if (!existing) {
@@ -2350,8 +2316,8 @@ function syncScoresIntoResults() {
                         studentId: String(studentId),
                         studentName: student?.name || '',
                         classId: classId,
-                        subjectId: subName,
-                        subjectName: subName,
+                        subjectId: resolvedSubId,
+                        subjectName: resolvedSubName,
                         classScore: csVal,
                         examScore: esVal,
                         classScore50: cs50,
@@ -2382,7 +2348,43 @@ function syncScoresIntoResults() {
     }
 }
 
+// ─── RESULTS ─────────────────────────────────────────────────────────────────
+function persistResults() {
+    localStorage.setItem('results', JSON.stringify(adminState.results));
+    if (typeof syncSaveCollection === 'function') {
+        try { syncSaveCollection('results', adminState.results); } catch (e) {}
+    }
+}
+
+/**
+ * Collapses duplicate result entries in the admin state (same student + subject).
+ * Keeps latest updatedAt; Approved/Published status wins regardless of age.
+ */
+function deduplicateAdminResults(arr) {
+    const seen = new Map();
+    arr.forEach(r => {
+        const subNorm = String(r.subjectName || r.subjectId || '').toLowerCase().trim();
+        const key = String(r.studentId) + '|' + subNorm;
+        if (!seen.has(key)) {
+            seen.set(key, Object.assign({}, r));
+        } else {
+            const prev = seen.get(key);
+            const prevDate = new Date(prev.updatedAt || 0).getTime();
+            const curDate  = new Date(r.updatedAt  || 0).getTime();
+            const winner   = curDate >= prevDate ? r : prev;
+            const statusRank = s => ['approved','published'].includes((s||'').toLowerCase()) ? 2 : 1;
+            const bestStatus = statusRank(r.status) >= statusRank(prev.status) ? r.status : prev.status;
+            const bestSubjectId = (prev.subjectId && prev.subjectId !== prev.subjectName)
+                ? prev.subjectId
+                : (r.subjectId || prev.subjectId);
+            seen.set(key, Object.assign({}, winner, { status: bestStatus, subjectId: bestSubjectId, subjectName: winner.subjectName || prev.subjectName }));
+        }
+    });
+    return Array.from(seen.values());
+}
+
 function renderResultsTable() {
+
     const yearF    = document.getElementById('resultsFilterYear')?.value   || '';
     const termF    = document.getElementById('resultsFilterTerm')?.value   || '';
     const classF   = document.getElementById('resultsFilterClass')?.value  || '';

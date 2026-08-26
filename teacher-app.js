@@ -1175,17 +1175,23 @@ function syncScoresToResults() {
                 const dept = getDepartmentForClass(className);
                 const g = totVal !== '' ? getGrade(totVal, className) : { grade: e.grade || '', remark: e.remark || '' };
 
+                // Normalize for comparison — handles mismatches between name-as-id (admin path) and real id (teacher path)
+                const subNameN = subName.toLowerCase().trim();
+                const subIdN = String(subId).toLowerCase().trim();
+                const stuIdN = String(stu.id);
+
                 const existing = results.find(r =>
-                    String(r.studentId) === String(stu.id) &&
+                    String(r.studentId) === stuIdN &&
                     (
-                        String(r.subjectName || '').toLowerCase().trim() === subName.toLowerCase().trim() ||
-                        String(r.subjectId || '').toLowerCase().trim() === String(subId).toLowerCase().trim() ||
-                        String(r.subjectId || '').toLowerCase().trim() === subName.toLowerCase().trim()
+                        String(r.subjectName || '').toLowerCase().trim() === subNameN ||
+                        String(r.subjectId  || '').toLowerCase().trim() === subIdN ||
+                        String(r.subjectId  || '').toLowerCase().trim() === subNameN ||
+                        String(r.subjectName|| '').toLowerCase().trim() === subIdN
                     )
                 );
 
                 const entryData = {
-                    studentId: String(stu.id),
+                    studentId: stuIdN,
                     studentName: stu.name,
                     classId: classId,
                     subjectId: subId,
@@ -1204,6 +1210,7 @@ function syncScoresToResults() {
                 };
 
                 if (existing) {
+                    // Also normalise the stored IDs so future lookups always work
                     Object.assign(existing, entryData);
                 } else {
                     entryData.id = 'res_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
@@ -1213,11 +1220,44 @@ function syncScoresToResults() {
             });
         });
 
-        localStorage.setItem('results', JSON.stringify(results));
+        // Final dedup pass — collapse any pre-existing duplicate pairs
+        const deduped = deduplicateResultsArray(results);
+        localStorage.setItem('results', JSON.stringify(deduped));
         if (typeof syncSaveCollection === 'function') {
-            syncSaveCollection('results', results).catch(() => {});
+            syncSaveCollection('results', deduped).catch(() => {});
         }
     } catch(e) { console.warn('syncScoresToResults error:', e); }
+}
+
+/**
+ * Collapses duplicate result entries that refer to the same student + subject.
+ * Keeps the entry with the latest updatedAt; merges status upward (Approved wins).
+ */
+function deduplicateResultsArray(arr) {
+    const seen = new Map();
+    arr.forEach(r => {
+        // Build a canonical key: studentId + normalised subject name
+        const subNorm = String(r.subjectName || r.subjectId || '').toLowerCase().trim();
+        const key = String(r.studentId) + '|' + subNorm;
+        if (!seen.has(key)) {
+            seen.set(key, Object.assign({}, r));
+        } else {
+            const prev = seen.get(key);
+            // Keep the most recent update
+            const prevDate = new Date(prev.updatedAt || 0).getTime();
+            const curDate  = new Date(r.updatedAt  || 0).getTime();
+            const winner   = curDate >= prevDate ? r : prev;
+            // Prefer Approved/Published status regardless of which is newer
+            const statusRank = s => ['approved','published'].includes((s||'').toLowerCase()) ? 2 : 1;
+            const bestStatus = statusRank(r.status) >= statusRank(prev.status) ? r.status : prev.status;
+            // Prefer a real subject ID (not just the name used as ID)
+            const bestSubjectId = (String(prev.subjectId||'').startsWith('res_') || prev.subjectId === prev.subjectName)
+                ? (r.subjectId || prev.subjectId)
+                : prev.subjectId;
+            seen.set(key, Object.assign({}, winner, { status: bestStatus, subjectId: bestSubjectId, subjectName: winner.subjectName || prev.subjectName }));
+        }
+    });
+    return Array.from(seen.values());
 }
 
 function clampPartMark(raw, inputEl) {
