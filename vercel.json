@@ -1,46 +1,67 @@
 {
   "version": 2,
-  "builds": [
-    {
-      "src": "server.js",
-      "use": "@vercel/node"
-    },
-    {
-      "src": "*.html",
-      "use": "@vercel/static"
-    },
-    {
-      "src": "*.js",
-      "use": "@vercel/static"
-    },
-    {
-      "src": "*.css",
-      "use": "@vercel/static"
-    },
-    {
-      "src": "*.json",
-      "use": "@vercel/static"
-    },
-    {
-      "src": "exports/**",
-      "use": "@vercel/static"
-    },
-    {
-      "src": "vendor/**",
-      "use": "@vercel/static"
-    }
+  "rewrites": [
+    { "source": "/api/:match*", "destination": "/api/index.js" },
+    { "source": "/open", "destination": "/api/index.js" },
+    { "source": "/open.html", "destination": "/api/index.js" },
+    { "source": "/admin", "destination": "/admin.html" },
+    { "source": "/student", "destination": "/student.html" },
+    { "source": "/alumni", "destination": "/alumni.html" },
+    { "source": "/timetable", "destination": "/timetable.html" },
+    { "source": "/timetables", "destination": "/timetable.html" }
   ],
-  "routes": [
+  "headers": [
     {
-      "src": "/api/(.*)",
-      "dest": "/server.js"
+      "source": "/(.*)\\.svg",
+      "headers": [
+        {
+          "key": "Content-Type",
+          "value": "image/svg+xml"
+        },
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=31536000, immutable"
+        }
+      ]
     },
     {
-      "handle": "filesystem"
+      "source": "/(.*)\\.png",
+      "headers": [
+        {
+          "key": "Content-Type",
+          "value": "image/png"
+        },
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=31536000, immutable"
+        }
+      ]
     },
     {
-      "src": "/(.*)",
-      "dest": "/$1"
+      "source": "/(.*)\\.woff2",
+      "headers": [
+        {
+          "key": "Content-Type",
+          "value": "font/woff2"
+        },
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=31536000, immutable"
+        }
+      ]
+    },
+    {
+      "source": "/(.*)\\.ttf",
+      "headers": [
+        {
+          "key": "Content-Type",
+          "value": "font/ttf"
+        },
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=31536000, immutable"
+        }
+      ]
     }
   ]
 }
