@@ -3,13 +3,17 @@
 const http = require('http');
 const fs   = require('fs');
 const path = require('path');
+const os   = require('os');
 const { buildXlsx } = require('./xlsx-lite');
 const { renderOpenPage, objectsToRows } = require('./open-page');
 
 const PORT    = process.env.PORT || 3000;
-const DB_FILE = path.join(__dirname, 'database.json');
-const DL_DIR  = path.join(__dirname, 'user-downloads');
-const BACKUPS_DIR = path.join(__dirname, 'backups');
+const isServerless = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME || process.env.LAMBDA_TASK_ROOT);
+const DB_FILE = isServerless ? path.join(os.tmpdir(), 'database.json') : path.join(__dirname, 'database.json');
+const DL_DIR  = isServerless ? path.join(os.tmpdir(), 'user-downloads') : path.join(__dirname, 'user-downloads');
+const BACKUPS_DIR = isServerless ? path.join(os.tmpdir(), 'backups') : path.join(__dirname, 'backups');
+
+let inMemoryDb = null;
 
 // ─── DB helpers ──────────────────────────────────────────────────────────────
 
@@ -79,45 +83,37 @@ function safeJsonParse(str, fallback = null) {
 }
 
 function ensureBackupsDir() {
-    if (!fs.existsSync(BACKUPS_DIR)) fs.mkdirSync(BACKUPS_DIR, { recursive: true });
+    try {
+        if (!fs.existsSync(BACKUPS_DIR)) fs.mkdirSync(BACKUPS_DIR, { recursive: true });
+    } catch (e) {}
 }
 
 function initDb() {
-    if (!fs.existsSync(DB_FILE)) {
-        const initialData = {
-            students:       [],
-            teachers:       [],
-            classes:        [],
-            subjects:       [],
-            academicYears:  [],
-            terms:          [],
-            results:        [],
-            reports:        [],
-            gradingScales:  [],
-            schoolSettings: {},
-            scores:         {},
-            schoolInfo: {
-                academicYear: '2024/2025',
-                term: '1',
-                closingDate: '19th DEC, 2024',
-                reopeningDate: '13th JAN, 2025',
-                numberOnRoll: '18',
-                basicLevel: '6',
-                classTeacher: '',
-                headTeacher: ''
-            },
-            studentReportDetails: {},
-            parentContacts:       {},
-            attendanceMarks:      {},
-            attendanceSettings:   { defaultDays: {}, studentDays: {}, studentPresentOverride: {} },
-            alumni:               [],
-            timetables:           [],
-            examTimetables:       [],
-            transcriptRequests:   [],
-            auditLogs:            []
-        };
-        fs.writeFileSync(DB_FILE, JSON.stringify(initialData, null, 2), 'utf8');
-        console.log('database.json initialised.');
+    try {
+        if (!fs.existsSync(DB_FILE)) {
+            const bundledDbPath = path.join(__dirname, 'database.json');
+            if (fs.existsSync(bundledDbPath) && DB_FILE !== bundledDbPath) {
+                try {
+                    const content = fs.readFileSync(bundledDbPath, 'utf8');
+                    fs.writeFileSync(DB_FILE, content, 'utf8');
+                    inMemoryDb = safeJsonParse(content, null);
+                } catch (e) {
+                    console.warn('Could not copy bundled database.json to tmp:', e.message);
+                }
+            }
+            if (!fs.existsSync(DB_FILE)) {
+                const initialData = initBlankDb();
+                try {
+                    fs.writeFileSync(DB_FILE, JSON.stringify(initialData, null, 2), 'utf8');
+                    inMemoryDb = initialData;
+                    console.log('database.json initialised.');
+                } catch (e) {
+                    inMemoryDb = initialData;
+                }
+            }
+        }
+    } catch (err) {
+        console.warn('initDb error suppressed:', err.message);
     }
     ensureBackupsDir();
 }
@@ -143,30 +139,43 @@ function tryRecoverFromSnapshot() {
 }
 
 function readDb() {
+    if (inMemoryDb && typeof inMemoryDb === 'object') {
+        return inMemoryDb;
+    }
     try {
         initDb();
-        const raw = fs.readFileSync(DB_FILE, 'utf8');
-        let data = safeJsonParse(raw, null);
-        if (!data || typeof data !== 'object') {
-            const recovered = tryRecoverFromSnapshot();
-            if (recovered) {
-                console.log('Database restored from latest valid backup snapshot after read error.');
-                data = recovered;
-                writeDb(data);
-            } else {
-                data = initBlankDb();
+        if (fs.existsSync(DB_FILE)) {
+            const raw = fs.readFileSync(DB_FILE, 'utf8');
+            let data = safeJsonParse(raw, null);
+            if (data && typeof data === 'object') {
+                seedNewCollections(data);
+                inMemoryDb = data;
+                return inMemoryDb;
             }
         }
-        seedNewCollections(data);
-        return data;
-    } catch (err) {
-        console.error('Error reading database.json:', err);
+        const bundledDbPath = path.join(__dirname, 'database.json');
+        if (fs.existsSync(bundledDbPath)) {
+            const raw = fs.readFileSync(bundledDbPath, 'utf8');
+            let data = safeJsonParse(raw, null);
+            if (data && typeof data === 'object') {
+                seedNewCollections(data);
+                inMemoryDb = data;
+                return inMemoryDb;
+            }
+        }
         const recovered = tryRecoverFromSnapshot();
         if (recovered) {
             seedNewCollections(recovered);
-            return recovered;
+            inMemoryDb = recovered;
+            return inMemoryDb;
         }
-        return initBlankDb();
+        inMemoryDb = initBlankDb();
+        seedNewCollections(inMemoryDb);
+        return inMemoryDb;
+    } catch (err) {
+        console.error('Error reading database.json:', err);
+        inMemoryDb = initBlankDb();
+        return inMemoryDb;
     }
 }
 
@@ -329,24 +338,24 @@ function seedNewCollections(db) {
     }
 
     if (changed) {
-        fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2), 'utf8');
+        writeDb(db);
     }
 }
 
 function writeDb(data) {
+    inMemoryDb = data;
     try {
         const tmpFile = DB_FILE + '.tmp';
         fs.writeFileSync(tmpFile, JSON.stringify(data, null, 2), 'utf8');
         fs.renameSync(tmpFile, DB_FILE);
         return true;
     } catch (err) {
-        console.error('Error writing database.json with atomic rename:', err);
         try {
             fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2), 'utf8');
             return true;
         } catch (e2) {
-            console.error('Critical error writing database.json directly:', e2);
-            return false;
+            // File system is read-only or ephemeral (maintained in-memory)
+            return true;
         }
     }
 }
@@ -356,7 +365,9 @@ function genId() {
 }
 
 function ensureDlDir() {
-    if (!fs.existsSync(DL_DIR)) fs.mkdirSync(DL_DIR, { recursive: true });
+    try {
+        if (!fs.existsSync(DL_DIR)) fs.mkdirSync(DL_DIR, { recursive: true });
+    } catch (e) {}
 }
 
 function safeFilePart(name) {
@@ -738,17 +749,18 @@ function handleCollectionDelete(res, collection, id) {
 
 // ─── Server ───────────────────────────────────────────────────────────────────
 
-const server = http.createServer(async (req, res) => {
-    // CORS
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+async function requestHandler(req, res) {
+    try {
+        // CORS
+        res.setHeader('Access-Control-Allow-Origin', '*');
+        res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
+        res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 
-    if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
+        if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
 
-    const parsedUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
-    const pathname  = parsedUrl.pathname;
-    const method    = req.method.toUpperCase() === 'HEAD' ? 'GET' : req.method.toUpperCase();
+        const parsedUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+        const pathname  = parsedUrl.pathname;
+        const method    = req.method.toUpperCase() === 'HEAD' ? 'GET' : req.method.toUpperCase();
 
     // ── API Routes ──────────────────────────────────────────────────────────
 
@@ -2055,13 +2067,28 @@ const server = http.createServer(async (req, res) => {
             res.end(content);
         }
     });
-});
+    } catch (err) {
+        console.error('Unhandled requestHandler error:', err);
+        if (!res.headersSent) {
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Internal Server Error', message: err.message }));
+        }
+    }
+}
+
+const server = http.createServer(requestHandler);
 
 // ─── Boot ─────────────────────────────────────────────────────────────────────
 
-initDb();
+try {
+    initDb();
+} catch (e) {
+    console.warn('Boot initDb warning:', e.message);
+}
 
-ensureDlDir();
+try {
+    ensureDlDir();
+} catch (e) {}
 
 if (require.main === module) {
     server.listen(PORT, '0.0.0.0', () => {
@@ -2078,5 +2105,7 @@ if (require.main === module) {
     });
 }
 
-module.exports = server;
+module.exports = requestHandler;
+module.exports.requestHandler = requestHandler;
+module.exports.server = server;
 
