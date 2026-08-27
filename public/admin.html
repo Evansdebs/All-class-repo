@@ -1,0 +1,2357 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>Admin Dashboard — OneReal School Management</title>
+    <meta name="description" content="Professional School Administration Dashboard for OneReal Report Generator">
+    <link rel="icon" type="image/svg+xml" href="/icon-or.svg">
+    <link rel="apple-touch-icon" href="/icon-192.png">
+    <link rel="manifest" href="/manifest.json">
+    <meta name="theme-color" content="#4f46e5">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" integrity="sha512-DTOQO9RWCH3ppGqcWaEA1BIZOC6xxalwEsw9c2QQeAIftl+Vegovlnee1c9QX4TctnWMn13TZye+giMm8e2LwA==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+    <link rel="stylesheet" href="font-awesome.css">
+    <link rel="stylesheet" href="admin.css?v=dash14">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <script src="app-logo.js?v=logo1"></script>
+</head>
+<body>
+
+<!-- ════════════════════════════════════════════════════════════════════ -->
+<!-- AUTH OVERLAY -->
+<!-- ════════════════════════════════════════════════════════════════════ -->
+<div id="adminAuthOverlay" class="auth-overlay">
+    <div class="auth-card">
+        <div class="auth-logo" style="background:transparent;box-shadow:none;width:64px;height:64px;margin:0 auto 16px;">
+            <img src="/icon-or.svg" alt="OR" style="width:100%;height:100%;object-fit:contain;border-radius:16px;" onerror="this.onerror=null;this.src='icon-or.svg';">
+        </div>
+        <h1>OneReal School Admin</h1>
+        <p class="auth-subtitle">Sign in with an admin account created for your school. First time here? Your first sign-in creates the school's Super Admin account.</p>
+        <form id="adminLoginForm" autocomplete="on" onsubmit="handleAdminLogin(); return false;">
+            <div class="auth-field">
+                <label for="adminEmail"><i class="fas fa-envelope"></i> Email Address</label>
+                <input type="email" id="adminEmail" placeholder="admin@school.com" autocomplete="email" required>
+            </div>
+            <div class="auth-field">
+                <label for="adminPassword"><i class="fas fa-lock"></i> Password</label>
+                <input type="password" id="adminPassword" placeholder="••••••••" autocomplete="current-password" required>
+                <span class="password-toggle" onclick="togglePasswordVisibility('adminPassword', this)"><i class="fas fa-eye"></i></span>
+            </div>
+            <div id="adminAuthError" class="auth-error" style="display:none;"></div>
+            <button class="auth-btn" id="adminLoginBtn" type="submit">
+                <span class="btn-text"><i class="fas fa-sign-in-alt"></i> Sign In</span>
+                <span class="btn-loader" style="display:none;"><i class="fas fa-spinner fa-spin"></i> Signing in…</span>
+            </button>
+            <a href="#" class="forgot-link" onclick="handleForgotPassword()">Forgot your password?</a>
+        </form>
+        <div class="auth-divider"><span>or</span></div>
+        <a href="/excel.html" class="teacher-link"><i class="fas fa-file-excel"></i> Excel templates — no login</a>
+        <a href="/report.html" class="teacher-link"><i class="fas fa-chalkboard-teacher"></i> Go to Teacher Portal</a>
+    </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════════ -->
+<!-- MAIN APP SHELL -->
+<!-- ════════════════════════════════════════════════════════════════════ -->
+<div id="adminApp" style="display:none;">
+
+    <!-- SIDEBAR -->
+    <aside class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+            <div class="sidebar-logo" onclick="toggleSidebar()" style="cursor:pointer;background:transparent;padding:0;display:flex;align-items:center;justify-content:center;" title="Toggle Navigation Sidebar">
+                <img src="/icon-or.svg" alt="OR" style="width:34px;height:34px;border-radius:8px;object-fit:cover;" onerror="this.onerror=null;this.src='icon-or.svg';">
+            </div>
+            <div class="sidebar-brand" onclick="switchSection('dashboard')" style="cursor:pointer;" title="OneReal School Admin">
+                <span class="brand-name">OneReal</span>
+                <span class="brand-sub">School Admin</span>
+            </div>
+            <button class="sidebar-collapse-btn" id="sidebarCollapseBtn" onclick="toggleSidebar()" title="Toggle Sidebar" aria-label="Toggle Sidebar">
+                <i class="fas fa-bars" id="sidebarCollapseIcon"></i>
+            </button>
+        </div>
+
+        <nav class="sidebar-nav">
+            <div class="nav-section-label">MAIN</div>
+            <a class="nav-item active" data-section="dashboard" onclick="switchSection('dashboard')">
+                <i class="fas fa-chart-pie"></i><span>Dashboard</span>
+            </a>
+            <a class="nav-item" data-section="students" onclick="switchSection('students')">
+                <i class="fas fa-user-graduate"></i><span>Students</span>
+                <span class="nav-badge" id="nav-badge-students">0</span>
+            </a>
+            <a class="nav-item" data-section="teachers" onclick="switchSection('teachers')">
+                <i class="fas fa-chalkboard-teacher"></i><span>Teachers</span>
+                <span class="nav-badge" id="nav-badge-teachers">0</span>
+            </a>
+            <a class="nav-item" data-section="classes" onclick="switchSection('classes')">
+                <i class="fas fa-school"></i><span>Classes</span>
+            </a>
+            <a class="nav-item" data-section="subjects" onclick="switchSection('subjects')">
+                <i class="fas fa-book-open"></i><span>Subjects</span>
+            </a>
+            <a class="nav-item" data-section="attendance" onclick="switchSection('attendance')">
+                <i class="fas fa-user-check"></i><span>Attendance</span>
+            </a>
+
+            <div class="nav-section-label">ACADEMICS</div>
+            <a class="nav-item" data-section="academic-years" onclick="switchSection('academic-years')">
+                <i class="fas fa-calendar-alt"></i><span>Academic Years</span>
+            </a>
+            <a class="nav-item" data-section="grading" onclick="switchSection('grading')">
+                <i class="fas fa-star-half-alt"></i><span>Grading System</span>
+            </a>
+            <a class="nav-item" data-section="results" onclick="switchSection('results')">
+                <i class="fas fa-clipboard-list"></i><span>Results</span>
+                <span class="nav-badge pending" id="nav-badge-results">0</span>
+            </a>
+            <a class="nav-item" data-section="reports" onclick="switchSection('reports')">
+                <i class="fas fa-file-alt"></i><span>Reports</span>
+            </a>
+            <a class="nav-item" data-section="timetables" onclick="switchSection('timetables')">
+                <i class="fas fa-calendar-week" style="color:#38bdf8;"></i><span>Timetables & Exams</span>
+            </a>
+            <a class="nav-item" href="/alumni.html">
+                <i class="fas fa-award" style="color:#fbbf24;"></i><span>Alumni & Transcripts</span>
+            </a>
+
+            <div class="nav-section-label">ADMINISTRATION</div>
+            <a class="nav-item" data-section="backup-sync" onclick="switchSection('backup-sync')">
+                <i class="fas fa-cloud-upload-alt" style="color:#34d399;"></i><span>One-Click Cloud Backup</span>
+            </a>
+            <a class="nav-item" data-section="settings" onclick="switchSection('settings')">
+                <i class="fas fa-cog"></i><span>School Settings</span>
+            </a>
+            <a class="nav-item" data-section="firebase" onclick="switchSection('firebase')">
+                <i class="fas fa-cloud"></i><span>Firebase Cloud</span>
+            </a>
+            <a class="nav-item" data-section="audit-logs" onclick="switchSection('audit-logs')">
+                <i class="fas fa-history"></i><span>Activity Logs</span>
+            </a>
+            <a class="nav-item" data-section="data-management" onclick="switchSection('data-management')">
+                <i class="fas fa-database"></i><span>Data Management</span>
+            </a>
+            <a class="nav-item" data-section="templates" onclick="switchSection('templates')">
+                <i class="fas fa-file-excel"></i><span>Excel Templates</span>
+            </a>
+        </nav>
+
+        <div class="sidebar-footer">
+            <div class="sidebar-user" id="sidebarUser">
+                <div class="sidebar-user-avatar" id="sidebarUserAvatar">A</div>
+                <div class="sidebar-user-info">
+                    <div class="sidebar-user-name" id="sidebarUserName">Administrator</div>
+                    <div class="sidebar-user-role" id="sidebarUserRole">Super Admin</div>
+                </div>
+            </div>
+            <button class="sidebar-logout-btn" onclick="handleAdminLogout()" title="Sign Out">
+                <i class="fas fa-sign-out-alt"></i>
+            </button>
+        </div>
+    </aside>
+
+    <div id="sidebarBackdrop" class="sidebar-backdrop" onclick="toggleSidebar()"></div>
+
+    <!-- MAIN CONTENT -->
+    <main class="main-content" id="mainContent">
+
+        <!-- TOP BAR -->
+        <div class="topbar">
+            <div class="topbar-left">
+                <button class="sidebar-toggle-btn" id="topbarSidebarToggle" onclick="toggleSidebar()" aria-label="Toggle Sidebar" title="Toggle Navigation Sidebar">
+                    <i class="fas fa-bars" id="topbarToggleIcon"></i>
+                </button>
+                <div class="breadcrumb" id="breadcrumb">
+                    <span>Dashboard</span>
+                </div>
+            </div>
+            <div class="topbar-right">
+                <div class="search-box">
+                    <i class="fas fa-search"></i>
+                    <input type="text" id="globalSearch" placeholder="Search students, teachers, classes…" oninput="handleGlobalSearch(this.value)" autocomplete="off" value="">
+                </div>
+                <div class="topbar-avatar" id="topbarAvatar" onclick="switchSection('settings')" title="Admin Profile & Settings">A</div>
+            </div>
+        </div>
+
+        <!-- GLOBAL SEARCH RESULTS -->
+        <div class="search-results-dropdown" id="searchResultsDropdown" style="display:none;"></div>
+
+        <!-- ════════════════════════════ SECTIONS ════════════════════════════ -->
+
+        <!-- DASHBOARD SECTION -->
+        <section class="content-section active" id="section-dashboard">
+            <div class="section-header">
+                <h2><i class="fas fa-chart-pie"></i> Dashboard Overview</h2>
+                <div class="section-actions">
+                    <select id="dashboardYearFilter" class="admin-select" onchange="loadDashboard()">
+                        <option value="">All Academic Years</option>
+                    </select>
+                    <button class="btn-admin btn-primary" onclick="loadDashboard()">
+                        <i class="fas fa-sync-alt"></i> Refresh
+                    </button>
+                </div>
+            </div>
+
+            <!-- KPI Cards -->
+            <div class="kpi-grid" id="kpiGrid">
+                <div class="kpi-card purple">
+                    <div class="kpi-icon"><i class="fas fa-user-graduate"></i></div>
+                    <div class="kpi-info">
+                        <div class="kpi-value" id="kpi-students">–</div>
+                        <div class="kpi-label">Total Students</div>
+                    </div>
+                </div>
+                <div class="kpi-card blue">
+                    <div class="kpi-icon"><i class="fas fa-chalkboard-teacher"></i></div>
+                    <div class="kpi-info">
+                        <div class="kpi-value" id="kpi-teachers">–</div>
+                        <div class="kpi-label">Total Teachers</div>
+                    </div>
+                </div>
+                <div class="kpi-card green">
+                    <div class="kpi-icon"><i class="fas fa-school"></i></div>
+                    <div class="kpi-info">
+                        <div class="kpi-value" id="kpi-classes">–</div>
+                        <div class="kpi-label">Classes</div>
+                    </div>
+                </div>
+                <div class="kpi-card orange">
+                    <div class="kpi-icon"><i class="fas fa-book-open"></i></div>
+                    <div class="kpi-info">
+                        <div class="kpi-value" id="kpi-subjects">–</div>
+                        <div class="kpi-label">Subjects</div>
+                    </div>
+                </div>
+                <div class="kpi-card teal">
+                    <div class="kpi-icon"><i class="fas fa-file-alt"></i></div>
+                    <div class="kpi-info">
+                        <div class="kpi-value" id="kpi-reports">–</div>
+                        <div class="kpi-label">Reports Generated</div>
+                    </div>
+                </div>
+                <div class="kpi-card red">
+                    <div class="kpi-icon"><i class="fas fa-clock"></i></div>
+                    <div class="kpi-info">
+                        <div class="kpi-value" id="kpi-pending">–</div>
+                        <div class="kpi-label">Pending Approvals</div>
+                    </div>
+                </div>
+                <div class="kpi-card indigo">
+                    <div class="kpi-icon"><i class="fas fa-calendar-check"></i></div>
+                    <div class="kpi-info">
+                        <div class="kpi-value" id="kpi-year">–</div>
+                        <div class="kpi-label">Active Year</div>
+                    </div>
+                </div>
+                <div class="kpi-card pink">
+                    <div class="kpi-icon"><i class="fas fa-list-ol"></i></div>
+                    <div class="kpi-info">
+                        <div class="kpi-value" id="kpi-term">–</div>
+                        <div class="kpi-label">Active Term</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="chart-panel">
+                <div class="chart-panel-bar">
+                    <div class="chart-tabs" role="tablist">
+                        <button type="button" class="chart-tab active" data-chart-tab="grade" onclick="switchDashboardChart('grade')">Grade Distribution</button>
+                        <button type="button" class="chart-tab" data-chart-tab="subject" onclick="switchDashboardChart('subject')">Subject Averages</button>
+                        <button type="button" class="chart-tab" data-chart-tab="class" onclick="switchDashboardChart('class')">Class Performance</button>
+                        <button type="button" class="chart-tab" data-chart-tab="status" onclick="switchDashboardChart('status')">Results Status</button>
+                    </div>
+                    <select id="gradeDistClassFilter" class="admin-select-sm chart-panel-filter" onchange="renderGradeDistChart()">
+                        <option value="">All Classes</option>
+                    </select>
+                </div>
+                <div class="chart-panel-body" style="height:150px;max-height:150px;overflow:hidden;">
+                    <div class="chart-pane active" data-chart-pane="grade">
+                        <div id="gradeDistChart" class="grade-bars"></div>
+                    </div>
+                    <div class="chart-pane" data-chart-pane="subject">
+                        <canvas id="subjectAvgChart"></canvas>
+                    </div>
+                    <div class="chart-pane" data-chart-pane="class">
+                        <canvas id="classPerfChart"></canvas>
+                    </div>
+                    <div class="chart-pane" data-chart-pane="status">
+                        <canvas id="resultStatusChart"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Recent Activity -->
+            <div class="card-admin">
+                <div class="card-admin-header">
+                    <h3><i class="fas fa-history"></i> Recent Activity</h3>
+                    <button class="btn-admin btn-ghost" onclick="switchSection('audit-logs')">View All</button>
+                </div>
+                <div class="table-responsive">
+                    <table class="admin-table" id="recentActivityTable">
+                        <thead>
+                            <tr>
+                                <th>User</th><th>Role</th><th>Action</th><th>Details</th><th>Time</th>
+                            </tr>
+                        </thead>
+                        <tbody id="recentActivityBody"></tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- STUDENTS SECTION -->
+        <section class="content-section" id="section-students">
+            <div class="section-header">
+                <h2><i class="fas fa-user-graduate"></i> Student Management <span class="section-count-badge" id="studentsHeaderBadge">0</span></h2>
+                <div class="section-actions">
+                    <button type="button" class="btn-admin btn-template" onclick="downloadTemplate('students')">
+                        <i class="fas fa-file-excel"></i> Download Template
+                    </button>
+                    <button class="btn-admin btn-primary" onclick="openStudentModal()">
+                        <i class="fas fa-plus"></i> Add Student
+                    </button>
+                    <button type="button" class="btn-admin btn-secondary" onclick="exportDataExcel('students')">
+                        <i class="fas fa-download"></i> Export Excel
+                    </button>
+                    <button class="btn-admin btn-secondary" onclick="openImportStudentsModal()">
+                        <i class="fas fa-upload"></i> Import CSV
+                    </button>
+                </div>
+            </div>
+            <div class="filter-bar">
+                <div class="search-filter">
+                    <i class="fas fa-search"></i>
+                    <input type="text" id="studentFilterSearch" placeholder="Search students…" oninput="renderStudentsTable()" autocomplete="off" value="">
+                </div>
+                <select id="studentFilterClass" class="admin-select" onchange="renderStudentsTable()">
+                    <option value="">All Classes</option>
+                </select>
+                <select id="studentFilterStatus" class="admin-select" onchange="renderStudentsTable()">
+                    <option value="">All Status</option>
+                    <option value="active">Active</option>
+                    <option value="inactive">Inactive</option>
+                </select>
+            </div>
+            <div class="card-admin">
+                <div class="table-responsive">
+                    <table class="admin-table" id="studentsTable">
+                        <thead>
+                            <tr>
+                                <th>#</th><th>Admission No.</th><th>Full Name</th><th>Gender</th>
+                                <th>Class</th><th>Date of Birth</th><th>Status</th><th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="studentsTableBody"></tbody>
+                    </table>
+                </div>
+                <div class="table-footer">
+                    <span id="studentsCount">0 students</span>
+                    <div class="pagination" id="studentsPagination"></div>
+                </div>
+            </div>
+        </section>
+
+        <!-- TEACHERS SECTION -->
+        <section class="content-section" id="section-teachers">
+            <div class="section-header">
+                <h2><i class="fas fa-chalkboard-teacher"></i> Teacher Management <span class="section-count-badge" id="teachersHeaderBadge">0</span></h2>
+                <div class="section-actions">
+                    <button type="button" class="btn-admin btn-template" onclick="downloadTemplate('teachers')">
+                        <i class="fas fa-file-excel"></i> Download Template
+                    </button>
+                    <button type="button" class="btn-admin btn-secondary" onclick="exportDataExcel('teachers')">
+                        <i class="fas fa-file-excel"></i> Export Excel
+                    </button>
+                    <button class="btn-admin btn-primary" onclick="openTeacherModal()">
+                        <i class="fas fa-plus"></i> Add Teacher
+                    </button>
+                </div>
+            </div>
+            <div class="filter-bar">
+                <div class="search-filter">
+                    <i class="fas fa-search"></i>
+                    <input type="text" id="teacherFilterSearch" placeholder="Search teachers…" oninput="renderTeachersTable()" autocomplete="off" value="">
+                </div>
+                <select id="teacherFilterStatus" class="admin-select" onchange="renderTeachersTable()">
+                    <option value="">All Status</option>
+                    <option value="active">Active</option>
+                    <option value="inactive">Inactive</option>
+                </select>
+            </div>
+            <div class="card-admin">
+                <div class="table-responsive">
+                    <table class="admin-table">
+                        <thead>
+                            <tr>
+                                <th>#</th><th>Name</th><th>Email</th><th>Phone</th><th>Role</th>
+                                <th>Assigned Classes</th><th>Assigned Subjects</th><th>Status</th><th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="teachersTableBody"></tbody>
+                    </table>
+                </div>
+                <div class="table-footer">
+                    <span id="teachersCount">0 teachers</span>
+                </div>
+            </div>
+        </section>
+
+        <!-- CLASSES SECTION -->
+        <section class="content-section" id="section-classes">
+            <div class="section-header">
+                <h2><i class="fas fa-school"></i> Class Management</h2>
+                <div class="section-actions">
+                    <button type="button" class="btn-admin btn-template" onclick="downloadTemplate('classes')">
+                        <i class="fas fa-file-excel"></i> Download Template
+                    </button>
+                    <button type="button" class="btn-admin btn-secondary" onclick="exportDataExcel('classes')">
+                        <i class="fas fa-file-excel"></i> Export Excel
+                    </button>
+                    <button class="btn-admin btn-primary" onclick="openClassModal()">
+                        <i class="fas fa-plus"></i> Add Class
+                    </button>
+                </div>
+            </div>
+            <div class="card-admin">
+                <div class="table-responsive">
+                    <table class="admin-table">
+                        <thead>
+                            <tr>
+                                <th>#</th><th>Class Name</th><th>Level</th><th>Grading System</th>
+                                <th>Class Teacher</th><th>Students</th><th>Status</th><th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="classesTableBody"></tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- SUBJECTS SECTION -->
+        <section class="content-section" id="section-subjects">
+            <div class="section-header">
+                <h2><i class="fas fa-book-open"></i> Subject Management</h2>
+                <div class="section-actions">
+                    <button type="button" class="btn-admin btn-template" onclick="downloadTemplate('subjects')">
+                        <i class="fas fa-file-excel"></i> Download Template
+                    </button>
+                    <button type="button" class="btn-admin btn-secondary" onclick="exportDataExcel('subjects')">
+                        <i class="fas fa-file-excel"></i> Export Excel
+                    </button>
+                    <button class="btn-admin btn-primary" onclick="openSubjectModal()">
+                        <i class="fas fa-plus"></i> Add Subject
+                    </button>
+                </div>
+            </div>
+            <div class="card-admin">
+                <div class="table-responsive">
+                    <table class="admin-table">
+                        <thead>
+                            <tr>
+                                <th>#</th><th>Subject Code</th><th>Subject Name</th><th>Assigned Classes</th><th>Status</th><th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="subjectsTableBody"></tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+
+        <!-- ATTENDANCE SECTION -->
+        <section class="content-section" id="section-attendance">
+            <div class="section-header">
+                <h2><i class="fas fa-user-check"></i> Attendance</h2>
+                <div class="section-actions">
+                    <a class="btn-admin btn-secondary" href="/open?src=/api/export/attendance.xlsx" >
+                        <i class="fas fa-file-excel"></i> Export Excel
+                    </a>
+                    <button class="btn-admin btn-primary" onclick="renderAttendanceSection()">
+                        <i class="fas fa-sync-alt"></i> Refresh
+                    </button>
+                </div>
+            </div>
+            <div class="filter-bar">
+                <select id="attFilterClass" class="admin-select" onchange="renderAttendanceSection()"></select>
+                <input type="date" id="attFilterDate" class="admin-input" onchange="onAdminAttDateChange()">
+                <button type="button" class="btn-admin btn-success btn-sm" id="adminAttAllPresent"><i class="fas fa-check"></i> All present</button>
+                <button type="button" class="btn-admin btn-danger btn-sm" id="adminAttAllAbsent"><i class="fas fa-times"></i> All absent</button>
+                <button type="button" class="btn-admin btn-ghost btn-sm" id="adminAttClearDay">Clear day</button>
+            </div>
+            <div class="settings-grid">
+                <div class="card-admin">
+                    <div class="card-admin-header"><h3><i class="fas fa-clipboard-list"></i> Daily register</h3></div>
+                    <div id="attDailySummary" class="att-summary"></div>
+                    <div class="table-responsive">
+                        <table class="admin-table">
+                            <thead>
+                                <tr><th>#</th><th>Student</th><th>Admission</th><th>Status</th><th>Mark</th></tr>
+                            </thead>
+                            <tbody id="attRegisterBody"></tbody>
+                        </table>
+                    </div>
+                </div>
+                <div class="card-admin">
+                    <div class="card-admin-header"><h3><i class="fas fa-calendar-day"></i> Term attendance days</h3></div>
+                    <div class="settings-body">
+                        <p class="settings-hint">Reports print <strong>days present OUT OF school days</strong>. School days are weekdays between term start and term end. When you close the term, weekends are excluded automatically. Teachers cannot change these totals.</p>
+                        <div class="form-row">
+                            <div class="form-group-admin">
+                                <label>Term start (first school day)</label>
+                                <input type="date" id="attTermStart" class="admin-input">
+                            </div>
+                            <div class="form-group-admin">
+                                <label>Term end (or leave blank until close)</label>
+                                <input type="date" id="attTermEnd" class="admin-input">
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group-admin">
+                                <label>Override school days (optional)</label>
+                                <input type="number" min="0" max="300" id="attDefaultDays" class="admin-input" placeholder="Leave blank to use weekdays">
+                            </div>
+                        </div>
+                        <p class="settings-hint" id="attComputedDaysHint"></p>
+                        <button type="button" class="btn-admin btn-primary" onclick="saveAttendanceTermDays()"><i class="fas fa-save"></i> Save term school days</button>
+                    </div>
+                    <div class="table-responsive" style="margin-top:16px;">
+                        <table class="admin-table">
+                            <thead>
+                                <tr>
+                                    <th>Student</th>
+                                    <th>Marked present</th>
+                                    <th>Absent</th>
+                                    <th>Total days (admin)</th>
+                                    <th>Present override</th>
+                                    <th>On report</th>
+                                </tr>
+                            </thead>
+                            <tbody id="attTotalsBody"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ACADEMIC YEARS SECTION -->
+        <section class="content-section" id="section-academic-years">
+            <div class="section-header">
+                <h2><i class="fas fa-calendar-alt"></i> Academic Years & Terms</h2>
+                <div class="section-actions">
+                    <button class="btn-admin btn-primary" onclick="openAcademicYearModal()">
+                        <i class="fas fa-plus"></i> New Academic Year
+                    </button>
+                </div>
+            </div>
+            <div class="academic-years-grid" id="academicYearsGrid"></div>
+        </section>
+
+        <!-- GRADING SYSTEM SECTION -->
+        <section class="content-section" id="section-grading">
+            <div class="section-header">
+                <h2><i class="fas fa-star-half-alt"></i> Grading System</h2>
+                <div class="section-actions">
+                    <button class="btn-admin btn-primary" onclick="openGradingScaleModal()">
+                        <i class="fas fa-plus"></i> New Grading Scale
+                    </button>
+                </div>
+            </div>
+            <div id="gradingScalesContainer"></div>
+        </section>
+
+        <!-- RESULTS SECTION -->
+        <section class="content-section" id="section-results">
+            <div class="section-header">
+                <h2><i class="fas fa-clipboard-list"></i> Results Management</h2>
+                <div class="section-actions">
+                    <button type="button" class="btn-admin btn-template" onclick="downloadTemplate('results')">
+                        <i class="fas fa-file-excel"></i> Download Template
+                    </button>
+                    <button type="button" class="btn-admin btn-secondary" onclick="exportDataExcel('results')">
+                        <i class="fas fa-file-excel"></i> Export Excel
+                    </button>
+                </div>
+            </div>
+            <div class="filter-bar">
+                <select id="resultsFilterYear" class="admin-select" onchange="renderResultsTable()">
+                    <option value="">All Years</option>
+                </select>
+                <select id="resultsFilterTerm" class="admin-select" onchange="renderResultsTable()">
+                    <option value="">All Terms</option>
+                </select>
+                <select id="resultsFilterClass" class="admin-select" onchange="renderResultsTable()">
+                    <option value="">All Classes</option>
+                </select>
+                <select id="resultsFilterSubject" class="admin-select" onchange="renderResultsTable()">
+                    <option value="">All Subjects</option>
+                </select>
+                <select id="resultsFilterStatus" class="admin-select" onchange="renderResultsTable()">
+                    <option value="">All Status</option>
+                    <option value="Draft">Draft</option>
+                    <option value="Submitted">Submitted</option>
+                    <option value="Reviewed">Reviewed</option>
+                    <option value="Approved">Approved</option>
+                    <option value="Published">Published</option>
+                </select>
+                <div class="search-filter">
+                    <i class="fas fa-search"></i>
+                    <input type="text" id="resultsFilterSearch" placeholder="Search student…" oninput="renderResultsTable()" autocomplete="off" value="">
+                </div>
+            </div>
+            <div class="card-admin">
+                <div class="results-bulk-actions" id="resultsBulkActions" style="display:none;gap:8px;align-items:center;">
+                    <span id="selectedResultsCount" style="font-weight:600;font-size:12px;">0 selected</span>
+                    <button class="btn-admin btn-success btn-sm" onclick="bulkApproveResults()"><i class="fas fa-check"></i> Approve Selected</button>
+                    <button class="btn-admin btn-secondary btn-sm" onclick="bulkRevokeResults()"><i class="fas fa-undo"></i> Revoke Selected</button>
+                    <button class="btn-admin btn-primary btn-sm" onclick="bulkLockResults()"><i class="fas fa-lock"></i> Lock Selected</button>
+                    <button class="btn-admin btn-warning btn-sm" onclick="bulkUnlockResults()"><i class="fas fa-unlock"></i> Unlock Selected</button>
+                    <button class="btn-admin btn-danger btn-sm" onclick="bulkDeleteResults()"><i class="fas fa-trash"></i> Delete Selected</button>
+                </div>
+                <div class="table-responsive">
+                    <table class="admin-table">
+                        <thead>
+                            <tr>
+                                <th><input type="checkbox" id="selectAllResults" onchange="toggleSelectAllResults(this)"></th>
+                                <th>Student</th><th>Class</th><th>Subject</th><th>Class 50%</th>
+                                <th>Exam 50%</th><th>Total</th><th>Grade</th><th>Status</th><th>Lock</th><th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="resultsTableBody"></tbody>
+                    </table>
+                </div>
+                <div class="table-footer">
+                    <span id="resultsCount">0 results</span>
+                    <div class="pagination" id="resultsPagination"></div>
+                </div>
+            </div>
+        </section>
+
+        <!-- REPORTS SECTION -->
+        <section class="content-section" id="section-reports">
+            <div class="section-header">
+                <h2><i class="fas fa-file-alt"></i> Report Management</h2>
+                <div class="section-actions">
+                    <button class="btn-admin btn-success" onclick="approveAllPendingReports()">
+                        <i class="fas fa-check-double"></i> Approve Pending
+                    </button>
+                    <button class="btn-admin btn-info" onclick="openAdminBulkDownloadModal()">
+                        <i class="fas fa-file-archive"></i> Bulk Download Class Reports
+                    </button>
+                    <button class="btn-admin btn-secondary" onclick="printAllClassReports()">
+                        <i class="fas fa-print"></i> Print Class Reports
+                    </button>
+                    <a class="btn-admin btn-secondary" href="/open?src=/api/export/reports.xlsx" >
+                        <i class="fas fa-file-excel"></i> Export Excel
+                    </a>
+                    <button class="btn-admin btn-primary" onclick="openGenerateReportModal()">
+                        <i class="fas fa-plus"></i> Generate Reports
+                    </button>
+                    <a href="/report.html" target="_blank" class="btn-admin btn-secondary">
+                        <i class="fas fa-chalkboard-teacher"></i> Teacher Portal
+                    </a>
+                </div>
+            </div>
+            <div class="filter-bar">
+                <select id="reportsFilterYear" class="admin-select" onchange="renderReportsTable()">
+                    <option value="">All Years</option>
+                </select>
+                <select id="reportsFilterTerm" class="admin-select" onchange="renderReportsTable()">
+                    <option value="">All Terms</option>
+                </select>
+                <select id="reportsFilterClass" class="admin-select" onchange="renderReportsTable()">
+                    <option value="">All Classes</option>
+                </select>
+                <select id="reportsFilterStatus" class="admin-select" onchange="renderReportsTable()">
+                    <option value="">All Status</option>
+                    <option value="Pending">Pending</option>
+                    <option value="Generated">Generated</option>
+                    <option value="Approved">Approved</option>
+                    <option value="Published">Published</option>
+                </select>
+            </div>
+            <div class="card-admin">
+                <div class="results-bulk-actions" id="reportsBulkActions" style="display:none;align-items:center;gap:10px;margin-bottom:12px;padding:8px 14px;background:var(--card-bg, #f8fafc);border:1px solid var(--border,#e2e8f0);border-radius:8px;">
+                    <span id="selectedReportsCount" style="font-weight:600;">0 selected</span>
+                    <button class="btn-admin btn-success btn-sm" onclick="bulkApproveSelectedReports()"><i class="fas fa-check"></i> Approve Selected</button>
+                    <button class="btn-admin btn-warning btn-sm" onclick="bulkRevokeSelectedReports()"><i class="fas fa-undo"></i> Revoke Approval</button>
+                    <button class="btn-admin btn-danger btn-sm" onclick="bulkDeleteSelectedReports()"><i class="fas fa-trash"></i> Delete Selected</button>
+                    <button class="btn-admin btn-info btn-sm" onclick="bulkDownloadSelectedReports()"><i class="fas fa-file-archive"></i> Download ZIP</button>
+                </div>
+                <div class="table-responsive">
+                    <table class="admin-table">
+                        <thead>
+                            <tr>
+                                <th style="width:36px;"><input type="checkbox" id="selectAllReports" onchange="toggleSelectAllReports(this)"></th>
+                                <th>#</th><th>Student</th><th>Class</th><th>Academic Year</th>
+                                <th>Term</th><th>Status</th><th>Generated At</th><th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="reportsTableBody"></tbody>
+                    </table>
+                </div>
+                <div class="table-footer">
+                    <span id="reportsCount">0 reports</span>
+                </div>
+            </div>
+        </section>
+
+        <!-- TIMETABLES & EXAMS MANAGEMENT SECTION -->
+        <section class="content-section" id="section-timetables">
+            <div class="section-header">
+                <div>
+                    <h2><i class="fas fa-calendar-week" style="color:var(--primary);"></i> Timetables &amp; Examination Management</h2>
+                    <p style="color:var(--text-secondary); font-size:13.5px; margin-top:4px;">
+                        Configure official master timetables, schedule exam papers, allocate invigilation duties, and inspect teacher schedules for timing clashes.
+                    </p>
+                </div>
+            </div>
+
+            <!-- Sub-tab Navigation -->
+            <div style="display:flex; gap:10px; margin-bottom:20px; border-bottom:1px solid var(--border); padding-bottom:12px; flex-wrap:wrap;">
+                <button type="button" class="btn-admin btn-primary btn-sm" id="adminTtSubTabClass" onclick="switchAdminTimetableSubTab('class')">
+                    <i class="fas fa-chalkboard"></i> Class Timetable Builder
+                </button>
+                <button type="button" class="btn-admin btn-ghost btn-sm" id="adminTtSubTabExams" onclick="switchAdminTimetableSubTab('exams')">
+                    <i class="fas fa-clipboard-check"></i> Examination Schedules &amp; Invigilation
+                </button>
+                <button type="button" class="btn-admin btn-ghost btn-sm" id="adminTtSubTabTeachers" onclick="switchAdminTimetableSubTab('teachers')">
+                    <i class="fas fa-user-tie"></i> Teacher Schedules &amp; Clash Detector
+                </button>
+            </div>
+
+            <!-- 1. CLASS TIMETABLE BUILDER -->
+            <div id="adminTtViewClass">
+                <div class="filter-bar" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:16px;">
+                    <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+                        <label style="font-weight:600; font-size:13px; color:var(--text-primary);">Select Class:</label>
+                        <select id="adminTtClassSelect" class="admin-select" onchange="loadAdminClassTimetable()" style="min-width:180px;"></select>
+                        <span id="adminTtClassTeacherLabel" style="font-size:12.5px; color:var(--text-secondary); margin-left:4px;"></span>
+                    </div>
+                    <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                        <button type="button" class="btn-admin btn-primary btn-sm" onclick="saveAdminClassTimetable()"><i class="fas fa-save"></i> Save Timetable</button>
+                        <button type="button" class="btn-admin btn-secondary btn-sm" onclick="openConfigurePeriodsModal()"><i class="fas fa-clock"></i> Configure Periods</button>
+                        <button type="button" class="btn-admin btn-secondary btn-sm" onclick="downloadAdminTimetablePDF()"><i class="fas fa-file-pdf"></i> Download PDF</button>
+                        <button type="button" class="btn-admin btn-secondary btn-sm" onclick="exportAdminTimetableExcel()"><i class="fas fa-file-excel" style="color:#16a34a;"></i> Export Excel</button>
+                        <button type="button" class="btn-admin btn-ghost btn-sm" onclick="printAdminTimetable()"><i class="fas fa-print"></i> Print</button>
+                    </div>
+                </div>
+
+                <div class="card-admin" style="padding:18px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; flex-wrap:wrap; gap:8px;">
+                        <div>
+                            <strong id="adminTtGridTitle" style="font-size:15px; color:var(--text-primary);">Weekly Master Schedule</strong>
+                            <span class="badge badge-verified" id="adminTtSlotCountBadge" style="margin-left:8px;">0 Periods Configured</span>
+                        </div>
+                        <div style="font-size:12px; color:var(--text-secondary);">
+                            <i class="fas fa-info-circle" style="color:var(--primary);"></i> Click on any slot below to assign or edit subject, teacher, and room.
+                        </div>
+                    </div>
+                    
+                    <div class="table-responsive" id="adminTtGridContainer" style="overflow-x:auto;">
+                        <!-- Timetable Grid injected dynamically -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- 2. EXAMINATION SCHEDULES & INVIGILATION -->
+            <div id="adminTtViewExams" style="display:none;">
+                <div class="filter-bar" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:16px;">
+                    <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+                        <div class="search-filter" style="margin:0;">
+                            <i class="fas fa-search"></i>
+                            <input type="text" id="adminExamSearch" placeholder="Search exam papers…" oninput="renderAdminExamsTable()" autocomplete="off">
+                        </div>
+                        <select id="adminExamClassFilter" class="admin-select" onchange="renderAdminExamsTable()">
+                            <option value="">All Classes</option>
+                        </select>
+                    </div>
+                    <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                        <button type="button" class="btn-admin btn-primary btn-sm" onclick="openAdminAddExamModal()"><i class="fas fa-plus"></i> Schedule New Exam</button>
+                        <button type="button" class="btn-admin btn-secondary btn-sm" onclick="downloadAdminExamsPDF()"><i class="fas fa-file-pdf"></i> Download PDF</button>
+                        <button type="button" class="btn-admin btn-secondary btn-sm" onclick="exportAdminExamsExcel()"><i class="fas fa-file-excel" style="color:#16a34a;"></i> Export Excel</button>
+                        <button type="button" class="btn-admin btn-ghost btn-sm" onclick="printAdminExams()"><i class="fas fa-print"></i> Print</button>
+                    </div>
+                </div>
+
+                <div class="card-admin">
+                    <div class="table-responsive">
+                        <table class="admin-table" id="adminExamsTable">
+                            <thead>
+                                <tr>
+                                    <th>Subject</th>
+                                    <th>Exam Title</th>
+                                    <th>Class</th>
+                                    <th>Date &amp; Time</th>
+                                    <th>Hall / Venue</th>
+                                    <th>Invigilator(s)</th>
+                                    <th>Status</th>
+                                    <th style="text-align:right;">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="adminExamsTableBody">
+                                <!-- Scheduled exams rendered here -->
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="table-footer">
+                        <span id="adminExamsCount">0 examinations scheduled</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 3. TEACHER SCHEDULES & CLASH DETECTOR -->
+            <div id="adminTtViewTeachers" style="display:none;">
+                <div class="filter-bar" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:16px;">
+                    <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+                        <label style="font-weight:600; font-size:13px; color:var(--text-primary);">Select Teacher:</label>
+                        <select id="adminTtTeacherSelect" class="admin-select" onchange="renderAdminTeacherSchedule()" style="min-width:200px;"></select>
+                    </div>
+                    <div id="adminTtClashBadge"></div>
+                </div>
+
+                <div class="card-admin" style="padding:18px;">
+                    <div id="adminTeacherStatsRow" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:12px; margin-bottom:16px;"></div>
+                    <div id="adminTeacherScheduleContent"></div>
+                </div>
+            </div>
+        </section>
+
+        <!-- SCHOOL SETTINGS SECTION -->
+        <section class="content-section" id="section-settings">
+            <div class="section-header">
+                <h2><i class="fas fa-cog"></i> School Settings & Report Template</h2>
+                <div class="section-actions">
+                    <button class="btn-admin btn-primary" onclick="saveAllSettings()">
+                        <i class="fas fa-save"></i> Save Settings
+                    </button>
+                </div>
+            </div>
+            <div class="settings-grid">
+                <!-- School Information -->
+                <div class="card-admin settings-card">
+                    <div class="card-admin-header"><h3><i class="fas fa-info-circle"></i> School Information</h3></div>
+                    <div class="settings-body">
+                        <div class="form-row">
+                            <div class="form-group-admin">
+                                <label>School Name</label>
+                                <input type="text" id="settingsSchoolName" placeholder="e.g. The Living Spring School" class="admin-input">
+                            </div>
+                            <div class="form-group-admin">
+                                <label>School Motto</label>
+                                <input type="text" id="settingsMotto" placeholder="e.g. Excellence Through Discipline" class="admin-input">
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group-admin">
+                                <label>Address</label>
+                                <input type="text" id="settingsAddress" placeholder="P.O. Box 123, Accra" class="admin-input">
+                            </div>
+                            <div class="form-group-admin">
+                                <label>Phone Number</label>
+                                <input type="text" id="settingsPhone" placeholder="0201234567" class="admin-input">
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group-admin">
+                                <label>Email</label>
+                                <input type="email" id="settingsEmail" placeholder="info@school.edu.gh" class="admin-input">
+                            </div>
+                            <div class="form-group-admin">
+                                <label>Report Title</label>
+                                <input type="text" id="settingsReportTitle" placeholder="END OF TERM REPORT SHEET" class="admin-input">
+                            </div>
+                        </div>
+                        <div class="form-group-admin">
+                            <label>School Logo</label>
+                            <div class="logo-upload-area" id="settingsLogoPreview" onclick="document.getElementById('settingsLogoFile').click()">
+                                <i class="fas fa-cloud-upload-alt"></i>
+                                <span>Click to upload logo</span>
+                            </div>
+                            <input type="file" id="settingsLogoFile" accept="image/*" style="display:none;" onchange="handleSettingsLogoUpload(event)">
+                        </div>
+                        <div class="form-group-admin">
+                            <label>Headteacher Signature</label>
+                            <div class="logo-upload-area" id="settingsSignaturePreview" onclick="document.getElementById('settingsSignatureFile').click()">
+                                <i class="fas fa-signature"></i>
+                                <span>Click to upload signature</span>
+                            </div>
+                            <input type="file" id="settingsSignatureFile" accept="image/*" style="display:none;" onchange="handleSettingsSignatureUpload(event)">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Report calendar — used on every class report sheet -->
+                <div class="card-admin settings-card">
+                    <div class="card-admin-header"><h3><i class="fas fa-calendar-week"></i> Report Calendar &amp; Headteacher</h3></div>
+                    <div class="settings-body">
+                        <p class="settings-hint">Teachers cannot edit these. They appear on report sheets for every class.</p>
+                        <div class="form-row">
+                            <div class="form-group-admin">
+                                <label>Vacation / Closing Date</label>
+                                <input type="text" id="settingsClosingDate" placeholder="e.g. 18th DEC, 2025" class="admin-input">
+                            </div>
+                            <div class="form-group-admin">
+                                <label>Re-opening Date</label>
+                                <input type="text" id="settingsReopeningDate" placeholder="e.g. 12th JAN, 2026" class="admin-input">
+                            </div>
+                        </div>
+                        <div class="form-group-admin">
+                            <label>Headteacher Name</label>
+                            <input type="text" id="settingsHeadTeacher" placeholder="Filled from a teacher with role Headteacher, or type here" class="admin-input">
+                            <p class="settings-hint" style="margin-top:6px;">If a staff record has the role <strong>Headteacher</strong>, that name is used automatically. Updating the teacher also updates reports.</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card-admin settings-card">
+                    <div class="card-admin-header"><h3><i class="fas fa-chalkboard-teacher"></i> Class Teachers</h3></div>
+                    <div class="settings-body">
+                        <p class="settings-hint">Class teacher names on reports come from the teacher assigned to each class. Change the assignment under <strong>Classes</strong>, or edit the teacher’s name under <strong>Teachers</strong>.</p>
+                        <div class="table-responsive">
+                            <table class="admin-table">
+                                <thead>
+                                    <tr><th>Class</th><th>Class Teacher</th><th>Source</th></tr>
+                                </thead>
+                                <tbody id="settingsClassTeacherBody"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Report Field Toggles -->
+                <div class="card-admin settings-card">
+                    <div class="card-admin-header"><h3><i class="fas fa-toggle-on"></i> Report Field Toggles</h3></div>
+                    <p class="settings-hint">Control which fields appear on generated report sheets.</p>
+                    <div class="toggle-grid" id="fieldTogglesGrid">
+                        <!-- Dynamically rendered by admin.js -->
+                    </div>
+                </div>
+
+
+
+                <!-- School Departments Management -->
+                <div class="card-admin settings-card">
+                    <div class="card-admin-header"><h3><i class="fas fa-sitemap"></i> School Departments</h3></div>
+                    <div class="settings-body">
+                        <p class="settings-hint">Define departments in the school (e.g. JHS, Primary, Kindergarten). Dropdowns across Classes, Subjects, and Grading Scales will use these.</p>
+                        <div id="departmentsListContainer" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;"></div>
+                        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                            <input type="text" id="newDepartmentName" placeholder="Department name (e.g. Nursery)" class="admin-input" style="flex:2;min-width:160px;" onkeydown="if(event.key==='Enter') addDepartmentSetting()">
+                            <select id="newDepartmentGrading" class="admin-select" style="flex:1;min-width:130px;">
+                                <option value="standard">Standard (A–F)</option>
+                                <option value="jhs">JHS Stanine (1–9)</option>
+                                <option value="primary">Primary Scale</option>
+                            </select>
+                            <button type="button" class="btn-admin btn-primary btn-sm" onclick="addDepartmentSetting()"><i class="fas fa-plus"></i> Add Dept.</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Color Scheme -->
+                <div class="card-admin settings-card">
+                    <div class="card-admin-header"><h3><i class="fas fa-palette"></i> Report Colors</h3></div>
+                    <div class="form-row">
+                        <div class="form-group-admin">
+                            <label>Primary Color</label>
+                            <div class="color-picker-wrap">
+                                <input type="color" id="settingsPrimaryColor" value="#1a56db">
+                                <input type="text" id="settingsPrimaryColorHex" placeholder="#1a56db" class="admin-input" oninput="syncColorPicker('settingsPrimaryColor', this.value)">
+                            </div>
+                        </div>
+                        <div class="form-group-admin">
+                            <label>Secondary Color</label>
+                            <div class="color-picker-wrap">
+                                <input type="color" id="settingsSecondaryColor" value="#7e3af2">
+                                <input type="text" id="settingsSecondaryColorHex" placeholder="#7e3af2" class="admin-input" oninput="syncColorPicker('settingsSecondaryColor', this.value)">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group-admin">
+                            <label>Header Text Color</label>
+                            <div class="color-picker-wrap">
+                                <input type="color" id="settingsHeaderTextColor" value="#ffffff">
+                                <input type="text" id="settingsHeaderTextColorHex" placeholder="#ffffff" class="admin-input">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- FIREBASE CLOUD CONNECTION SECTION -->
+        <section class="content-section" id="section-firebase">
+            <div class="section-header">
+                <h2><i class="fas fa-cloud" style="color: #0284c7;"></i> Firebase Cloud Connection</h2>
+                <div class="section-actions">
+                    <button class="btn-admin btn-ghost" onclick="lockDevMode()" title="Lock Developer Settings">
+                        <i class="fas fa-lock"></i> Lock Developer Access
+                    </button>
+                </div>
+            </div>
+
+            <div class="card-admin" style="margin-bottom: 20px; border-left: 4px solid #0284c7;">
+                <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
+                    <div>
+                        <h4 style="margin:0 0 4px 0; font-size:16px; display:flex; align-items:center; gap:8px;">
+                            <i class="fas fa-database" style="color:#0284c7;"></i> Cloud Sync Status
+                        </h4>
+                        <p id="fbCloudStatus" style="margin:0; font-size:13px; font-weight:600; color:var(--text-secondary);">Status: Checking...</p>
+                    </div>
+                    <div style="display:flex; gap:10px;">
+                        <button type="button" class="btn-admin btn-primary" onclick="connectFirebaseFromSettings()">
+                            <i class="fas fa-sync-alt"></i> Connect & Auto-Sync
+                        </button>
+                        <button type="button" class="btn-admin btn-secondary" onclick="downloadSchoolFromFirebase()">
+                            <i class="fas fa-cloud-download-alt"></i> Pull from Cloud
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="settings-grid">
+                <div class="card-admin settings-card" style="grid-column: 1 / -1;">
+                    <div class="card-admin-header"><h3><i class="fas fa-key"></i> Firebase Project Credentials</h3></div>
+                    <div class="settings-body">
+                        <p class="settings-hint">
+                            Connecting Firebase enables automatic real-time cloud sync. Whenever you create users, students, classes, subjects, enter scores, or make updates, everything is <strong>automatically synchronized</strong> to your Google Firebase backend in real time.
+                        </p>
+                        <div class="form-group-admin">
+                            <label>Paste firebaseConfig JSON</label>
+                            <textarea id="fbConfigJson" class="admin-input" rows="7" placeholder="Paste the firebaseConfig object from Firebase Console (Project Settings > Web App).&#10;Example:&#10;const firebaseConfig = {&#10;  apiKey: &quot;AIzaSy...&quot;,&#10;  authDomain: &quot;your-app.firebaseapp.com&quot;,&#10;  projectId: &quot;your-app&quot;,&#10;  storageBucket: &quot;your-app.appspot.com&quot;,&#10;  messagingSenderId: &quot;123456789&quot;,&#10;  appId: &quot;1:123...&quot;&#10;};" oninput="parseConfigJsonInput()"></textarea>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group-admin"><label>apiKey</label><input type="text" id="fbApiKey" class="admin-input" placeholder="AIzaSy..."></div>
+                            <div class="form-group-admin"><label>authDomain</label><input type="text" id="fbAuthDomain" class="admin-input" placeholder="your-app.firebaseapp.com"></div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group-admin"><label>projectId</label><input type="text" id="fbProjectId" class="admin-input" placeholder="your-app"></div>
+                            <div class="form-group-admin"><label>storageBucket</label><input type="text" id="fbStorageBucket" class="admin-input" placeholder="your-app.appspot.com"></div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group-admin"><label>messagingSenderId</label><input type="text" id="fbMessagingSenderId" class="admin-input" placeholder="123456789"></div>
+                            <div class="form-group-admin"><label>appId</label><input type="text" id="fbAppId" class="admin-input" placeholder="1:123456789:web:..."></div>
+                        </div>
+                        <div style="display:flex; flex-wrap:wrap; gap:10px; margin-top:14px;">
+                            <button type="button" class="btn-admin btn-primary" onclick="connectFirebaseFromSettings()">
+                                <i class="fas fa-plug"></i> Save & Connect Firebase
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+
+
+        <!-- AUDIT LOGS SECTION -->
+        <section class="content-section" id="section-audit-logs">
+            <div class="section-header">
+                <h2><i class="fas fa-history"></i> Activity Logs</h2>
+                <div class="section-actions">
+                    <a class="btn-admin btn-secondary" href="/open?src=/api/export/auditLogs.xlsx" >
+                        <i class="fas fa-file-excel"></i> Export Excel
+                    </a>
+                    <button class="btn-admin btn-danger" onclick="confirmClearAuditLogs()">
+                        <i class="fas fa-trash"></i> Clear Logs
+                    </button>
+                </div>
+            </div>
+            <div class="filter-bar">
+                <div class="search-filter">
+                    <i class="fas fa-search"></i>
+                    <input type="text" id="auditLogSearch" placeholder="Search logs…" oninput="renderAuditLogs()" autocomplete="off" value="">
+                </div>
+                <select id="auditLogActionFilter" class="admin-select" onchange="renderAuditLogs()">
+                    <option value="">All Actions</option>
+                </select>
+                <input type="date" id="auditLogDateFrom" class="admin-input" placeholder="From date" onchange="renderAuditLogs()">
+                <input type="date" id="auditLogDateTo" class="admin-input" placeholder="To date" onchange="renderAuditLogs()">
+            </div>
+            <div class="card-admin">
+                <div class="table-responsive">
+                    <table class="admin-table">
+                        <thead>
+                            <tr>
+                                <th>User</th><th>Role</th><th>Action</th><th>Details</th><th>Record</th><th>Timestamp</th>
+                            </tr>
+                        </thead>
+                        <tbody id="auditLogsTableBody"></tbody>
+                    </table>
+                </div>
+                <div class="table-footer">
+                    <span id="auditLogsCount">0 entries</span>
+                    <div class="pagination" id="auditLogsPagination"></div>
+                </div>
+            </div>
+        </section>
+
+        <!-- DATA MANAGEMENT SECTION -->
+        <section class="content-section" id="section-data-management">
+            <div class="section-header">
+                <h2><i class="fas fa-database"></i> Data Management</h2>
+                <div class="section-actions">
+                    <a class="btn-admin btn-template" href="/excel.html"><i class="fas fa-file-excel"></i> Open Excel templates</a>
+                    <button class="btn-admin btn-danger" onclick="startRealSchoolData()">
+                        <i class="fas fa-broom"></i> Clear demo / start real users
+                    </button>
+                    <button class="btn-admin btn-warning" onclick="openRestoreBackupModal()">
+                        <i class="fas fa-trash-restore"></i> Restore Backup
+                    </button>
+                </div>
+            </div>
+            <div class="data-mgmt-grid">
+                <div class="card-admin">
+                    <div class="card-admin-header"><h3><i class="fas fa-chart-bar"></i> Database Statistics</h3></div>
+                    <div id="dbStatsGrid" class="stats-grid"></div>
+                </div>
+
+                <!-- Template Download Card -->
+                <div class="card-admin">
+                    <div class="card-admin-header"><h3><i class="fas fa-file-excel"></i> Import CSV & Excel Templates</h3></div>
+                    <div class="import-section">
+                        <p class="settings-hint">Download templates directly. Open in Microsoft Excel, Google Sheets, or Numbers, fill the rows, then import.</p>
+                        <button type="button" class="export-btn" onclick="downloadTemplate('students')" style="text-align:left; width:100%; border:none; cursor:pointer; background:none; font:inherit; color:inherit;">
+                            <i class="fas fa-user-graduate"></i> Student Import Template (Excel)
+                        </button>
+                        <button type="button" class="export-btn" onclick="downloadTemplate('teachers')" style="text-align:left; width:100%; border:none; cursor:pointer; background:none; font:inherit; color:inherit;">
+                            <i class="fas fa-chalkboard-teacher"></i> Teacher Import Template (Excel)
+                        </button>
+                        <button type="button" class="export-btn" onclick="downloadTemplate('classes')" style="text-align:left; width:100%; border:none; cursor:pointer; background:none; font:inherit; color:inherit;">
+                            <i class="fas fa-school"></i> Class Import Template (Excel)
+                        </button>
+                        <button type="button" class="export-btn" onclick="downloadTemplate('subjects')" style="text-align:left; width:100%; border:none; cursor:pointer; background:none; font:inherit; color:inherit;">
+                            <i class="fas fa-book-open"></i> Subject Import Template (Excel)
+                        </button>
+                        <button type="button" class="export-btn" onclick="downloadTemplate('results')" style="text-align:left; width:100%; border:none; cursor:pointer; background:none; font:inherit; color:inherit;">
+                            <i class="fas fa-clipboard-list"></i> Results Import Template (Excel)
+                        </button>
+                    </div>
+                </div>
+
+                <div class="card-admin">
+                    <div class="card-admin-header"><h3><i class="fas fa-upload"></i> Import Data</h3></div>
+                    <div class="import-section">
+                        <div class="import-option" onclick="triggerImport('students')">
+                            <i class="fas fa-user-graduate"></i>
+                            <span>Import Students (CSV)</span>
+                            <input type="file" id="importStudentsFile" accept=".csv" style="display:none;" onchange="handleImportCSV(event, 'students')">
+                        </div>
+                        <div class="import-option" onclick="triggerImport('teachers')">
+                            <i class="fas fa-chalkboard-teacher"></i>
+                            <span>Import Teachers (CSV)</span>
+                            <input type="file" id="importTeachersFile" accept=".csv" style="display:none;" onchange="handleImportCSV(event, 'teachers')">
+                        </div>
+                        <div class="import-option" onclick="triggerImport('classes')">
+                            <i class="fas fa-school"></i>
+                            <span>Import Classes (CSV)</span>
+                            <input type="file" id="importClassesFile" accept=".csv" style="display:none;" onchange="handleImportCSV(event, 'classes')">
+                        </div>
+                        <div class="import-option" onclick="triggerImport('subjects')">
+                            <i class="fas fa-book-open"></i>
+                            <span>Import Subjects (CSV)</span>
+                            <input type="file" id="importSubjectsFile" accept=".csv" style="display:none;" onchange="handleImportCSV(event, 'subjects')">
+                        </div>
+                        <div class="import-option" onclick="triggerImport('results')">
+                            <i class="fas fa-clipboard-list"></i>
+                            <span>Import Results (CSV)</span>
+                            <input type="file" id="importResultsFile" accept=".csv" style="display:none;" onchange="handleImportCSV(event, 'results')">
+                        </div>
+                    </div>
+                    <div id="importPreviewSection" style="display:none;padding:16px;">
+                        <h4>Import Preview & Validation</h4>
+                        <div id="importInstructionsBanner" class="import-instruction-banner"></div>
+                        <div id="importValidationMessages" style="margin:12px 0;"></div>
+                        <div class="table-responsive">
+                            <table class="admin-table" id="importPreviewTable">
+                                <thead id="importPreviewHead"></thead>
+                                <tbody id="importPreviewBody"></tbody>
+                            </table>
+                        </div>
+                        <div class="import-actions">
+                            <button class="btn-admin btn-primary" id="confirmImportBtn" onclick="confirmImport()"><i class="fas fa-check"></i> Confirm Import</button>
+                            <button class="btn-admin btn-ghost" onclick="cancelImport()"><i class="fas fa-times"></i> Cancel</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card-admin">
+                    <div class="card-admin-header"><h3><i class="fas fa-download"></i> Export & Backup</h3></div>
+                    <div class="export-section">
+                        <a class="export-btn" href="/open?src=/api/export/students.json" >
+                            <i class="fas fa-user-graduate"></i> Students (JSON)
+                        </a>
+                        <a class="export-btn" href="/open?src=/api/export/students.xlsx" >
+                            <i class="fas fa-file-excel"></i> Students (Excel)
+                        </a>
+                        <a class="export-btn" href="/open?src=/api/export/teachers.json" >
+                            <i class="fas fa-chalkboard-teacher"></i> Teachers (JSON)
+                        </a>
+                        <a class="export-btn" href="/open?src=/api/export/results.json" >
+                            <i class="fas fa-clipboard-list"></i> Results (JSON)
+                        </a>
+                        <a class="export-btn" href="/open?src=/api/export/results.xlsx" >
+                            <i class="fas fa-file-excel"></i> Results (Excel)
+                        </a>
+                        <a class="export-btn" href="/open?src=/api/export/auditLogs.json" >
+                            <i class="fas fa-history"></i> Audit Logs (JSON)
+                        </a>
+                        <a class="export-btn danger" href="/open?src=/api/export/backup" >
+                            <i class="fas fa-archive"></i> Full Backup (JSON)
+                        </a>
+                        <button class="export-btn warning" onclick="openRestoreBackupModal()">
+                            <i class="fas fa-trash-restore"></i> Restore Backup (JSON)
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- EXCEL & CSV TEMPLATES CENTER -->
+        <section class="content-section" id="section-templates">
+            <div class="section-header">
+                <div>
+                    <h2><i class="fas fa-file-excel" style="color:var(--success);"></i> Excel & CSV Templates Center</h2>
+                    <p style="color:var(--text-secondary); font-size:13.5px; margin-top:4px;">
+                        Download pre-formatted import templates with in-cell dropdown lists for classes, subjects, roles, and grading systems.
+                    </p>
+                </div>
+            </div>
+
+            <div style="background:rgba(16,185,129,.08); border:1.5px solid rgba(16,185,129,.25); border-radius:var(--radius); padding:14px 18px; margin-bottom:20px; display:flex; align-items:center; gap:12px;">
+                <i class="fas fa-check-circle" style="font-size:22px; color:var(--success); flex-shrink:0;"></i>
+                <div style="font-size:13px; color:var(--text-secondary); line-height:1.5;">
+                    <strong style="color:var(--text-primary);">Dynamic School Integration:</strong> All Excel (.xlsx) templates automatically include in-cell dropdown selection menus populated directly with your school's current registered classes, subjects, and staff roles.
+                </div>
+            </div>
+
+            <div class="templates-grid">
+                <!-- 1. Students Template Card -->
+                <div class="template-card">
+                    <div>
+                        <div class="template-card-header">
+                            <div class="template-card-icon"><i class="fas fa-user-graduate"></i></div>
+                            <div>
+                                <h3 class="template-card-title">Students Import Template</h3>
+                                <span class="template-card-badge">Class & Gender Dropdowns</span>
+                            </div>
+                        </div>
+                        <div class="template-card-desc">
+                            Bulk import new student admissions, bios, gender, dates of birth, parent details, and assign them to active classes.
+                        </div>
+                        <div class="template-card-columns">
+                            <strong>Included Columns:</strong>
+                            Admission No, Full Name, Class (Dropdown), Gender (Dropdown), Date of Birth, Parent Name, Parent Phone, Parent Email, Address
+                        </div>
+                    </div>
+                    <div class="template-card-actions">
+                        <button type="button" class="btn-admin btn-primary btn-sm" onclick="downloadTemplate('students')">
+                            <i class="fas fa-file-excel"></i> Download Excel (.xlsx)
+                        </button>
+                        <button type="button" class="btn-admin btn-secondary btn-sm" onclick="downloadCsvTemplate('students')">
+                            <i class="fas fa-file-csv"></i> Download CSV
+                        </button>
+                    </div>
+                </div>
+
+                <!-- 2. Teachers & Staff Template Card -->
+                <div class="template-card">
+                    <div>
+                        <div class="template-card-header">
+                            <div class="template-card-icon primary"><i class="fas fa-chalkboard-teacher"></i></div>
+                            <div>
+                                <h3 class="template-card-title">Teachers & Staff Template</h3>
+                                <span class="template-card-badge">Role Dropdown & Lookup Sheets</span>
+                            </div>
+                        </div>
+                        <div class="template-card-desc">
+                            Bulk import staff accounts, teachers, class teachers, headteachers, temporary login passwords, and multi-class/subject allocations.
+                        </div>
+                        <div class="template-card-columns">
+                            <strong>Included Columns:</strong>
+                            Full Name, Email Address, Phone Number, Role (Dropdown), Password, Assigned Classes, Assigned Subjects
+                        </div>
+                    </div>
+                    <div class="template-card-actions">
+                        <button type="button" class="btn-admin btn-primary btn-sm" onclick="downloadTemplate('teachers')">
+                            <i class="fas fa-file-excel"></i> Download Excel (.xlsx)
+                        </button>
+                        <button type="button" class="btn-admin btn-secondary btn-sm" onclick="downloadCsvTemplate('teachers')">
+                            <i class="fas fa-file-csv"></i> Download CSV
+                        </button>
+                    </div>
+                </div>
+
+                <!-- 3. Assessment Results & Scores Template Card -->
+                <div class="template-card">
+                    <div>
+                        <div class="template-card-header">
+                            <div class="template-card-icon warning"><i class="fas fa-clipboard-list"></i></div>
+                            <div>
+                                <h3 class="template-card-title">Terminal Scores & Results</h3>
+                                <span class="template-card-badge">Class, Subject & Term Dropdowns</span>
+                            </div>
+                        </div>
+                        <div class="template-card-desc">
+                            Import continuous assessment (class scores) and end-of-term exam marks per student, class, and subject.
+                        </div>
+                        <div class="template-card-columns">
+                            <strong>Included Columns:</strong>
+                            Student Name, Class (Dropdown), Subject (Dropdown), Class Score (100), Exam Score (100), Academic Year, Term (Dropdown)
+                        </div>
+                    </div>
+                    <div class="template-card-actions">
+                        <button type="button" class="btn-admin btn-primary btn-sm" onclick="downloadTemplate('results')">
+                            <i class="fas fa-file-excel"></i> Download Excel (.xlsx)
+                        </button>
+                        <button type="button" class="btn-admin btn-secondary btn-sm" onclick="downloadCsvTemplate('results')">
+                            <i class="fas fa-file-csv"></i> Download CSV
+                        </button>
+                    </div>
+                </div>
+
+                <!-- 4. Classes Template Card -->
+                <div class="template-card">
+                    <div>
+                        <div class="template-card-header">
+                            <div class="template-card-icon"><i class="fas fa-school"></i></div>
+                            <div>
+                                <h3 class="template-card-title">Class Structures Template</h3>
+                                <span class="template-card-badge">Academic Level Dropdown</span>
+                            </div>
+                        </div>
+                        <div class="template-card-desc">
+                            Create classes, kindergarten levels, primary grades, and JHS streams with grading scale presets.
+                        </div>
+                        <div class="template-card-columns">
+                            <strong>Included Columns:</strong>
+                            Class Name, Academic Level (Dropdown), Grading Scale, Status (Dropdown)
+                        </div>
+                    </div>
+                    <div class="template-card-actions">
+                        <button type="button" class="btn-admin btn-primary btn-sm" onclick="downloadTemplate('classes')">
+                            <i class="fas fa-file-excel"></i> Download Excel (.xlsx)
+                        </button>
+                        <button type="button" class="btn-admin btn-secondary btn-sm" onclick="downloadCsvTemplate('classes')">
+                            <i class="fas fa-file-csv"></i> Download CSV
+                        </button>
+                    </div>
+                </div>
+
+                <!-- 5. Subjects & Courses Template Card -->
+                <div class="template-card">
+                    <div>
+                        <div class="template-card-header">
+                            <div class="template-card-icon primary"><i class="fas fa-book-open"></i></div>
+                            <div>
+                                <h3 class="template-card-title">Subjects & Departments</h3>
+                                <span class="template-card-badge">Course Code & Status</span>
+                            </div>
+                        </div>
+                        <div class="template-card-desc">
+                            Import school subjects, departmental course codes, and curriculum subject definitions.
+                        </div>
+                        <div class="template-card-columns">
+                            <strong>Included Columns:</strong>
+                            Subject Name, Subject Code, Status (Dropdown)
+                        </div>
+                    </div>
+                    <div class="template-card-actions">
+                        <button type="button" class="btn-admin btn-primary btn-sm" onclick="downloadTemplate('subjects')">
+                            <i class="fas fa-file-excel"></i> Download Excel (.xlsx)
+                        </button>
+                        <button type="button" class="btn-admin btn-secondary btn-sm" onclick="downloadCsvTemplate('subjects')">
+                            <i class="fas fa-file-csv"></i> Download CSV
+                        </button>
+                    </div>
+                </div>
+
+                <!-- 6. Attendance Template Card -->
+                <div class="template-card">
+                    <div>
+                        <div class="template-card-header">
+                            <div class="template-card-icon warning"><i class="fas fa-calendar-check"></i></div>
+                            <div>
+                                <h3 class="template-card-title">Student Attendance Sheet</h3>
+                                <span class="template-card-badge">Status & Date Format</span>
+                            </div>
+                        </div>
+                        <div class="template-card-desc">
+                            Import daily student attendance registers with Present, Absent, Late, and Excused status tags.
+                        </div>
+                        <div class="template-card-columns">
+                            <strong>Included Columns:</strong>
+                            Student ID, Student Name, Class, Date (YYYY-MM-DD), Status, Notes
+                        </div>
+                    </div>
+                    <div class="template-card-actions">
+                        <button type="button" class="btn-admin btn-primary btn-sm" onclick="downloadCsvTemplate('attendance')">
+                            <i class="fas fa-file-csv"></i> Download CSV
+                        </button>
+                    </div>
+                </div>
+
+                <!-- 7. Grading Scales Template Card -->
+                <div class="template-card">
+                    <div>
+                        <div class="template-card-header">
+                            <div class="template-card-icon"><i class="fas fa-balance-scale"></i></div>
+                            <div>
+                                <h3 class="template-card-title">Grading Scales & Bands</h3>
+                                <span class="template-card-badge">Score Bands & Remarks</span>
+                            </div>
+                        </div>
+                        <div class="template-card-desc">
+                            Define custom grading rubrics, grade letters, score cutoffs (min/max), and teacher remarks.
+                        </div>
+                        <div class="template-card-columns">
+                            <strong>Included Columns:</strong>
+                            Scale Name, Grade, Min Score, Max Score, Remark, GPA Points
+                        </div>
+                    </div>
+                    <div class="template-card-actions">
+                        <button type="button" class="btn-admin btn-primary btn-sm" onclick="downloadCsvTemplate('gradingScales')">
+                            <i class="fas fa-file-csv"></i> Download CSV
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ════════════════════════════════════════════════════════════════════ -->
+        <!-- SECTION: ONE-CLICK CLOUD BACKUP & OFFLINE SYNC -->
+        <!-- ════════════════════════════════════════════════════════════════════ -->
+        <section class="content-section" id="section-backup-sync">
+            <div class="section-header">
+                <div>
+                    <h2><i class="fas fa-cloud-upload-alt" style="color:#10b981;"></i> One-Click Cloud Backup & Offline Sync</h2>
+                    <p class="section-subtitle">Automated snapshot safety exports, point-in-time recovery, and Progressive Web App offline synchronization.</p>
+                </div>
+                <div class="section-actions" style="display:flex; gap:10px; flex-wrap:wrap;">
+                    <button class="btn-admin btn-secondary" onclick="exportBrowserSnapshot()"><i class="fas fa-download"></i> Download Local JSON</button>
+                    <button class="btn-admin btn-primary" onclick="triggerManualCloudSnapshot()"><i class="fas fa-cloud-upload-alt"></i> Create Instant Cloud Snapshot</button>
+                </div>
+            </div>
+
+            <!-- Top Status Cards -->
+            <div class="stats-grid" style="grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); margin-bottom: 24px;">
+                <div class="stat-card">
+                    <div class="stat-icon" style="background:#ecfdf5; color:#10b981;"><i class="fas fa-shield-alt"></i></div>
+                    <div class="stat-info">
+                        <span class="stat-label">Cloud Backup Engine</span>
+                        <span class="stat-value" style="font-size:20px; color:#10b981;">Active & Protected</span>
+                        <span class="stat-hint">Automated Rolling 30-Day Snapshots</span>
+                    </div>
+                </div>
+
+                <div class="stat-card">
+                    <div class="stat-icon" style="background:#eff6ff; color:#3b82f6;"><i class="fas fa-database"></i></div>
+                    <div class="stat-info">
+                        <span class="stat-label">Available Snapshots</span>
+                        <span class="stat-value" id="backup-snapshot-count" style="font-size:20px;">0</span>
+                        <span class="stat-hint">Stored on Secure Server Disk</span>
+                    </div>
+                </div>
+
+                <div class="stat-card">
+                    <div class="stat-icon" style="background:#fef3c7; color:#d97706;"><i class="fas fa-wifi"></i></div>
+                    <div class="stat-info">
+                        <span class="stat-label">PWA Offline Engine</span>
+                        <span class="stat-value" id="pwa-sync-status" style="font-size:20px; color:#2563eb;">Ready (Online)</span>
+                        <span class="stat-hint" id="pwa-pending-hint">0 Offline Actions Pending</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Offline Sync Manager Banner -->
+            <div class="admin-card" style="margin-bottom: 24px; border-left: 4px solid #3b82f6; background:#f8fafc;">
+                <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
+                    <div>
+                        <h4 style="margin:0 0 4px; font-size:15px; font-weight:700;"><i class="fas fa-mobile-alt" style="color:#3b82f6;"></i> Progressive Web App (PWA) Offline Working Mode</h4>
+                        <p style="margin:0; font-size:13px; color:#64748b;">
+                            Teachers and administrators in locations with intermittent internet can continue recording terminal scores, viewing student files, and generating reports offline. Changes will automatically queue and synchronize to the cloud once a connection is detected.
+                        </p>
+                    </div>
+                    <button class="btn-admin btn-ghost btn-sm" onclick="forceSyncOfflineQueue()"><i class="fas fa-sync-alt"></i> Force Offline Sync Now</button>
+                </div>
+            </div>
+
+            <!-- Snapshot Recovery Table -->
+            <div class="admin-card">
+                <div class="card-header" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+                    <h3 style="margin:0; font-size:16px;"><i class="fas fa-history"></i> Cloud Snapshot Archive & Point-in-Time Restore</h3>
+                    <button class="btn-admin btn-ghost btn-sm" onclick="loadBackupSnapshots()"><i class="fas fa-redo"></i> Refresh Snapshots</button>
+                </div>
+                <div class="table-responsive">
+                    <table class="admin-table">
+                        <thead>
+                            <tr>
+                                <th>Snapshot File</th>
+                                <th>Created Timestamp</th>
+                                <th>Type / Tag</th>
+                                <th>Records Included</th>
+                                <th>File Size</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="backupSnapshotsTbody">
+                            <tr><td colspan="6" style="text-align:center; padding:20px; color:#94a3b8;">Loading snapshots...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+    </main>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════════ -->
+<!-- MODALS -->
+<!-- ════════════════════════════════════════════════════════════════════ -->
+
+<!-- Universal Confirm Dialog -->
+<div class="modal-overlay" id="confirmModal" style="display:none;" onclick="closeConfirmModal(event)">
+    <div class="modal-box small">
+        <div class="modal-header">
+            <h3 id="confirmModalTitle">Confirm Action</h3>
+            <button class="modal-close" onclick="closeConfirmModal()"><i class="fas fa-times"></i></button>
+        </div>
+        <div class="modal-body">
+            <p id="confirmModalMessage">Are you sure?</p>
+        </div>
+        <div class="modal-footer">
+            <button class="btn-admin btn-ghost" onclick="closeConfirmModal()">Cancel</button>
+            <button class="btn-admin btn-danger" id="confirmModalAction">Confirm</button>
+        </div>
+    </div>
+</div>
+
+<!-- Student Modal -->
+<div class="modal-overlay" id="studentModal" style="display:none;" onclick="closeModal('studentModal', event)">
+    <div class="modal-box">
+        <div class="modal-header">
+            <h3 id="studentModalTitle"><i class="fas fa-user-graduate"></i> Add Student</h3>
+            <button class="modal-close" onclick="closeModal('studentModal')"><i class="fas fa-times"></i></button>
+        </div>
+        <div class="modal-body">
+            <div class="form-row">
+                <div class="form-group-admin">
+                    <label>Admission Number *</label>
+                    <input type="text" id="sm-admissionNo" placeholder="e.g. TLS/2024/001" class="admin-input" required>
+                </div>
+                <div class="form-group-admin">
+                    <label>Full Name *</label>
+                    <input type="text" id="sm-fullName" placeholder="Student Full Name" class="admin-input" required>
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group-admin">
+                    <label>Gender</label>
+                    <select id="sm-gender" class="admin-select">
+                        <option value="">Select Gender</option>
+                        <option value="Male">Male</option>
+                        <option value="Female">Female</option>
+                    </select>
+                </div>
+                <div class="form-group-admin">
+                    <label>Date of Birth</label>
+                    <input type="date" id="sm-dob" class="admin-input">
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group-admin">
+                    <label>Class *</label>
+                    <select id="sm-class" class="admin-select" required>
+                        <option value="">Select Class</option>
+                    </select>
+                </div>
+                <div class="form-group-admin">
+                    <label>Academic Year</label>
+                    <select id="sm-academicYear" class="admin-select">
+                        <option value="">Select Year</option>
+                    </select>
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group-admin">
+                    <label>Status</label>
+                    <select id="sm-status" class="admin-select">
+                        <option value="active">Active</option>
+                        <option value="inactive">Inactive</option>
+                    </select>
+                </div>
+                <div class="form-group-admin">
+                    <label>Parent / Guardian Phone</label>
+                    <input type="tel" id="sm-parentPhone" placeholder="0201234567" class="admin-input">
+                </div>
+            </div>
+            <div class="form-group-admin">
+                <label>Parent / Guardian Name</label>
+                <input type="text" id="sm-parentName" placeholder="Parent or Guardian Name" class="admin-input">
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn-admin btn-ghost" onclick="closeModal('studentModal')">Cancel</button>
+            <button class="btn-admin btn-primary" id="studentModalSaveBtn" onclick="saveStudent()">
+                <i class="fas fa-save"></i> Save Student
+            </button>
+        </div>
+        <input type="hidden" id="sm-id">
+    </div>
+</div>
+
+<!-- Teacher Modal -->
+<div class="modal-overlay" id="teacherModal" style="display:none;" onclick="closeModal('teacherModal', event)">
+    <div class="modal-box">
+        <div class="modal-header">
+            <h3 id="teacherModalTitle"><i class="fas fa-chalkboard-teacher"></i> Add Teacher</h3>
+            <button class="modal-close" onclick="closeModal('teacherModal')"><i class="fas fa-times"></i></button>
+        </div>
+        <div class="modal-body">
+            <div class="form-row">
+                <div class="form-group-admin">
+                    <label>Full Name *</label>
+                    <input type="text" id="tm-name" placeholder="Teacher Full Name" class="admin-input" required>
+                </div>
+                <div class="form-group-admin">
+                    <label>Email Address *</label>
+                    <input type="email" id="tm-email" placeholder="teacher@school.com" class="admin-input" required>
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group-admin">
+                    <label>Phone Number</label>
+                    <input type="tel" id="tm-phone" placeholder="0201234567" class="admin-input">
+                </div>
+                <div class="form-group-admin">
+                    <label>Role</label>
+                    <select id="tm-role" class="admin-select" onchange="onTeacherRoleChange()">
+                        <option value="Teacher">Teacher</option>
+                        <option value="Class Teacher">Class Teacher</option>
+                        <option value="Headteacher">Headteacher</option>
+                        <option value="Administrator">Administrator</option>
+                        <option value="Super Admin">Super Admin</option>
+                    </select>
+                </div>
+            </div>
+            <div class="form-group-admin" id="tm-classTeacherClassGroup" style="background:#f8fafc;padding:12px;border-radius:8px;border:1px solid #e2e8f0;margin-bottom:14px;">
+                <label style="font-weight:600;color:var(--primary);"><i class="fas fa-chalkboard-teacher"></i> Class Teacher Assignment (Primary Class)</label>
+                <select id="tm-classTeacherClass" class="admin-select" style="margin-top:4px;">
+                    <option value="">-- None (Subject Teacher only) --</option>
+                </select>
+                <p class="settings-hint" style="margin-top:4px;font-size:11.5px;color:var(--text-secondary);">
+                    When assigned, this teacher's name and signature will automatically reflect as the <strong>Class Teacher</strong> on report cards for this class.
+                </p>
+            </div>
+            <div id="tm-password-section">
+                <div class="form-row">
+                    <div class="form-group-admin">
+                        <label id="tm-password-label">Password *</label>
+                        <div class="pw-wrapper">
+                            <input type="password" id="tm-password" placeholder="Min 6 characters (or new password to override)" class="admin-input">
+                            <span class="password-toggle" onclick="togglePasswordVisibility('tm-password', this)"><i class="fas fa-eye"></i></span>
+                        </div>
+                        <p class="settings-hint" id="tm-password-hint" style="margin-top:4px;">Setting a password overrides the previous password while preserving the user account.</p>
+                    </div>
+                </div>
+            </div>
+            <div class="form-group-admin">
+                <label>Assigned Classes</label>
+                <div id="tm-classes-checkboxes" class="checkbox-grid"></div>
+            </div>
+            <div class="form-group-admin">
+                <label>Assigned Subjects</label>
+                <div id="tm-subjects-checkboxes" class="checkbox-grid"></div>
+            </div>
+            <div class="form-group-admin">
+                <label>Teacher Signature (for report cards)</label>
+                <div id="tm-signature-preview" style="min-height:54px;border:1px dashed #cbd5e1;border-radius:8px;padding:8px 12px;display:flex;align-items:center;justify-content:center;background:#fff;margin-bottom:6px;">
+                    <span style="color:#94a3b8;font-size:12px;font-style:italic;">No signature on file (teacher can also sign in their portal)</span>
+                </div>
+                <input type="file" id="tm-signature-file" accept="image/*" style="display:none;" onchange="handleAdminTeacherSignatureUpload(event)">
+                <div style="display:flex;gap:8px;">
+                    <button type="button" class="btn-admin btn-ghost btn-sm" onclick="document.getElementById('tm-signature-file').click()"><i class="fas fa-upload"></i> Upload Signature</button>
+                    <button type="button" class="btn-admin btn-ghost btn-sm danger" id="tm-signature-remove-btn" onclick="clearAdminTeacherSignature()" style="display:none;"><i class="fas fa-trash"></i> Remove</button>
+                </div>
+            </div>
+            <div class="form-group-admin">
+                <label>Status</label>
+                <select id="tm-status" class="admin-select">
+                    <option value="active">Active</option>
+                    <option value="inactive">Inactive</option>
+                </select>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn-admin btn-ghost" onclick="closeModal('teacherModal')">Cancel</button>
+            <button class="btn-admin btn-primary" onclick="saveTeacher()"><i class="fas fa-save"></i> Save Teacher</button>
+        </div>
+        <input type="hidden" id="tm-id">
+    </div>
+</div>
+
+<!-- Reset Staff Password Modal -->
+<div class="modal-overlay" id="resetStaffPasswordModal" style="display:none;" onclick="closeModal('resetStaffPasswordModal', event)">
+    <div class="modal-box small">
+        <div class="modal-header">
+            <h3><i class="fas fa-key" style="color:var(--primary);"></i> Reset Staff Password</h3>
+            <button class="modal-close" onclick="closeModal('resetStaffPasswordModal')"><i class="fas fa-times"></i></button>
+        </div>
+        <form id="resetStaffPasswordForm" onsubmit="submitStaffPasswordReset(event)">
+            <div class="modal-body">
+                <p style="font-size:13px; color:var(--text-secondary); margin-bottom:14px; line-height:1.5;">
+                    Set a new password for <strong id="rpm-staffName">Staff Member</strong> (<span id="rpm-staffEmail">staff@school.com</span>). This will immediately override their previous password.
+                </p>
+                <div class="form-group-admin">
+                    <label>New Password *</label>
+                    <div class="pw-wrapper">
+                        <input type="password" id="rpm-password" placeholder="Min 6 characters" class="admin-input" required autocomplete="new-password">
+                        <span class="password-toggle" onclick="togglePasswordVisibility('rpm-password', this)"><i class="fas fa-eye"></i></span>
+                    </div>
+                </div>
+                <div style="margin-top:8px;">
+                    <button type="button" class="btn-admin btn-ghost btn-sm" onclick="generateRandomPassword('rpm-password')" style="font-size:12px; padding:4px 10px;">
+                        <i class="fas fa-magic"></i> Generate Password
+                    </button>
+                </div>
+                <div id="rpm-error" class="auth-error" style="display:none; margin-top:10px;"></div>
+            </div>
+            <div class="modal-footer">
+                <input type="hidden" id="rpm-staffId">
+                <button type="button" class="btn-admin btn-ghost" onclick="closeModal('resetStaffPasswordModal')">Cancel</button>
+                <button type="submit" class="btn-admin btn-primary"><i class="fas fa-save"></i> Save New Password</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Class Modal -->
+<div class="modal-overlay" id="classModal" style="display:none;" onclick="closeModal('classModal', event)">
+    <div class="modal-box small">
+        <div class="modal-header">
+            <h3 id="classModalTitle"><i class="fas fa-school"></i> Add Class</h3>
+            <button class="modal-close" onclick="closeModal('classModal')"><i class="fas fa-times"></i></button>
+        </div>
+        <div class="modal-body">
+            <div class="form-group-admin">
+                <label>Class Name *</label>
+                <input type="text" id="cm-name" placeholder="e.g. Class 6 or JHS 1A" class="admin-input" required>
+            </div>
+            <div class="form-row">
+                <div class="form-group-admin">
+                    <label>Department / Level *</label>
+                    <select id="cm-level" class="admin-select">
+                        <option value="JHS">JHS (Junior High School)</option>
+                        <option value="Primary">Primary School</option>
+                        <option value="Kindergarten">Kindergarten / Nursery</option>
+                    </select>
+                </div>
+                <div class="form-group-admin">
+                    <label>Grading System Scale</label>
+                    <select id="cm-gradingScale" class="admin-select">
+                        <option value="">(Auto-detect by Department)</option>
+                        <option value="preset_jhs_bece">JHS / BECE Stanine Scale (Grade 1 - 9)</option>
+                        <option value="preset_ghana_primary">Ghana Primary Scale (A, P, AP, D, B)</option>
+                        <option value="preset_standard_letter">Standard Letter Scale (A+, A, B, C, D, F)</option>
+                    </select>
+                </div>
+            </div>
+            <div class="form-group-admin">
+                <label>Primary Class Teacher</label>
+                <select id="cm-classTeacher" class="admin-select">
+                    <option value="">None</option>
+                </select>
+                <p class="settings-hint" style="margin-top:6px;">The name printed on this class’s reports is taken from the selected teacher’s profile.</p>
+            </div>
+            <div class="form-group-admin">
+                <label>Assigned Teachers (Multi-Teacher Access)</label>
+                <div id="cm-teachers-checkboxes" class="checkbox-grid"></div>
+                <p class="settings-hint" style="margin-top:6px;">Teachers selected here will be able to access and work on this class in the Teacher Portal.</p>
+            </div>
+            <div class="form-group-admin">
+                <label>Status</label>
+                <select id="cm-status" class="admin-select">
+                    <option value="active">Active</option>
+                    <option value="inactive">Inactive</option>
+                </select>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn-admin btn-ghost" onclick="closeModal('classModal')">Cancel</button>
+            <button class="btn-admin btn-primary" onclick="saveClass()"><i class="fas fa-save"></i> Save Class</button>
+        </div>
+        <input type="hidden" id="cm-id">
+    </div>
+</div>
+
+<!-- Subject Modal -->
+<div class="modal-overlay" id="subjectModal" style="display:none;" onclick="closeModal('subjectModal', event)">
+    <div class="modal-box small">
+        <div class="modal-header">
+            <h3 id="subjectModalTitle"><i class="fas fa-book-open"></i> Add Subject</h3>
+            <button class="modal-close" onclick="closeModal('subjectModal')"><i class="fas fa-times"></i></button>
+        </div>
+        <div class="modal-body">
+            <div class="form-group-admin">
+                <label>Subject Code</label>
+                <input type="text" id="subm-code" placeholder="e.g. MATH" class="admin-input">
+            </div>
+            <div class="form-group-admin">
+                <label>Subject Name *</label>
+                <input type="text" id="subm-name" placeholder="e.g. Mathematics" class="admin-input" required>
+            </div>
+            <div class="form-group-admin">
+                <label>Department / Academic Level</label>
+                <select id="subm-department" class="admin-select">
+                    <option value="">All Departments</option>
+                    <option value="JHS">JHS</option>
+                    <option value="Primary">Primary</option>
+                    <option value="Kindergarten">Kindergarten / Nursery</option>
+                </select>
+            </div>
+            <div class="form-group-admin">
+                <label>Assigned Classes</label>
+                <div id="subm-classes-checkboxes" class="checkbox-grid"></div>
+            </div>
+            <div class="form-group-admin">
+                <label>Status</label>
+                <select id="subm-status" class="admin-select">
+                    <option value="active">Active</option>
+                    <option value="inactive">Inactive</option>
+                </select>
+            </div>
+            <div class="form-group-admin" style="background:#eef2ff;border:1px solid #c7d2fe;border-radius:8px;padding:10px 14px;">
+                <label style="color:#3730a3;font-weight:700;display:flex;align-items:center;gap:8px;cursor:pointer;">
+                    <input type="checkbox" id="subm-isCore" style="width:16px;height:16px;accent-color:#4f46e5;">
+                    <span>Core Subject (used for JHS Aggregate calculation)</span>
+                </label>
+                <p style="margin:6px 0 0 24px;font-size:11.5px;color:#6366f1;">The 4 core subjects + best 2 electives determine the JHS aggregate. Check this box for core subjects (e.g. English, Mathematics, Science, Social Studies).</p>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn-admin btn-ghost" onclick="closeModal('subjectModal')">Cancel</button>
+            <button class="btn-admin btn-primary" onclick="saveSubject()"><i class="fas fa-save"></i> Save Subject</button>
+        </div>
+        <input type="hidden" id="subm-id">
+    </div>
+</div>
+
+<!-- Academic Year Modal -->
+<div class="modal-overlay" id="academicYearModal" style="display:none;" onclick="closeModal('academicYearModal', event)">
+    <div class="modal-box small">
+        <div class="modal-header">
+            <h3><i class="fas fa-calendar-alt"></i> New Academic Year</h3>
+            <button class="modal-close" onclick="closeModal('academicYearModal')"><i class="fas fa-times"></i></button>
+        </div>
+        <div class="modal-body">
+            <div class="form-group-admin">
+                <label>Academic Year Name *</label>
+                <input type="text" id="ay-name" placeholder="e.g. 2026/2027" class="admin-input" required>
+            </div>
+            <div class="form-group-admin">
+                <label>Terms</label>
+                <div class="terms-setup">
+                    <div class="term-row">
+                        <input type="text" placeholder="Term 1 name" value="First Term" class="admin-input ay-term-name">
+                    </div>
+                    <div class="term-row">
+                        <input type="text" placeholder="Term 2 name" value="Second Term" class="admin-input ay-term-name">
+                    </div>
+                    <div class="term-row">
+                        <input type="text" placeholder="Term 3 name" value="Third Term" class="admin-input ay-term-name">
+                    </div>
+                </div>
+            </div>
+            <div class="form-group-admin">
+                <label class="toggle-label">
+                    <input type="checkbox" id="ay-setActive" checked>
+                    Set as Active Academic Year
+                </label>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn-admin btn-ghost" onclick="closeModal('academicYearModal')">Cancel</button>
+            <button class="btn-admin btn-primary" onclick="saveAcademicYear()"><i class="fas fa-save"></i> Create Year</button>
+        </div>
+    </div>
+</div>
+
+<!-- Grading Scale Modal -->
+<div class="modal-overlay" id="gradingScaleModal" style="display:none;" onclick="closeModal('gradingScaleModal', event)">
+    <div class="modal-box large">
+        <div class="modal-header">
+            <h3><i class="fas fa-star-half-alt"></i> Grading Scale</h3>
+            <button class="modal-close" onclick="closeModal('gradingScaleModal')"><i class="fas fa-times"></i></button>
+        </div>
+        <div class="modal-body">
+            <div class="form-row">
+                <div class="form-group-admin">
+                    <label>Scale Name *</label>
+                    <input type="text" id="gs-name" placeholder="e.g. JHS Stanine Scale or Primary Grading" class="admin-input">
+                </div>
+                <div class="form-group-admin">
+                    <label>Department *</label>
+                    <select id="gs-department" class="admin-select">
+                        <option value="JHS">JHS</option>
+                        <option value="Primary">Primary</option>
+                        <option value="Kindergarten">Kindergarten / Nursery</option>
+                        <option value="All">All Departments</option>
+                    </select>
+                </div>
+            </div>
+            <div class="form-row" style="align-items:center;margin-bottom:12px;">
+                <div class="form-group-admin" style="margin-bottom:0;">
+                    <label class="toggle-label" style="margin-bottom:0;">
+                        <input type="checkbox" id="gs-isActive" checked> Set as Active for this Department
+                    </label>
+                </div>
+                <div style="display:flex;gap:6px;flex-wrap:wrap;">
+                    <button type="button" class="btn-admin btn-ghost btn-sm" onclick="applyGradingPreset('jhs')"><i class="fas fa-magic"></i> JHS 1-9 Preset</button>
+                    <button type="button" class="btn-admin btn-ghost btn-sm" onclick="applyGradingPreset('primary')"><i class="fas fa-magic"></i> Primary A-B Preset</button>
+                    <button type="button" class="btn-admin btn-ghost btn-sm" onclick="applyGradingPreset('letter')"><i class="fas fa-magic"></i> Standard A-F Preset</button>
+                </div>
+            </div>
+            <div class="grading-scale-editor" id="gradingScaleEditor">
+                <div class="grade-row-header">
+                    <span>Min Score</span><span>Max Score</span><span>Grade</span><span>Remark</span><span>Description</span><span></span>
+                </div>
+                <div id="gradeRowsContainer"></div>
+            </div>
+            <button class="btn-admin btn-ghost btn-sm" onclick="addGradeRow()" style="margin-bottom:14px;">
+                <i class="fas fa-plus"></i> Add Grade Level
+            </button>
+
+            <!-- Custom Class Assignment in Grading Modal -->
+            <div class="form-group-admin" style="margin-top:10px;padding-top:12px;border-top:1px solid var(--border,#e2e8f0);">
+                <label style="font-weight:600;display:flex;align-items:center;gap:6px;">
+                    <i class="fas fa-school" style="color:var(--primary,#4f46e5);"></i> Assign Customly to Specific Classes
+                </label>
+                <p class="settings-hint" style="margin-bottom:8px;">Classes checked below will strictly use this custom grading scheme instead of the department default.</p>
+                <div id="gs-classes-checkboxes" class="checkbox-grid" style="max-height:140px;overflow-y:auto;background:var(--card-bg,#f8fafc);padding:10px;border-radius:8px;border:1px solid var(--border,#e2e8f0);"></div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn-admin btn-ghost" onclick="closeModal('gradingScaleModal')">Cancel</button>
+            <button class="btn-admin btn-primary" onclick="saveGradingScale()"><i class="fas fa-save"></i> Save Scale</button>
+        </div>
+        <input type="hidden" id="gs-id">
+    </div>
+</div>
+
+<!-- Assign Classes to Grading Scale Modal -->
+<div class="modal-overlay" id="assignScaleClassesModal" style="display:none;" onclick="closeModal('assignScaleClassesModal', event)">
+    <div class="modal-box small">
+        <div class="modal-header">
+            <h3 id="assignScaleModalTitle"><i class="fas fa-link"></i> Assign Scale to Classes</h3>
+            <button class="modal-close" onclick="closeModal('assignScaleClassesModal')"><i class="fas fa-times"></i></button>
+        </div>
+        <div class="modal-body">
+            <p style="font-size:13px;color:var(--text-secondary,#64748b);margin-bottom:12px;" id="assignScaleDescription">
+                Select the classes that should specifically use this grading scheme.
+            </p>
+            <div class="form-group-admin">
+                <label>Select Target Classes</label>
+                <div id="asc-classes-checkboxes" class="checkbox-grid" style="max-height:220px;overflow-y:auto;background:var(--card-bg,#f8fafc);padding:10px;border-radius:8px;border:1px solid var(--border,#e2e8f0);"></div>
+            </div>
+            <input type="hidden" id="asc-scaleId">
+        </div>
+        <div class="modal-footer">
+            <button class="btn-admin btn-ghost" onclick="closeModal('assignScaleClassesModal')">Cancel</button>
+            <button class="btn-admin btn-primary" onclick="saveScaleClassAssignments()"><i class="fas fa-save"></i> Save Assignments</button>
+        </div>
+    </div>
+</div>
+
+<!-- Developer Password Modal -->
+<div class="modal-overlay" id="devPasswordModal" style="display:none;" onclick="closeModal('devPasswordModal', event)">
+    <div class="modal-box small">
+        <div class="modal-header">
+            <h3><i class="fas fa-shield-alt" style="color:var(--primary);"></i> Developer Access Required</h3>
+            <button class="modal-close" onclick="closeModal('devPasswordModal')"><i class="fas fa-times"></i></button>
+        </div>
+        <form id="devPasswordForm" onsubmit="submitDevPassword(event)">
+            <div class="modal-body">
+                <p style="font-size:13px; color:var(--text-secondary); margin-bottom:14px; line-height:1.5;">
+                    Enter the developer password to configure Firebase Cloud and database connection settings.
+                </p>
+                <div class="form-group-admin">
+                    <label>Developer Password *</label>
+                    <div class="pw-wrapper">
+                        <input type="password" id="devPasswordInput" placeholder="Enter developer password" class="admin-input" required autocomplete="current-password">
+                        <span class="password-toggle" onclick="togglePasswordVisibility('devPasswordInput', this)"><i class="fas fa-eye"></i></span>
+                    </div>
+                </div>
+                <div id="devPasswordError" class="auth-error" style="display:none; margin-top:8px;"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn-admin btn-ghost" onclick="closeModal('devPasswordModal')">Cancel</button>
+                <button type="submit" class="btn-admin btn-primary"><i class="fas fa-unlock"></i> Unlock Access</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+
+
+<!-- Generate Report Modal -->
+<div class="modal-overlay" id="generateReportModal" style="display:none;" onclick="closeModal('generateReportModal', event)">
+    <div class="modal-box small">
+        <div class="modal-header">
+            <h3><i class="fas fa-file-alt"></i> Generate Reports</h3>
+            <button class="modal-close" onclick="closeModal('generateReportModal')"><i class="fas fa-times"></i></button>
+        </div>
+        <div class="modal-body">
+            <div class="form-group-admin">
+                <label>Report Type</label>
+                <select id="gr-type" class="admin-select">
+                    <option value="class">Class Report</option>
+                    <option value="school">School-Wide Report</option>
+                    <option value="individual">Individual Student</option>
+                </select>
+            </div>
+            <div class="form-group-admin" id="gr-class-group">
+                <label>Class *</label>
+                <select id="gr-class" class="admin-select"></select>
+            </div>
+            <div class="form-group-admin" id="gr-student-group" style="display:none;">
+                <label>Student *</label>
+                <select id="gr-student" class="admin-select"></select>
+            </div>
+            <div class="form-group-admin">
+                <label>Academic Year</label>
+                <select id="gr-year" class="admin-select"></select>
+            </div>
+            <div class="form-group-admin">
+                <label>Term</label>
+                <select id="gr-term" class="admin-select"></select>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn-admin btn-ghost" onclick="closeModal('generateReportModal')">Cancel</button>
+            <button class="btn-admin btn-primary" onclick="generateReports()">
+                <i class="fas fa-file-alt"></i> Generate
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Edit Result Modal -->
+<div class="modal-overlay" id="editResultModal" style="display:none;" onclick="closeModal('editResultModal', event)">
+    <div class="modal-box small">
+        <div class="modal-header">
+            <h3><i class="fas fa-edit"></i> Edit Student Result</h3>
+            <button class="modal-close" onclick="closeModal('editResultModal')"><i class="fas fa-times"></i></button>
+        </div>
+        <div class="modal-body">
+            <input type="hidden" id="erm-id">
+            <div class="form-group-admin">
+                <label>Student</label>
+                <input type="text" id="erm-student" class="admin-input" readonly style="background:var(--bg,#f1f5f9);font-weight:600;">
+            </div>
+            <div class="form-row-2">
+                <div class="form-group-admin">
+                    <label>Class</label>
+                    <input type="text" id="erm-class" class="admin-input" readonly style="background:var(--bg,#f1f5f9);">
+                </div>
+                <div class="form-group-admin">
+                    <label>Subject</label>
+                    <input type="text" id="erm-subject" class="admin-input" readonly style="background:var(--bg,#f1f5f9);">
+                </div>
+            </div>
+            <div class="form-row-2">
+                <div class="form-group-admin">
+                    <label>Class Score (0 - 100) *</label>
+                    <input type="number" id="erm-classScore" class="admin-input" min="0" max="100" step="0.1" placeholder="e.g. 75" oninput="calculateErmTotal()">
+                </div>
+                <div class="form-group-admin">
+                    <label>Exam Score (0 - 100) *</label>
+                    <input type="number" id="erm-examScore" class="admin-input" min="0" max="100" step="0.1" placeholder="e.g. 80" oninput="calculateErmTotal()">
+                </div>
+            </div>
+            <div class="form-row-2">
+                <div class="form-group-admin">
+                    <label>Total Score (50% Class + 50% Exam)</label>
+                    <input type="number" id="erm-totalScore" class="admin-input" readonly style="font-weight:700;color:var(--primary);">
+                </div>
+                <div class="form-group-admin">
+                    <label>Grade & Remark</label>
+                    <input type="text" id="erm-grade" class="admin-input" readonly style="font-weight:600;">
+                </div>
+            </div>
+            <div class="form-group-admin">
+                <label>Status</label>
+                <select id="erm-status" class="admin-select">
+                    <option value="Draft">Draft</option>
+                    <option value="Submitted">Submitted</option>
+                    <option value="Approved">Approved</option>
+                </select>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn-admin btn-ghost" onclick="closeModal('editResultModal')">Cancel</button>
+            <button class="btn-admin btn-primary" onclick="saveEditedResult()"><i class="fas fa-save"></i> Save Changes</button>
+        </div>
+    </div>
+</div>
+
+<!-- Student Profile Drawer -->
+<div class="drawer-overlay" id="studentDrawerOverlay" style="display:none;" onclick="closeStudentDrawer()"></div>
+<div class="drawer" id="studentDrawer" style="transform:translateX(100%)">
+    <div class="drawer-header">
+        <h3 id="drawerStudentName">Student Profile</h3>
+        <button class="modal-close" onclick="closeStudentDrawer()"><i class="fas fa-times"></i></button>
+    </div>
+    <div class="drawer-body" id="drawerStudentBody"></div>
+</div>
+
+<!-- Restore Backup Modal -->
+<div class="modal-overlay" id="restoreBackupModal" style="display:none;" onclick="closeModal('restoreBackupModal', event)">
+    <div class="modal-box">
+        <div class="modal-header">
+            <h3><i class="fas fa-trash-restore" style="color:var(--warning);"></i> Restore Database Backup</h3>
+            <button class="modal-close" onclick="closeModal('restoreBackupModal')"><i class="fas fa-times"></i></button>
+        </div>
+        <div class="modal-body">
+            <div style="background:rgba(217,119,6,.1);border:1px solid rgba(217,119,6,.3);color:#b45309;padding:14px;border-radius:8px;font-size:13px;margin-bottom:16px;">
+                <i class="fas fa-exclamation-triangle"></i> <strong>Important Warning:</strong> Restoring a backup will replace your current school data. Before proceeding, an automatic <strong>Pre-Restore Safety Snapshot</strong> will be created and downloaded for your recovery safety.
+            </div>
+            
+            <div class="form-group-admin">
+                <label>Select Backup File (.json) *</label>
+                <input type="file" id="restoreBackupFile" accept=".json" class="admin-input" onchange="handleBackupFileSelect(event)">
+            </div>
+
+            <div id="restorePreviewContainer" style="display:none;background:var(--surface-2);border:1px solid var(--border);border-radius:8px;padding:14px;margin-bottom:16px;">
+                <h4 style="font-size:13.5px;margin-bottom:8px;color:var(--text-primary);"><i class="fas fa-check-circle" style="color:var(--success);"></i> Backup File Validated</h4>
+                <div id="restorePreviewSummary" style="font-size:12.5px;color:var(--text-secondary);line-height:1.6;"></div>
+            </div>
+
+            <div id="restoreStatusArea" style="display:none;margin-top:12px;"></div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn-admin btn-ghost" onclick="closeModal('restoreBackupModal')">Cancel</button>
+            <button class="btn-admin btn-warning" id="confirmRestoreBtn" disabled onclick="executeBackupRestore()">
+                <i class="fas fa-trash-restore"></i> Restore Data
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Admin Report Preview Modal -->
+<div class="modal-overlay" id="adminReportPreviewModal" style="display:none;" onclick="closeModal('adminReportPreviewModal', event)">
+    <div class="modal-box large" style="max-width:860px;width:95%;max-height:92vh;display:flex;flex-direction:column;padding:0;overflow:hidden;">
+        <div class="modal-header" style="padding:16px 20px;">
+            <h3 id="adminPreviewReportTitle" style="margin:0;"><i class="fas fa-file-alt"></i> Report Sheet Preview</h3>
+            <button class="modal-close" onclick="closeModal('adminReportPreviewModal')"><i class="fas fa-times"></i></button>
+        </div>
+        <div class="modal-body" id="adminPreviewReportBody" style="overflow-y:auto;flex:1;padding:20px;background:var(--surface-2);">
+            <!-- Report card preview injected dynamically -->
+        </div>
+        <div class="modal-footer" style="display:flex;justify-content:space-between;align-items:center;padding:14px 20px;">
+            <div id="adminPreviewReportStatus" style="display:flex;align-items:center;gap:8px;"></div>
+            <div style="display:flex;gap:10px;">
+                <button class="btn-admin btn-ghost" onclick="closeModal('adminReportPreviewModal')">Close</button>
+                <button class="btn-admin btn-ghost" id="adminPreviewPrintBtn" onclick="printAdminReport()"><i class="fas fa-print"></i> Print</button>
+                <button class="btn-admin btn-success" id="adminPreviewDownloadBtn" onclick="downloadAdminPreviewReport()"><i class="fas fa-download"></i> Download PDF</button>
+                <button class="btn-admin btn-primary" id="adminPreviewApproveToggleBtn"><i class="fas fa-check"></i> Approve</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Admin Bulk Download Class Reports Modal -->
+<div class="modal-overlay" id="adminBulkDownloadModal" style="display:none;" onclick="closeModal('adminBulkDownloadModal', event)">
+    <div class="modal-box small">
+        <div class="modal-header">
+            <h3><i class="fas fa-file-archive"></i> Bulk Download Class Reports</h3>
+            <button class="modal-close" onclick="closeModal('adminBulkDownloadModal')"><i class="fas fa-times"></i></button>
+        </div>
+        <div class="modal-body">
+            <div class="form-group-admin">
+                <label>Select Class *</label>
+                <select id="abdm-class" class="admin-select"></select>
+            </div>
+            <div class="form-row">
+                <div class="form-group-admin">
+                    <label>Academic Year</label>
+                    <select id="abdm-year" class="admin-select"></select>
+                </div>
+                <div class="form-group-admin">
+                    <label>Term</label>
+                    <select id="abdm-term" class="admin-select"></select>
+                </div>
+            </div>
+            <div class="form-group-admin">
+                <label>Format</label>
+                <select id="abdm-format" class="admin-select">
+                    <option value="zip">ZIP Archive (Individual Student Report Files)</option>
+                    <option value="print">Multi-Page Printable Document (All Students)</option>
+                </select>
+            </div>
+            <div id="abdm-status" style="display:none;font-size:12.5px;color:var(--primary);margin-top:8px;"></div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn-admin btn-ghost" onclick="closeModal('adminBulkDownloadModal')">Cancel</button>
+            <button class="btn-admin btn-primary" onclick="executeAdminBulkDownload()"><i class="fas fa-download"></i> Download All Reports</button>
+        </div>
+    </div>
+</div>
+
+<!-- Admin Edit Timetable Slot Modal -->
+<div class="modal-overlay" id="adminEditSlotModal" style="display:none;" onclick="closeModal('adminEditSlotModal', event)">
+    <div class="modal-box small">
+        <div class="modal-header">
+            <h3><i class="fas fa-calendar-alt"></i> Assign Timetable Period Slot</h3>
+            <button class="modal-close" onclick="closeModal('adminEditSlotModal')"><i class="fas fa-times"></i></button>
+        </div>
+        <div class="modal-body">
+            <input type="hidden" id="aesm-day">
+            <input type="hidden" id="aesm-period">
+            <div style="background:var(--surface-2); border:1px solid var(--border); padding:10px 14px; border-radius:8px; margin-bottom:14px;">
+                <div style="font-size:12px; color:var(--text-secondary); text-transform:uppercase; font-weight:700;">Slot Position</div>
+                <div id="aesm-targetInfo" style="font-size:14px; font-weight:600; color:var(--text-primary); margin-top:2px;">Monday · Period 1</div>
+            </div>
+            <div class="form-group-admin">
+                <label>Subject *</label>
+                <select id="aesm-subject" class="admin-select">
+                    <option value="">-- Select Subject --</option>
+                </select>
+            </div>
+            <div class="form-group-admin">
+                <label>Assigned Teacher</label>
+                <select id="aesm-teacher" class="admin-select">
+                    <option value="">-- Select Teacher --</option>
+                </select>
+            </div>
+            <div class="form-group-admin">
+                <label>Room / Venue</label>
+                <input type="text" id="aesm-room" class="admin-input" placeholder="e.g. Room 6B, ICT Lab, Science Lab">
+            </div>
+        </div>
+        <div class="modal-footer" style="display:flex; justify-content:space-between; align-items:center;">
+            <button type="button" class="btn-admin btn-danger btn-sm" onclick="clearAdminTimetableSlot()"><i class="fas fa-eraser"></i> Clear Slot</button>
+            <div style="display:flex; gap:8px;">
+                <button type="button" class="btn-admin btn-ghost btn-sm" onclick="closeModal('adminEditSlotModal')">Cancel</button>
+                <button type="button" class="btn-admin btn-primary btn-sm" onclick="saveAdminTimetableSlot()"><i class="fas fa-check"></i> Apply Slot</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Admin Schedule / Edit Examination Modal -->
+<div class="modal-overlay" id="adminExamModal" style="display:none;" onclick="closeModal('adminExamModal', event)">
+    <div class="modal-box">
+        <div class="modal-header">
+            <h3 id="adminExamModalTitle"><i class="fas fa-clipboard-check"></i> Schedule Examination Paper</h3>
+            <button class="modal-close" onclick="closeModal('adminExamModal')"><i class="fas fa-times"></i></button>
+        </div>
+        <div class="modal-body">
+            <input type="hidden" id="aem-id">
+            <div class="form-row">
+                <div class="form-group-admin">
+                    <label>Class *</label>
+                    <select id="aem-class" class="admin-select"></select>
+                </div>
+                <div class="form-group-admin">
+                    <label>Subject *</label>
+                    <select id="aem-subject" class="admin-select"></select>
+                </div>
+            </div>
+            <div class="form-group-admin">
+                <label>Examination Title / Paper *</label>
+                <input type="text" id="aem-title" class="admin-input" placeholder="e.g. End of Term Examination · Paper 1 & 2">
+            </div>
+            <div class="form-row">
+                <div class="form-group-admin">
+                    <label>Exam Date *</label>
+                    <input type="date" id="aem-date" class="admin-input">
+                </div>
+                <div class="form-group-admin">
+                    <label>Academic Term</label>
+                    <select id="aem-term" class="admin-select">
+                        <option value="1">Term 1</option>
+                        <option value="2">Term 2</option>
+                        <option value="3">Term 3</option>
+                    </select>
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group-admin">
+                    <label>Start Time *</label>
+                    <input type="time" id="aem-startTime" class="admin-input" value="09:00">
+                </div>
+                <div class="form-group-admin">
+                    <label>End Time *</label>
+                    <input type="time" id="aem-endTime" class="admin-input" value="11:00">
+                </div>
+            </div>
+            <div class="form-group-admin">
+                <label>Examination Hall / Venue *</label>
+                <input type="text" id="aem-hall" class="admin-input" placeholder="e.g. Main Assembly Hall, Upper Primary Block">
+            </div>
+            <div class="form-row">
+                <div class="form-group-admin">
+                    <label>Chief Invigilator</label>
+                    <select id="aem-chiefInvigilator" class="admin-select"></select>
+                </div>
+                <div class="form-group-admin">
+                    <label>Assistant Invigilator</label>
+                    <select id="aem-assistantInvigilator" class="admin-select"></select>
+                </div>
+            </div>
+            <div class="form-group-admin">
+                <label>Status</label>
+                <select id="aem-status" class="admin-select">
+                    <option value="Scheduled">Scheduled</option>
+                    <option value="In Progress">In Progress</option>
+                    <option value="Completed">Completed</option>
+                    <option value="Postponed">Postponed</option>
+                </select>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn-admin btn-ghost" onclick="closeModal('adminExamModal')">Cancel</button>
+            <button type="button" class="btn-admin btn-primary" onclick="submitAdminExamForm()"><i class="fas fa-save"></i> Save Examination Paper</button>
+        </div>
+    </div>
+</div>
+
+<!-- Admin Configure Periods Modal -->
+<div class="modal-overlay" id="adminConfigurePeriodsModal" style="display:none;" onclick="closeModal('adminConfigurePeriodsModal', event)">
+    <div class="modal-box">
+        <div class="modal-header">
+            <h3><i class="fas fa-clock"></i> Configure Daily Periods &amp; Breaks</h3>
+            <button class="modal-close" onclick="closeModal('adminConfigurePeriodsModal')"><i class="fas fa-times"></i></button>
+        </div>
+        <div class="modal-body">
+            <p style="font-size:13px; color:var(--text-secondary); margin-bottom:14px;">
+                Define the schedule timeline and breaks for the selected class.
+            </p>
+            <div id="acpm-periodsList" style="display:flex; flex-direction:column; gap:8px; max-height:360px; overflow-y:auto; padding-right:4px;">
+                <!-- Dynamically configured period rows -->
+            </div>
+            <div style="margin-top:12px;">
+                <button type="button" class="btn-admin btn-secondary btn-sm" onclick="addAdminConfigPeriodRow()"><i class="fas fa-plus"></i> Add Period Row</button>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn-admin btn-ghost" onclick="closeModal('adminConfigurePeriodsModal')">Cancel</button>
+            <button type="button" class="btn-admin btn-primary" onclick="saveAdminConfiguredPeriods()"><i class="fas fa-check"></i> Apply Period Structure</button>
+        </div>
+    </div>
+</div>
+
+<!-- Firebase & Libraries -->
+<script src="vendor/firebase-compat.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="jspdf.umd.min.js"></script>
+<script src="jszip.min.js"></script>
+<script src="seed-data.js?v=prod1"></script>
+<script src="firebase-config.js?v=fb13"></script>
+<script src="files.js?v=dl9"></script>
+<script src="attendance.js?v=hub4"></script>
+<script src="pwa-sync.js?v=pwa1"></script>
+<script src="admin.js?v=dash38"></script>
+</body>
+</html>

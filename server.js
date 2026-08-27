@@ -2032,41 +2032,68 @@ async function requestHandler(req, res) {
 
     let reqPath = pathname;
     // Root lands on the teacher portal login — never the Excel template page.
-    if (reqPath === '/') reqPath = '/report.html';
+    if (reqPath === '/' || !reqPath) reqPath = '/report.html';
     // Convenience routes
     if (reqPath === '/admin') reqPath = '/admin.html';
     if (reqPath === '/student') reqPath = '/student.html';
     if (reqPath === '/alumni') reqPath = '/alumni.html';
+    if (reqPath === '/teacher' || reqPath === '/report') reqPath = '/report.html';
+    if (reqPath === '/excel') reqPath = '/excel.html';
     if (reqPath === '/timetable' || reqPath === '/timetables') reqPath = '/timetable.html';
 
-    const filePath   = path.join(__dirname, reqPath);
-    const ext        = path.extname(filePath).toLowerCase();
-    const contentType= MIME_TYPES[ext] || 'application/octet-stream';
+    const normalizedReq = reqPath.replace(/^\/+/, '');
+    const candidatePaths = [
+        path.join(__dirname, normalizedReq),
+        path.join(__dirname, 'public', normalizedReq),
+        path.join(process.cwd(), normalizedReq),
+        path.join(process.cwd(), 'public', normalizedReq)
+    ];
 
-    // Security: prevent path traversal
-    if (!filePath.startsWith(__dirname)) {
-        res.writeHead(403);
-        res.end('Forbidden');
+    // Also add .html candidates if path has no extension
+    if (!path.extname(normalizedReq)) {
+        candidatePaths.push(
+            path.join(__dirname, `${normalizedReq}.html`),
+            path.join(__dirname, 'public', `${normalizedReq}.html`),
+            path.join(process.cwd(), `${normalizedReq}.html`),
+            path.join(process.cwd(), 'public', `${normalizedReq}.html`)
+        );
+    }
+
+    let resolvedFile = null;
+    for (const cand of candidatePaths) {
+        try {
+            if (fs.existsSync(cand) && fs.statSync(cand).isFile()) {
+                resolvedFile = cand;
+                break;
+            }
+        } catch (e) {}
+    }
+
+    if (resolvedFile) {
+        const ext = path.extname(resolvedFile).toLowerCase();
+        const contentType = MIME_TYPES[ext] || 'application/octet-stream';
+        fs.readFile(resolvedFile, (err, content) => {
+            if (err) {
+                res.writeHead(500);
+                res.end(`Server Error: ${err.code}`);
+            } else {
+                res.writeHead(200, { 'Content-Type': contentType, 'Cache-Control': 'no-cache' });
+                res.end(content);
+            }
+        });
         return;
     }
 
-    fs.readFile(filePath, (err, content) => {
-        if (err) {
-            if (err.code === 'ENOENT') {
-                res.writeHead(404, { 'Content-Type': 'text/html; charset=UTF-8' });
-                res.end(`<!DOCTYPE html><html><head><title>404</title></head><body>
-                    <h1>404 – Not Found</h1>
-                    <p><a href="/report.html">Teacher Portal</a> | <a href="/admin.html">Admin Dashboard</a> | <a href="/student.html">Student Portal</a></p>
-                </body></html>`);
-            } else {
-                res.writeHead(500);
-                res.end(`Server Error: ${err.code}`);
-            }
-        } else {
-            res.writeHead(200, { 'Content-Type': contentType, 'Cache-Control': 'no-cache' });
-            res.end(content);
-        }
-    });
+    res.writeHead(404, { 'Content-Type': 'text/html; charset=UTF-8' });
+    res.end(`<!DOCTYPE html><html><head><title>404 - OneReal School</title><meta name="viewport" content="width=device-width, initial-scale=1"></head><body style="font-family:sans-serif;padding:40px;text-align:center;background:#0f172a;color:#fff;">
+        <h1 style="font-size:32px;margin-bottom:10px;">404 – Page Not Found</h1>
+        <p style="color:#94a3b8;margin-bottom:24px;">The requested page could not be located.</p>
+        <div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap;">
+            <a href="/report.html" style="color:#fff;background:#2563eb;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:600;">Teacher Portal</a>
+            <a href="/admin.html" style="color:#fff;background:#4f46e5;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:600;">Admin Dashboard</a>
+            <a href="/student.html" style="color:#fff;background:#059669;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:600;">Student Portal</a>
+        </div>
+    </body></html>`);
     } catch (err) {
         console.error('Unhandled requestHandler error:', err);
         if (!res.headersSent) {

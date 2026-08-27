@@ -1,12 +1,18 @@
 {
   "version": 2,
+  "cleanUrls": true,
+  "trailingSlash": false,
   "rewrites": [
     { "source": "/api/:match*", "destination": "/api/index.js" },
     { "source": "/open", "destination": "/api/index.js" },
     { "source": "/open.html", "destination": "/api/index.js" },
+    { "source": "/", "destination": "/report.html" },
+    { "source": "/teacher", "destination": "/report.html" },
+    { "source": "/report", "destination": "/report.html" },
     { "source": "/admin", "destination": "/admin.html" },
     { "source": "/student", "destination": "/student.html" },
     { "source": "/alumni", "destination": "/alumni.html" },
+    { "source": "/excel", "destination": "/excel.html" },
     { "source": "/timetable", "destination": "/timetable.html" },
     { "source": "/timetables", "destination": "/timetable.html" }
   ],
