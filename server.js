@@ -2063,16 +2063,20 @@ initDb();
 
 ensureDlDir();
 
-server.listen(PORT, '0.0.0.0', () => {
-    console.log('\n╔══════════════════════════════════════════════════════════════╗');
-    console.log('║       OneReal School Management System — v2.2 Backend       ║');
-    console.log('╚══════════════════════════════════════════════════════════════╝\n');
-    console.log(`  Teacher Portal  →  http://localhost:${PORT}/report.html`);
-    console.log(`  Admin Dashboard →  http://localhost:${PORT}/admin.html`);
-    console.log(`  Student Portal  →  http://localhost:${PORT}/student.html`);
-    console.log(`  API Health      →  http://localhost:${PORT}/api/status`);
-    console.log(`  API Stats       →  http://localhost:${PORT}/api/stats`);
-    console.log(`  Full Backup     →  http://localhost:${PORT}/api/export/backup`);
-    console.log(`  Students CSV    →  http://localhost:${PORT}/api/export/students.csv\n`);
-});
+if (require.main === module) {
+    server.listen(PORT, '0.0.0.0', () => {
+        console.log('\n╔══════════════════════════════════════════════════════════════╗');
+        console.log('║       OneReal School Management System — v2.2 Backend       ║');
+        console.log('╚══════════════════════════════════════════════════════════════╝\n');
+        console.log(`  Teacher Portal  →  http://localhost:${PORT}/report.html`);
+        console.log(`  Admin Dashboard →  http://localhost:${PORT}/admin.html`);
+        console.log(`  Student Portal  →  http://localhost:${PORT}/student.html`);
+        console.log(`  API Health      →  http://localhost:${PORT}/api/status`);
+        console.log(`  API Stats       →  http://localhost:${PORT}/api/stats`);
+        console.log(`  Full Backup     →  http://localhost:${PORT}/api/export/backup`);
+        console.log(`  Students CSV    →  http://localhost:${PORT}/api/export/students.csv\n`);
+    });
+}
+
+module.exports = server;
 
