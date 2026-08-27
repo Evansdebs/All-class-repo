@@ -19,13 +19,36 @@ function togglePasswordVisibility(inputId, iconId) {
 let activeStudentData = null;
 let realtimeUnsubscribers = [];
 
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
+    if (typeof fetchSchoolSettings === 'function') {
+        try {
+            const s = await fetchSchoolSettings();
+            if (typeof applySystemTheme === 'function') applySystemTheme(s);
+        } catch (e) {}
+    } else if (typeof applySystemTheme === 'function') {
+        applySystemTheme();
+    }
     const savedId = sessionStorage.getItem('studentAuthId');
     if (savedId) {
         loadStudentDashboard(savedId).catch(() => {
             sessionStorage.removeItem('studentAuthId');
         });
     }
+});
+
+window.addEventListener('storage', (e) => {
+    if (e.key === 'schoolSettings') {
+        try {
+            const s = JSON.parse(e.newValue || '{}');
+            if (typeof applySystemTheme === 'function') applySystemTheme(s);
+            if (activeStudentData) renderStudentResults(activeStudentData);
+        } catch (err) {}
+    }
+});
+
+window.addEventListener('schoolSettingsUpdated', (e) => {
+    if (typeof applySystemTheme === 'function') applySystemTheme(e.detail);
+    if (activeStudentData) renderStudentResults(activeStudentData);
 });
 
 async function handleStudentLogin() {
@@ -115,6 +138,7 @@ async function loadStudentDashboard(admissionNo) {
 
     // Apply School Branding
     const settings = JSON.parse(localStorage.getItem('schoolSettings') || '{}');
+    if (typeof applySystemTheme === 'function') applySystemTheme(settings);
     if (settings.schoolName) document.getElementById('studentSchoolName').textContent = settings.schoolName;
 
     // Fetch Results for Student
@@ -158,6 +182,13 @@ async function renderStudentResults(student) {
         { min: 0,  max: 39,  grade: 'B',  remark: 'BEGINNER' }
     ];
     function getSummaryGrade(tot) {
+        if (typeof getGradingScaleForClass === 'function') {
+            const clsScale = getGradingScaleForClass(student.classId || student.class);
+            if (clsScale && Array.isArray(clsScale) && clsScale.length > 0) {
+                const t = Math.max(0, Math.min(100, Number(tot) || 0));
+                return clsScale.find(g => t >= g.min && t <= g.max) || clsScale[clsScale.length - 1];
+            }
+        }
         const sc = isJHS ? jhsScale : standardScale;
         const t = Math.max(0, Math.min(100, Number(tot) || 0));
         return sc.find(g => t >= g.min && t <= g.max) || sc[sc.length - 1];
@@ -199,7 +230,7 @@ async function renderStudentResults(student) {
         const totalAgg = allAgg.reduce((s, r) => s + r.grade, 0);
 
         aggCardHTML = `
-            <div style="background:linear-gradient(135deg, #1e1b4b 0%, #312e81 100%);color:#fff;padding:16px;border-radius:12px;border:1px solid rgba(255,255,255,0.1);box-shadow:0 4px 12px rgba(0,0,0,0.15);">
+            <div style="background:#1e1b4b;color:#fff;padding:16px;border-radius:12px;border:1px solid rgba(255,255,255,0.1);box-shadow:0 4px 12px rgba(0,0,0,0.15);">
                 <div style="font-size:11px;color:#a5b4fc;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;"><i class="fas fa-award"></i> BECE Aggregate</div>
                 <div style="font-size:24px;font-weight:800;margin:6px 0 2px 0;color:#38bdf8;">${totalAgg}</div>
                 <div style="font-size:11px;color:#c7d2fe;">4 Cores + 2 Best Electives</div>
@@ -322,6 +353,11 @@ function buildUnifiedStudentReportHTML(student) {
     const yr = schoolInfo.academicYear || '';
     const tm = schoolInfo.term ? ('Term ' + schoolInfo.term) : '';
 
+    const primaryColor = settings.primaryColor || '#4f46e5';
+    const secondaryColor = settings.secondaryColor || '#7e3af2';
+    const headerTextColor = settings.headerTextColor || '#ffffff';
+    const primaryDark = (typeof adjustColorBrightness === 'function') ? adjustColorBrightness(primaryColor, -15) : '#4338ca';
+
     const jhsKeywords = ['basic 7', 'basic 8', 'basic 9', 'jhs 1', 'jhs 2', 'jhs 3', 'jhs'];
     const className = String(student.class || '');
     const isJHS = jhsKeywords.some(k => className.toLowerCase().includes(k)) || student.level === 'JHS';
@@ -348,6 +384,13 @@ function buildUnifiedStudentReportHTML(student) {
     ];
 
     function getGrade(tot) {
+        if (typeof getGradingScaleForClass === 'function') {
+            const clsScale = getGradingScaleForClass(student.classId || student.class);
+            if (clsScale && Array.isArray(clsScale) && clsScale.length > 0) {
+                const t = Math.max(0, Math.min(100, Number(tot) || 0));
+                return clsScale.find(g => t >= g.min && t <= g.max) || clsScale[clsScale.length - 1];
+            }
+        }
         const sc = isJHS ? jhsScale : standardScale;
         const t = Math.max(0, Math.min(100, Number(tot) || 0));
         return sc.find(g => t >= g.min && t <= g.max) || sc[sc.length - 1];
@@ -376,7 +419,7 @@ function buildUnifiedStudentReportHTML(student) {
             <td style="padding:8px 10px;border:1px solid #cbd5e1;">${cs != null ? cs : '—'}</td>
             <td style="padding:8px 10px;border:1px solid #cbd5e1;">${es != null ? es : '—'}</td>
             <td style="padding:8px 10px;border:1px solid #cbd5e1;"><strong>${tot != null ? tot : '—'}</strong></td>
-            <td style="padding:8px 10px;border:1px solid #cbd5e1;"><span style="display:inline-block;padding:2px 8px;border-radius:4px;font-weight:700;background:rgba(79,70,229,.1);color:#4338ca;">${g.grade}</span></td>
+            <td style="padding:8px 10px;border:1px solid #cbd5e1;"><span style="display:inline-block;padding:2px 8px;border-radius:4px;font-weight:700;background:${primaryColor}1a;color:${primaryDark};">${g.grade}</span></td>
             <td style="padding:8px 10px;border:1px solid #cbd5e1;">${g.remark}</td>
         </tr>`;
     }).join('');
@@ -408,7 +451,7 @@ function buildUnifiedStudentReportHTML(student) {
         const coreLabel = useFallback ? 'Core' : `Core (${coreResults.length}/4)`;
 
         jhsAggregateHTML = `
-        <div style="background:#1e1b4b;color:#fff;padding:12px 16px;border-radius:8px;margin-bottom:16px;font-size:12.5px;">
+        <div style="background:${primaryDark};color:#fff;padding:12px 16px;border-radius:8px;margin-bottom:16px;font-size:12.5px;">
             <div style="font-weight:700;font-size:14px;margin-bottom:6px;">JHS TOTAL AGGREGATE</div>
             <div style="font-size:22px;font-weight:800;letter-spacing:-1px;">${totalAgg}</div>
             <div style="font-size:11px;margin-top:4px;opacity:0.85;">${aggSubjects}</div>
@@ -425,13 +468,13 @@ function buildUnifiedStudentReportHTML(student) {
 
     return `
     <div id="printableReportCard" style="background:#fff;color:#1e293b;padding:28px;border-radius:12px;box-shadow:0 2px 10px rgba(0,0,0,.08);font-family:'Inter',sans-serif;max-width:800px;margin:0 auto;">
-        <div style="display:flex;align-items:center;justify-content:space-between;border-bottom:2px solid #4f46e5;padding-bottom:14px;margin-bottom:18px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;border-bottom:2px solid ${primaryColor};padding-bottom:14px;margin-bottom:18px;">
             ${logoEl}
             <div style="text-align:center;flex:1;padding:0 12px;">
                 <h2 style="font-size:20px;font-weight:800;color:#1e1b4b;margin:0 0 4px 0;letter-spacing:-0.5px;">${school}</h2>
                 <p style="font-size:12px;color:#64748b;margin:0 0 2px 0;">${settings.address || ''}</p>
-                <p style="font-size:11.5px;color:#4f46e5;font-weight:600;margin:0 0 6px 0;"><em>&ldquo;${settings.motto || 'Drink deep or taste not the spring of knowledge'}&rdquo;</em></p>
-                <div style="display:inline-block;background:#4f46e5;color:#fff;font-size:12px;font-weight:700;padding:4px 14px;border-radius:20px;letter-spacing:0.5px;">
+                <p style="font-size:11.5px;color:${primaryColor};font-weight:600;margin:0 0 6px 0;"><em>&ldquo;${settings.motto || 'Drink deep or taste not the spring of knowledge'}&rdquo;</em></p>
+                <div style="display:inline-block;background:${primaryColor};color:${headerTextColor};font-size:12px;font-weight:700;padding:4px 14px;border-radius:20px;letter-spacing:0.5px;">
                     END OF ${tm.toUpperCase() || 'TERM'} REPORT SHEET
                 </div>
             </div>
@@ -449,13 +492,13 @@ function buildUnifiedStudentReportHTML(student) {
 
         <table style="width:100%;border-collapse:collapse;margin-bottom:16px;font-size:12px;text-align:center;">
             <thead>
-                <tr style="background:#4f46e5;color:#fff;">
-                    <th style="padding:8px 10px;text-align:left;border:1px solid #4338ca;">SUBJECT</th>
-                    <th style="padding:8px 10px;border:1px solid #4338ca;">CLASS 50%</th>
-                    <th style="padding:8px 10px;border:1px solid #4338ca;">EXAM 50%</th>
-                    <th style="padding:8px 10px;border:1px solid #4338ca;">TOTAL 100%</th>
-                    <th style="padding:8px 10px;border:1px solid #4338ca;">GRADE</th>
-                    <th style="padding:8px 10px;border:1px solid #4338ca;">REMARKS</th>
+                <tr style="background:${primaryColor};color:${headerTextColor};">
+                    <th style="padding:8px 10px;text-align:left;border:1px solid ${primaryDark};">SUBJECT</th>
+                    <th style="padding:8px 10px;border:1px solid ${primaryDark};">CLASS 50%</th>
+                    <th style="padding:8px 10px;border:1px solid ${primaryDark};">EXAM 50%</th>
+                    <th style="padding:8px 10px;border:1px solid ${primaryDark};">TOTAL 100%</th>
+                    <th style="padding:8px 10px;border:1px solid ${primaryDark};">GRADE</th>
+                    <th style="padding:8px 10px;border:1px solid ${primaryDark};">REMARKS</th>
                 </tr>
             </thead>
             <tbody>${rowsHtml || '<tr><td colspan="6" style="padding:16px;color:#94a3b8;">No results recorded</td></tr>'}</tbody>
@@ -464,9 +507,9 @@ function buildUnifiedStudentReportHTML(student) {
         ${jhsAggregateHTML}
 
         <div style="display:grid;grid-template-columns:repeat(3, 1fr);gap:10px;background:#eef2ff;padding:12px 16px;border-radius:8px;margin-bottom:16px;font-size:12.5px;border:1px solid #c7d2fe;">
-            <div><span style="color:#4338ca;font-size:11px;display:block;font-weight:600;">AVERAGE SCORE</span><strong style="font-size:15px;color:#1e1b4b;">${scoredCount ? avg.toFixed(1) + '%' : '—'}</strong></div>
-            <div><span style="color:#4338ca;font-size:11px;display:block;font-weight:600;">OVERALL GRADE</span><strong style="font-size:15px;color:#1e1b4b;">${scoredCount ? overallGrade.grade + ' (' + overallGrade.remark + ')' : '—'}</strong></div>
-            <div><span style="color:#4338ca;font-size:11px;display:block;font-weight:600;">RECORDED SUBJECTS</span><strong style="font-size:15px;color:#1e1b4b;">${scoredCount} / ${rows.length}</strong></div>
+            <div><span style="color:${primaryDark};font-size:11px;display:block;font-weight:600;">AVERAGE SCORE</span><strong style="font-size:15px;color:#1e1b4b;">${scoredCount ? avg.toFixed(1) + '%' : '—'}</strong></div>
+            <div><span style="color:${primaryDark};font-size:11px;display:block;font-weight:600;">OVERALL GRADE</span><strong style="font-size:15px;color:#1e1b4b;">${scoredCount ? overallGrade.grade + ' (' + overallGrade.remark + ')' : '—'}</strong></div>
+            <div><span style="color:${primaryDark};font-size:11px;display:block;font-weight:600;">RECORDED SUBJECTS</span><strong style="font-size:15px;color:#1e1b4b;">${scoredCount} / ${rows.length}</strong></div>
         </div>
 
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;font-size:12.5px;">

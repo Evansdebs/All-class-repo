@@ -60,6 +60,7 @@
                 <button class="side-link" data-tab="attendance" onclick="openTab('attendance')"><i class="fas fa-user-check"></i><span>Attendance</span></button>
                 <button class="side-link" data-tab="whatsapp" onclick="openTab('whatsapp')"><i class="fab fa-whatsapp"></i><span>WhatsApp</span></button>
                 <button class="side-link" data-tab="info" onclick="openTab('info')"><i class="fas fa-cog"></i><span>Class info</span></button>
+                <button class="side-link" id="navTeacherSignature" onclick="openTeacherSignatureModal()"><i class="fas fa-signature"></i><span>My Signature</span></button>
             </nav>
             <div class="sidebar-foot">
                 <button class="side-link" id="hubLink" onclick="showHub()"><i class="fas fa-th-large"></i><span>All classes</span></button>
@@ -120,6 +121,94 @@
             </div>
         </div>
         <div id="previewBody"></div>
+    </div>
+</div>
+
+<!-- Class Teacher Signature Modal -->
+<div class="modal" id="teacherSignatureModal" style="display:none;" onclick="if(event.target===this) closeTeacherSignatureModal()">
+    <div class="modal-box" style="max-width:600px;">
+        <div class="modal-head" style="display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--line);padding-bottom:12px;margin-bottom:16px;">
+            <h3 style="margin:0;display:flex;align-items:center;gap:8px;"><i class="fas fa-signature" style="color:var(--primary);"></i> Class Teacher Signature</h3>
+            <button class="icon-btn" onclick="closeTeacherSignatureModal()" title="Close">&times;</button>
+        </div>
+        <div class="signature-modal-body">
+            <p style="font-size:13px;color:var(--muted);margin-bottom:14px;line-height:1.5;">
+                Your signature will automatically reflect on official report cards under your name (<strong id="sigTeacherNameLabel">Teacher</strong>) for your assigned class (<strong id="sigClassNameLabel">Class</strong>).
+            </p>
+            
+            <!-- Signature Mode Tabs -->
+            <div style="display:flex;gap:6px;margin-bottom:14px;background:var(--bg);padding:4px;border-radius:8px;border:1px solid var(--line);">
+                <button type="button" class="btn btn-sm sig-mode-btn active" id="sigTabDraw" onclick="switchSigMode('draw')" style="flex:1;"><i class="fas fa-pen-nib"></i> Draw</button>
+                <button type="button" class="btn btn-sm btn-ghost sig-mode-btn" id="sigTabUpload" onclick="switchSigMode('upload')" style="flex:1;"><i class="fas fa-upload"></i> Upload</button>
+                <button type="button" class="btn btn-sm btn-ghost sig-mode-btn" id="sigTabType" onclick="switchSigMode('type')" style="flex:1;"><i class="fas fa-font"></i> Type</button>
+            </div>
+
+            <!-- Draw Mode -->
+            <div id="sigModeDraw" class="sig-mode-panel">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+                    <span style="font-size:12px;font-weight:600;">Draw inside the box using mouse, finger or stylus:</span>
+                    <div style="display:flex;gap:6px;align-items:center;">
+                        <select id="sigPenColor" onchange="updateSigPenColor(this.value)" style="padding:2px 6px;font-size:11px;border-radius:4px;border:1px solid var(--line);background:var(--card);color:var(--ink);">
+                            <option value="#0f172a">Black / Navy</option>
+                            <option value="#1d4ed8">Royal Blue</option>
+                            <option value="#047857">Forest Green</option>
+                        </select>
+                        <button type="button" class="btn btn-ghost btn-sm" onclick="clearSigCanvas()" style="font-size:11px;padding:3px 8px;"><i class="fas fa-eraser"></i> Clear</button>
+                    </div>
+                </div>
+                <div style="border:2px dashed #94a3b8;border-radius:8px;background:#ffffff;position:relative;overflow:hidden;touch-action:none;box-shadow:inset 0 2px 4px rgba(0,0,0,0.04);">
+                    <canvas id="sigCanvas" width="540" height="150" style="width:100%;height:150px;display:block;cursor:crosshair;"></canvas>
+                    <div id="sigCanvasPlaceholder" style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);pointer-events:none;color:#94a3b8;font-size:13px;font-style:italic;">
+                        Sign your name here...
+                    </div>
+                </div>
+            </div>
+
+            <!-- Upload Mode -->
+            <div id="sigModeUpload" class="sig-mode-panel" style="display:none;">
+                <div style="border:2px dashed #cbd5e1;border-radius:8px;padding:24px 16px;text-align:center;background:var(--card);cursor:pointer;" onclick="document.getElementById('sigFileInput').click()">
+                    <i class="fas fa-cloud-upload-alt" style="font-size:32px;color:var(--primary);margin-bottom:8px;"></i>
+                    <p style="font-weight:600;margin:0 0 4px 0;font-size:13px;">Click or drag &amp; drop signature image</p>
+                    <p style="font-size:11.5px;color:var(--muted);margin:0;">Supports PNG, JPG, JPEG (clean transparent or white background recommended)</p>
+                    <input type="file" id="sigFileInput" accept="image/*" style="display:none;" onchange="handleSigFileUpload(event)">
+                </div>
+                <div id="sigUploadPreviewWrap" style="display:none;margin-top:12px;text-align:center;padding:12px;border:1px solid var(--line);border-radius:8px;background:#fff;">
+                    <img id="sigUploadPreview" src="" alt="Uploaded Signature" style="max-height:70px;max-width:100%;object-fit:contain;">
+                </div>
+            </div>
+
+            <!-- Type Mode -->
+            <div id="sigModeType" class="sig-mode-panel" style="display:none;">
+                <label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">Type your full name:</label>
+                <input type="text" id="sigTypeNameInput" placeholder="e.g. Mr. K. Mensah" style="width:100%;margin-bottom:10px;padding:8px 12px;border:1px solid var(--line);border-radius:6px;background:var(--card);color:var(--ink);" oninput="updateTypedSigPreview()">
+                <label style="font-size:12px;font-weight:600;display:block;margin-bottom:6px;">Choose signature style:</label>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;" id="sigFontOptions"></div>
+            </div>
+
+            <!-- Report Card Live Preview Box -->
+            <div style="margin-top:16px;padding:12px 14px;border-radius:8px;background:var(--bg);border:1px solid var(--line);">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+                    <span style="font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--muted);">Report Card Placement Preview</span>
+                    <span id="sigStatusBadge" class="badge wait" style="font-size:10.5px;">No signature on file</span>
+                </div>
+                <div style="background:#ffffff;border:1px solid #e2e8f0;border-radius:6px;padding:12px 16px;max-width:320px;">
+                    <div style="font-size:12px;color:#1e293b;font-weight:600;margin-bottom:2px;">Class Teacher: <span id="sigPreviewTeacherName">Teacher</span></div>
+                    <div id="sigPreviewImgWrap" style="height:36px;display:flex;align-items:flex-end;margin-bottom:2px;">
+                        <img id="sigPreviewImg" src="" style="max-height:34px;max-width:140px;object-fit:contain;display:none;" alt="Signature Preview">
+                        <span id="sigPreviewEmptyLine" style="color:#94a3b8;font-size:11px;font-style:italic;">[Unsigned]</span>
+                    </div>
+                    <div style="border-top:1px solid #94a3b8;padding-top:2px;font-size:10px;color:#94a3b8;">Signature</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="modal-foot" style="display:flex;justify-content:space-between;align-items:center;margin-top:18px;border-top:1px solid var(--line);padding-top:14px;">
+            <button type="button" class="btn btn-ghost danger btn-sm" id="sigRemoveBtn" onclick="removeTeacherSignature()" style="display:none;"><i class="fas fa-trash"></i> Remove Signature</button>
+            <div style="display:flex;gap:8px;margin-left:auto;">
+                <button type="button" class="btn btn-ghost" onclick="closeTeacherSignatureModal()">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="saveTeacherSignature()"><i class="fas fa-check-circle"></i> Save &amp; Apply to Reports</button>
+            </div>
+        </div>
     </div>
 </div>
 

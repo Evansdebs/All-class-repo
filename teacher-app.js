@@ -94,6 +94,9 @@ function loadAll() {
     parentContacts = loadJSON('parentContacts', {});
     studentReportDetails = loadJSON('studentReportDetails', {});
     reports = loadJSON('reports', []);
+    if (typeof applySystemTheme === 'function') {
+        applySystemTheme(schoolSettings);
+    }
     applyAdminCalendar();
     if (typeof Attendance !== 'undefined') Attendance.load();
 }
@@ -257,20 +260,90 @@ function classRecord(name) {
 }
 function teacherById(id) {
     if (!id) return null;
-    return loadJSON('teachers', []).find(t => String(t.id) === String(id)) || null;
+    return loadJSON('teachers', []).find(t => String(t.id) === String(id) || String(t.userId) === String(id)) || null;
+}
+function currentTeacherRecord() {
+    const email = (sessionStorage.getItem('teacherEmail') || '').toLowerCase();
+    const name = sessionStorage.getItem('teacherName') || '';
+    const teachers = loadJSON('teachers', []);
+    if (email) {
+        const byEmail = teachers.find(t => (t.email || '').toLowerCase() === email && t.status !== 'deleted' && !t.isDeleted);
+        if (byEmail) return byEmail;
+    }
+    if (name) {
+        const byName = teachers.find(t => t.name && t.name.toLowerCase() === name.toLowerCase() && t.status !== 'deleted' && !t.isDeleted);
+        if (byName) return byName;
+    }
+    return null;
+}
+function classTeacherRecord(className) {
+    const cls = classRecord(className || currentClass);
+    const teachers = loadJSON('teachers', []);
+    if (cls && cls.classTeacherId) {
+        const assigned = teachers.find(t => (String(t.id) === String(cls.classTeacherId) || String(t.userId) === String(cls.classTeacherId)) && t.status !== 'deleted' && !t.isDeleted && t.status !== 'inactive');
+        if (assigned) return assigned;
+    }
+    if (cls) {
+        const matching = teachers.find(t =>
+            t.status !== 'deleted' && !t.isDeleted && t.status !== 'inactive' &&
+            (String(t.classTeacherOf) === String(cls.id) || String(t.classTeacherOf) === String(cls.name) ||
+             (t.role === 'Class Teacher' && Array.isArray(t.assignedClasses) && (t.assignedClasses.includes(cls.id) || t.assignedClasses.includes(cls.name))))
+        );
+        if (matching) return matching;
+    }
+    const cur = currentTeacherRecord();
+    return cur || null;
 }
 function classTeacherName(className) {
     const cls = classRecord(className || currentClass);
-    if (!cls) return '';
-    // Only use the teacher who is explicitly assigned via classTeacherId
-    // Never fall back to the stale cached cls.classTeacherName string
+    if (!cls) {
+        const cur = currentTeacherRecord();
+        return cur?.name || '';
+    }
+    // Explicit assigned teacher via classTeacherId
     if (cls.classTeacherId) {
         const assigned = teacherById(cls.classTeacherId);
         if (assigned && assigned.name && assigned.status !== 'deleted' && !assigned.isDeleted) {
             return assigned.name;
         }
     }
+    // Check teachers list for classTeacherOf or assignedClasses
+    const teachers = loadJSON('teachers', []);
+    const matching = teachers.find(t =>
+        t.status !== 'deleted' && !t.isDeleted && t.status !== 'inactive' &&
+        (String(t.classTeacherOf) === String(cls.id) || String(t.classTeacherOf) === String(cls.name) ||
+         (t.role === 'Class Teacher' && Array.isArray(t.assignedClasses) && (t.assignedClasses.includes(cls.id) || t.assignedClasses.includes(cls.name))))
+    );
+    if (matching && matching.name) return matching.name;
+    if (cls.classTeacherName) return cls.classTeacherName;
+    const cur = currentTeacherRecord();
+    if (cur?.name) return cur.name;
     return '';
+}
+function classTeacherSignatureSrc(className) {
+    const cls = classRecord(className || currentClass);
+    const teachers = loadJSON('teachers', []);
+    let t = null;
+    if (cls && cls.classTeacherId) {
+        t = teachers.find(x => (String(x.id) === String(cls.classTeacherId) || String(x.userId) === String(cls.classTeacherId)) && x.status !== 'deleted' && !x.isDeleted);
+    }
+    if (!t && cls) {
+        t = teachers.find(x =>
+            x.status !== 'deleted' && !x.isDeleted && x.status !== 'inactive' &&
+            (String(x.classTeacherOf) === String(cls.id) || String(x.classTeacherOf) === String(cls.name) ||
+             (x.role === 'Class Teacher' && Array.isArray(x.assignedClasses) && (x.assignedClasses.includes(cls.id) || x.assignedClasses.includes(cls.name))))
+        );
+    }
+    if (t) {
+        const sig = t.signature || t.teacherSignature || t.signatureData || localStorage.getItem('teacherSignature_' + t.id) || (t.userId ? localStorage.getItem('teacherSignature_' + t.userId) : null);
+        if (sig) return sig;
+    }
+    const cur = currentTeacherRecord();
+    if (cur) {
+        const curSig = cur.signature || cur.teacherSignature || localStorage.getItem('teacherSignature_' + cur.id) || (cur.userId ? localStorage.getItem('teacherSignature_' + cur.userId) : null);
+        if (curSig) return curSig;
+    }
+    return localStorage.getItem('currentTeacherSignature') || null;
 }
 function headTeacherName() {
     const teachers = loadJSON('teachers', []);
@@ -391,6 +464,15 @@ const JHS_STANINE_SCALE = [
 ];
 
 function getGrade(total, classNameOrDept) {
+    const targetClass = classNameOrDept || (typeof currentClass !== 'undefined' ? currentClass : '');
+    if (targetClass && typeof getGradingScaleForClass === 'function') {
+        const clsScale = getGradingScaleForClass(targetClass);
+        if (clsScale && Array.isArray(clsScale) && clsScale.length > 0) {
+            const t = Math.max(0, Math.min(100, Number(total) || 0));
+            return clsScale.find(g => t >= g.min && t <= g.max) || clsScale[clsScale.length - 1];
+        }
+    }
+
     const dept = classNameOrDept || getDepartmentForClass(currentClass);
     const deptLower = String(dept).toLowerCase();
     const isJHS = ['jhs', 'basic 7', 'basic 8', 'basic 9', 'jhs 1', 'jhs 2', 'jhs 3'].some(k => deptLower.includes(k));
@@ -409,7 +491,7 @@ function getGrade(total, classNameOrDept) {
         return JHS_STANINE_SCALE.find(g => t >= g.min && t <= g.max) || JHS_STANINE_SCALE[JHS_STANINE_SCALE.length - 1];
     }
 
-    if (typeof getGradeForScore === 'function') return getGradeForScore(total);
+    if (typeof getGradeForScore === 'function') return getGradeForScore(total, targetClass);
     const scale = gradeScale();
     const t = Math.max(0, Math.min(100, Number(total) || 0));
     return scale.find(g => t >= g.min && t <= g.max) || scale[scale.length - 1];
@@ -1493,7 +1575,41 @@ function renderReports() {
     const list = classStudents();
     const approved = list.filter(s => isApproved(s.id)).length;
     const hasApproved = approved > 0;
+    const teacherName = classTeacherName(currentClass) || 'Not Assigned';
+    const teacherSig = classTeacherSignatureSrc(currentClass);
+
     document.getElementById('tab-reports').innerHTML = `
+        <div class="card" style="margin-bottom:14px;background:#f8fafc;border:1px solid #e2e8f0;">
+            <div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:12px;">
+                <div style="display:flex;align-items:center;gap:12px;">
+                    <div style="width:42px;height:42px;border-radius:10px;background:#4f46e5;color:#fff;display:flex;align-items:center;justify-content:center;font-size:18px;">
+                        <i class="fas fa-signature"></i>
+                    </div>
+                    <div>
+                        <div style="font-size:13px;font-weight:700;color:#1e293b;">
+                            Class Teacher: <span style="color:#4f46e5;">${esc(teacherName)}</span>
+                        </div>
+                        <div style="font-size:11.5px;color:#64748b;display:flex;align-items:center;gap:8px;margin-top:2px;">
+                            ${teacherSig ? `
+                                <span class="badge ok" style="font-size:10.5px;padding:2px 8px;"><i class="fas fa-check-circle"></i> Signature Active on Report Cards</span>
+                                <span style="display:inline-flex;align-items:center;background:#fff;border:1px solid #cbd5e1;border-radius:4px;padding:2px 6px;height:24px;">
+                                    <img src="${teacherSig}" style="max-height:18px;max-width:80px;object-fit:contain;" alt="Signature">
+                                </span>
+                            ` : `
+                                <span class="badge wait" style="font-size:10.5px;padding:2px 8px;"><i class="fas fa-exclamation-circle"></i> No Signature on File</span>
+                                <span>Sign to have your signature print on report cards</span>
+                            `}
+                        </div>
+                    </div>
+                </div>
+                <div>
+                    <button class="btn ${teacherSig ? 'btn-ghost' : 'btn-primary'} btn-sm" onclick="openTeacherSignatureModal()">
+                        <i class="fas fa-pen-nib"></i> ${teacherSig ? 'Update Signature' : 'Sign Report Cards'}
+                    </button>
+                </div>
+            </div>
+        </div>
+
         <div class="card">
             <p class="hint">Preview anytime. Download buttons appear only after admin approves a report.</p>
             <div class="actions">
@@ -1711,6 +1827,11 @@ function buildUnifiedReportHTML(id) {
     const subs = allClassSubjects(className);
     const logo = schoolLogoSrc();
     const settings = schoolSettings || {};
+    const primaryColor = settings.primaryColor || '#4f46e5';
+    const secondaryColor = settings.secondaryColor || '#7e3af2';
+    const headerTextColor = settings.headerTextColor || '#ffffff';
+    const primaryDark = (typeof adjustColorBrightness === 'function') ? adjustColorBrightness(primaryColor, -15) : '#4338ca';
+
     const logoEl = logo
         ? `<img src="${logo}" style="width:70px;height:70px;object-fit:contain;border-radius:8px;" alt="Logo" crossorigin="anonymous">`
         : `<div style="width:70px;height:70px;border:2px dashed #cbd5e1;border-radius:8px;display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:11px;text-align:center;">No Logo</div>`;
@@ -1750,7 +1871,7 @@ function buildUnifiedReportHTML(id) {
                 <td style="padding:8px 10px;border:1px solid #cbd5e1;">${cs50}</td>
                 <td style="padding:8px 10px;border:1px solid #cbd5e1;">${es50}</td>
                 <td style="padding:8px 10px;border:1px solid #cbd5e1;"><strong>${tot}</strong></td>
-                <td style="padding:8px 10px;border:1px solid #cbd5e1;"><span style="display:inline-block;padding:2px 8px;border-radius:4px;font-weight:700;background:rgba(79,70,229,.1);color:#4338ca;">${g.grade}</span></td>
+                <td style="padding:8px 10px;border:1px solid #cbd5e1;"><span style="display:inline-block;padding:2px 8px;border-radius:4px;font-weight:700;background:${primaryColor}1a;color:${primaryDark};">${g.grade}</span></td>
                 <td style="padding:8px 10px;border:1px solid #cbd5e1;">${g.remark}</td>
             </tr>`);
         } else if (e && e.classScore !== '' && e.examScore !== '' && !resultApproved) {
@@ -1796,7 +1917,7 @@ function buildUnifiedReportHTML(id) {
         const allAgg = [...coreResults, ...bestTwo];
         const totalAgg = allAgg.reduce((s, r) => s + (Number(r.grade) || 0), 0);
         jhsAggregateHTML = `
-        <div style="background:#1e1b4b;color:#fff;padding:6px 12px;border-radius:8px;margin-bottom:10px;font-size:12.5px;">
+        <div style="background:${primaryDark};color:#fff;padding:6px 12px;border-radius:8px;margin-bottom:10px;font-size:12.5px;">
             <div style="font-weight:700;font-size:13px;margin-bottom:3px;">JHS TOTAL AGGREGATE</div>
             <div style="font-size:20px;font-weight:800;letter-spacing:-1px;">${totalAgg}</div>
             ${allAgg.length < 6 ? '<div style="font-size:10.5px;margin-top:3px;color:#fbbf24;">⚠ Not all 6 aggregate subjects have scores</div>' : ''}
@@ -1806,13 +1927,13 @@ function buildUnifiedReportHTML(id) {
 
     return `
     <div id="printableReportCard" style="background:#fff;color:#1e293b;padding:28px;border-radius:12px;box-shadow:0 2px 10px rgba(0,0,0,.08);font-family:'Inter',Arial,sans-serif;max-width:800px;margin:0 auto;box-sizing:border-box;">
-        <div style="display:flex;align-items:center;justify-content:space-between;border-bottom:2px solid #4f46e5;padding-bottom:14px;margin-bottom:18px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;border-bottom:2px solid ${primaryColor};padding-bottom:14px;margin-bottom:18px;">
             ${logoEl}
             <div style="text-align:center;flex:1;padding:0 12px;">
                 <h2 style="font-size:20px;font-weight:800;color:#1e1b4b;margin:0 0 4px 0;letter-spacing:-0.5px;">${esc(settings.schoolName || schoolName())}</h2>
                 <p style="font-size:12px;color:#64748b;margin:0 0 2px 0;">${esc(settings.address || '')}</p>
-                <p style="font-size:11.5px;color:#4f46e5;font-weight:600;margin:0 0 6px 0;"><em>&ldquo;${esc(settings.motto || 'Drink deep or taste not the spring of knowledge')}&rdquo;</em></p>
-                <div style="display:inline-block;background:#4f46e5;color:#fff;font-size:12px;font-weight:700;padding:4px 14px;border-radius:20px;letter-spacing:0.5px;">
+                <p style="font-size:11.5px;color:${primaryColor};font-weight:600;margin:0 0 6px 0;"><em>&ldquo;${esc(settings.motto || 'Drink deep or taste not the spring of knowledge')}&rdquo;</em></p>
+                <div style="display:inline-block;background:${primaryColor};color:${headerTextColor};font-size:12px;font-weight:700;padding:4px 14px;border-radius:20px;letter-spacing:0.5px;">
                     END OF ${esc(String(tm).toUpperCase())} REPORT SHEET
                 </div>
             </div>
@@ -1830,13 +1951,13 @@ function buildUnifiedReportHTML(id) {
 
         <table style="width:100%;border-collapse:collapse;margin-bottom:16px;font-size:12px;text-align:center;">
             <thead>
-                <tr style="background:#4f46e5;color:#fff;">
-                    <th style="padding:8px 10px;text-align:left;border:1px solid #4338ca;">SUBJECT</th>
-                    <th style="padding:8px 10px;border:1px solid #4338ca;">CLASS 50%</th>
-                    <th style="padding:8px 10px;border:1px solid #4338ca;">EXAM 50%</th>
-                    <th style="padding:8px 10px;border:1px solid #4338ca;">TOTAL 100%</th>
-                    <th style="padding:8px 10px;border:1px solid #4338ca;">GRADE</th>
-                    <th style="padding:8px 10px;border:1px solid #4338ca;">REMARKS</th>
+                <tr style="background:${primaryColor};color:${headerTextColor};">
+                    <th style="padding:8px 10px;text-align:left;border:1px solid ${primaryDark};">SUBJECT</th>
+                    <th style="padding:8px 10px;border:1px solid ${primaryDark};">CLASS 50%</th>
+                    <th style="padding:8px 10px;border:1px solid ${primaryDark};">EXAM 50%</th>
+                    <th style="padding:8px 10px;border:1px solid ${primaryDark};">TOTAL 100%</th>
+                    <th style="padding:8px 10px;border:1px solid ${primaryDark};">GRADE</th>
+                    <th style="padding:8px 10px;border:1px solid ${primaryDark};">REMARKS</th>
                 </tr>
             </thead>
             <tbody>${subjectRows.join('') || '<tr><td colspan="6" style="padding:16px;color:#94a3b8;">No subjects assigned</td></tr>'}</tbody>
@@ -1845,9 +1966,9 @@ function buildUnifiedReportHTML(id) {
         ${jhsAggregateHTML}
 
         <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;background:#eef2ff;padding:12px 16px;border-radius:8px;margin-bottom:16px;font-size:12.5px;border:1px solid #c7d2fe;">
-            <div><span style="color:#4338ca;font-size:11px;display:block;font-weight:600;">AVERAGE SCORE</span><strong style="font-size:15px;color:#1e1b4b;">${scoredCount ? avg.toFixed(1) + '%' : '—'}</strong></div>
-            <div><span style="color:#4338ca;font-size:11px;display:block;font-weight:600;">OVERALL GRADE</span><strong style="font-size:15px;color:#1e1b4b;">${scoredCount ? overallGrade.grade + ' (' + overallGrade.remark + ')' : '—'}</strong></div>
-            <div><span style="color:#4338ca;font-size:11px;display:block;font-weight:600;">RECORDED SUBJECTS</span><strong style="font-size:15px;color:#1e1b4b;">${scoredCount} / ${subs.length}</strong></div>
+            <div><span style="color:${primaryDark};font-size:11px;display:block;font-weight:600;">AVERAGE SCORE</span><strong style="font-size:15px;color:#1e1b4b;">${scoredCount ? avg.toFixed(1) + '%' : '—'}</strong></div>
+            <div><span style="color:${primaryDark};font-size:11px;display:block;font-weight:600;">OVERALL GRADE</span><strong style="font-size:15px;color:#1e1b4b;">${scoredCount ? overallGrade.grade + ' (' + overallGrade.remark + ')' : '—'}</strong></div>
+            <div><span style="color:${primaryDark};font-size:11px;display:block;font-weight:600;">RECORDED SUBJECTS</span><strong style="font-size:15px;color:#1e1b4b;">${scoredCount} / ${subs.length}</strong></div>
         </div>
 
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;font-size:12.5px;">
@@ -1865,12 +1986,12 @@ function buildUnifiedReportHTML(id) {
         <div style="display:flex;justify-content:space-between;padding-top:14px;border-top:1px dashed #cbd5e1;font-size:12px;color:#475569;gap:20px;">
             <div style="flex:1;">
                 <div><strong>Class Teacher:</strong> ${esc(classTeacherName(className) || '—')}</div>
-                <div style="height:24px;margin-top:4px;"></div>
+                ${classTeacherSignatureSrc(className) ? `<div style="height:28px;margin-top:2px;display:flex;align-items:flex-end;"><img src="${classTeacherSignatureSrc(className)}" style="max-height:26px;max-width:140px;object-fit:contain;" alt="Class Teacher Signature" crossorigin="anonymous"></div>` : '<div style="height:24px;margin-top:4px;"></div>'}
                 <div style="border-top:1px solid #94a3b8;padding-top:3px;font-size:10.5px;color:#94a3b8;">Signature</div>
             </div>
             <div style="flex:1;text-align:right;">
                 <div><strong>Headteacher:</strong> ${esc(headTeacherName() || '—')}</div>
-                ${headTeacherSignatureSrc() ? `<div style="height:28px;margin-top:2px;display:flex;justify-content:flex-end;align-items:flex-end;"><img src="${headTeacherSignatureSrc()}" style="max-height:26px;object-fit:contain;" alt="Signature" crossorigin="anonymous"></div>` : '<div style="height:24px;margin-top:4px;"></div>'}
+                ${headTeacherSignatureSrc() ? `<div style="height:28px;margin-top:2px;display:flex;justify-content:flex-end;align-items:flex-end;"><img src="${headTeacherSignatureSrc()}" style="max-height:26px;max-width:140px;object-fit:contain;" alt="Headteacher Signature" crossorigin="anonymous"></div>` : '<div style="height:24px;margin-top:4px;"></div>'}
                 <div style="border-top:1px solid #94a3b8;padding-top:3px;font-size:10.5px;color:#94a3b8;">Signature</div>
             </div>
         </div>
@@ -2461,9 +2582,40 @@ function infoCell(label, value, emptyHint) {
 function renderInfo() {
     loadAll();
     const teacher = classTeacherName(currentClass);
+    const teacherSig = classTeacherSignatureSrc(currentClass);
     const logo = schoolLogoSrc();
     const cls = classRecord(currentClass);
     document.getElementById('tab-info').innerHTML = `
+        <div class="card" style="margin-bottom:16px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+                <h3 style="margin:0;font-size:15px;display:flex;align-items:center;gap:8px;"><i class="fas fa-signature" style="color:var(--primary);"></i> Class Teacher &amp; Signature</h3>
+                <button class="btn btn-primary btn-sm" onclick="openTeacherSignatureModal()"><i class="fas fa-pen-nib"></i> ${teacherSig ? 'Update Signature' : 'Sign / Add Signature'}</button>
+            </div>
+            <div style="display:flex;flex-wrap:wrap;gap:16px;align-items:center;background:var(--bg);padding:14px;border-radius:10px;border:1px solid var(--line);">
+                <div style="flex:1;min-width:200px;">
+                    <div style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--muted);margin-bottom:2px;">Class Teacher Assigned</div>
+                    <strong style="font-size:14px;color:var(--ink);">${esc(teacher || 'Not assigned by admin')}</strong>
+                    <div style="font-size:12px;color:var(--muted);margin-top:2px;">Class: <strong>${esc(currentClass)}</strong></div>
+                </div>
+                <div style="flex:1;min-width:220px;">
+                    <div style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--muted);margin-bottom:4px;">Signature on Report Cards</div>
+                    ${teacherSig ? `
+                        <div style="display:flex;align-items:center;gap:10px;">
+                            <div style="background:#fff;border:1px solid #cbd5e1;border-radius:6px;padding:4px 10px;display:inline-flex;align-items:center;height:42px;">
+                                <img src="${teacherSig}" style="max-height:34px;max-width:140px;object-fit:contain;" alt="Signature">
+                            </div>
+                            <span class="badge ok" style="font-size:11px;"><i class="fas fa-check-circle"></i> Active</span>
+                        </div>
+                    ` : `
+                        <div style="display:flex;align-items:center;gap:8px;">
+                            <span class="badge wait" style="font-size:11px;"><i class="fas fa-exclamation-circle"></i> No signature</span>
+                            <span style="font-size:12px;color:var(--muted);">Click to draw or upload your signature</span>
+                        </div>
+                    `}
+                </div>
+            </div>
+        </div>
+
         <div class="card">
             <p class="hint">This snapshot is set by admin. Teachers cannot change school, calendar, logo, headteacher, or class-teacher assignment.</p>
             <div class="info-grid">
@@ -2491,6 +2643,341 @@ function renderInfo() {
                 ${cls?.classTeacherId ? ' (currently linked).' : '.'}
             </p>
         </div>`;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Class Teacher Signature Modal & Controller
+// ─────────────────────────────────────────────────────────────────────────────
+let sigCanvas = null;
+let sigCtx = null;
+let isDrawingSig = false;
+let sigHasDrawn = false;
+let currentSigMode = 'draw';
+let activeSigDataUrl = null;
+let sigPenColor = '#0f172a';
+
+const CURSIVE_FONTS = [
+    { name: 'Brush Script', font: 'Brush Script MT, cursive' },
+    { name: 'Dancing Script', font: 'Dancing Script, cursive' },
+    { name: 'Great Vibes', font: 'Great Vibes, cursive' },
+    { name: 'Segoe Script', font: 'Segoe Script, cursive' },
+    { name: 'Caveat', font: 'Caveat, cursive' },
+    { name: 'Satisfy', font: 'Satisfy, cursive' }
+];
+
+function openTeacherSignatureModal() {
+    loadAll();
+    const teacher = classTeacherRecord(currentClass) || currentTeacherRecord();
+    const tName = classTeacherName(currentClass) || teacher?.name || 'Class Teacher';
+    const className = currentClass || 'Class';
+
+    const tNameLabel = document.getElementById('sigTeacherNameLabel');
+    if (tNameLabel) tNameLabel.textContent = tName;
+    const cNameLabel = document.getElementById('sigClassNameLabel');
+    if (cNameLabel) cNameLabel.textContent = className;
+    const previewName = document.getElementById('sigPreviewTeacherName');
+    if (previewName) previewName.textContent = tName;
+
+    // Load existing signature
+    const existingSig = classTeacherSignatureSrc(currentClass) || teacher?.signature || null;
+    activeSigDataUrl = existingSig;
+    updateSigLivePreview(existingSig);
+
+    const typeInput = document.getElementById('sigTypeNameInput');
+    if (typeInput) typeInput.value = tName !== 'Class Teacher' ? tName : '';
+
+    const modal = document.getElementById('teacherSignatureModal');
+    if (modal) modal.style.display = 'flex';
+
+    switchSigMode('draw');
+    initSigCanvas();
+    updateTypedSigPreview();
+}
+
+function closeTeacherSignatureModal() {
+    const modal = document.getElementById('teacherSignatureModal');
+    if (modal) modal.style.display = 'none';
+}
+
+function switchSigMode(mode) {
+    currentSigMode = mode;
+    ['draw', 'upload', 'type'].forEach(m => {
+        const tab = document.getElementById('sigTab' + m.charAt(0).toUpperCase() + m.slice(1));
+        const panel = document.getElementById('sigMode' + m.charAt(0).toUpperCase() + m.slice(1));
+        if (tab) {
+            if (m === mode) {
+                tab.classList.add('active');
+                tab.classList.remove('btn-ghost');
+                tab.style.background = 'var(--primary)';
+                tab.style.color = '#fff';
+            } else {
+                tab.classList.remove('active');
+                tab.classList.add('btn-ghost');
+                tab.style.background = 'none';
+                tab.style.color = 'var(--muted)';
+            }
+        }
+        if (panel) panel.style.display = (m === mode ? 'block' : 'none');
+    });
+
+    if (mode === 'draw') {
+        setTimeout(initSigCanvas, 50);
+    }
+}
+
+function initSigCanvas() {
+    sigCanvas = document.getElementById('sigCanvas');
+    if (!sigCanvas) return;
+    sigCtx = sigCanvas.getContext('2d');
+    
+    // Clear canvas
+    sigCtx.fillStyle = '#ffffff';
+    sigCtx.fillRect(0, 0, sigCanvas.width, sigCanvas.height);
+    sigCtx.lineWidth = 2.4;
+    sigCtx.lineCap = 'round';
+    sigCtx.lineJoin = 'round';
+    sigCtx.strokeStyle = sigPenColor;
+
+    sigHasDrawn = false;
+    const ph = document.getElementById('sigCanvasPlaceholder');
+    if (ph) ph.style.display = 'block';
+
+    // Remove any existing listeners to prevent duplicates
+    sigCanvas.onmousedown = startSigDraw;
+    sigCanvas.onmousemove = moveSigDraw;
+    sigCanvas.onmouseup = endSigDraw;
+    sigCanvas.onmouseleave = endSigDraw;
+
+    sigCanvas.ontouchstart = e => {
+        e.preventDefault();
+        const touch = e.touches[0];
+        const rect = sigCanvas.getBoundingClientRect();
+        const scaleX = sigCanvas.width / rect.width;
+        const scaleY = sigCanvas.height / rect.height;
+        startSigDraw({ offsetX: (touch.clientX - rect.left) * scaleX, offsetY: (touch.clientY - rect.top) * scaleY });
+    };
+    sigCanvas.ontouchmove = e => {
+        e.preventDefault();
+        const touch = e.touches[0];
+        const rect = sigCanvas.getBoundingClientRect();
+        const scaleX = sigCanvas.width / rect.width;
+        const scaleY = sigCanvas.height / rect.height;
+        moveSigDraw({ offsetX: (touch.clientX - rect.left) * scaleX, offsetY: (touch.clientY - rect.top) * scaleY });
+    };
+    sigCanvas.ontouchend = e => {
+        e.preventDefault();
+        endSigDraw();
+    };
+}
+
+function startSigDraw(e) {
+    if (!sigCtx) return;
+    isDrawingSig = true;
+    sigHasDrawn = true;
+    const ph = document.getElementById('sigCanvasPlaceholder');
+    if (ph) ph.style.display = 'none';
+
+    sigCtx.beginPath();
+    sigCtx.moveTo(e.offsetX, e.offsetY);
+}
+
+function moveSigDraw(e) {
+    if (!isDrawingSig || !sigCtx) return;
+    sigCtx.lineTo(e.offsetX, e.offsetY);
+    sigCtx.stroke();
+}
+
+function endSigDraw() {
+    if (!isDrawingSig) return;
+    isDrawingSig = false;
+    if (sigHasDrawn && sigCanvas) {
+        activeSigDataUrl = sigCanvas.toDataURL('image/png');
+        updateSigLivePreview(activeSigDataUrl);
+    }
+}
+
+function clearSigCanvas() {
+    if (!sigCanvas || !sigCtx) return;
+    sigCtx.fillStyle = '#ffffff';
+    sigCtx.fillRect(0, 0, sigCanvas.width, sigCanvas.height);
+    sigHasDrawn = false;
+    const ph = document.getElementById('sigCanvasPlaceholder');
+    if (ph) ph.style.display = 'block';
+    activeSigDataUrl = null;
+    updateSigLivePreview(null);
+}
+
+function updateSigPenColor(color) {
+    sigPenColor = color;
+    if (sigCtx) sigCtx.strokeStyle = color;
+}
+
+function handleSigFileUpload(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = e => {
+        activeSigDataUrl = e.target.result;
+        const previewWrap = document.getElementById('sigUploadPreviewWrap');
+        const previewImg = document.getElementById('sigUploadPreview');
+        if (previewImg) previewImg.src = activeSigDataUrl;
+        if (previewWrap) previewWrap.style.display = 'block';
+        updateSigLivePreview(activeSigDataUrl);
+    };
+    reader.readAsDataURL(file);
+}
+
+function updateTypedSigPreview() {
+    const text = document.getElementById('sigTypeNameInput')?.value?.trim() || 'Teacher Name';
+    const container = document.getElementById('sigFontOptions');
+    if (!container) return;
+
+    container.innerHTML = CURSIVE_FONTS.map((cf, idx) => `
+        <div onclick="selectTypedSigFont('${cf.font.replace(/'/g, "\\'")}', this)" style="border:1px solid var(--line);border-radius:8px;padding:10px 12px;background:var(--card);cursor:pointer;text-align:center;transition:border-color .15s;" class="typed-font-choice ${idx === 0 ? 'selected-font' : ''}">
+            <div style="font-family:${cf.font};font-size:22px;color:var(--ink);margin-bottom:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+                ${esc(text)}
+            </div>
+            <div style="font-size:10.5px;color:var(--muted);">${cf.name}</div>
+        </div>
+    `).join('');
+}
+
+function selectTypedSigFont(fontFamily, el) {
+    document.querySelectorAll('.typed-font-choice').forEach(c => {
+        c.style.borderColor = 'var(--line)';
+        c.style.background = 'var(--card)';
+    });
+    if (el) {
+        el.style.borderColor = 'var(--primary)';
+        el.style.background = '#eef2ff';
+    }
+
+    const text = document.getElementById('sigTypeNameInput')?.value?.trim() || 'Teacher Name';
+    const tempCanvas = document.createElement('canvas');
+    tempCanvas.width = 480;
+    tempCanvas.height = 120;
+    const ctx = tempCanvas.getContext('2d');
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
+    ctx.fillStyle = sigPenColor || '#0f172a';
+    ctx.font = `italic 38px ${fontFamily}`;
+    ctx.textBaseline = 'middle';
+    ctx.textAlign = 'center';
+    ctx.fillText(text, tempCanvas.width / 2, tempCanvas.height / 2);
+
+    activeSigDataUrl = tempCanvas.toDataURL('image/png');
+    updateSigLivePreview(activeSigDataUrl);
+}
+
+function updateSigLivePreview(sigDataUrl) {
+    const badge = document.getElementById('sigStatusBadge');
+    const previewImg = document.getElementById('sigPreviewImg');
+    const emptyLine = document.getElementById('sigPreviewEmptyLine');
+    const removeBtn = document.getElementById('sigRemoveBtn');
+
+    if (sigDataUrl) {
+        if (badge) {
+            badge.className = 'badge ok';
+            badge.innerHTML = '<i class="fas fa-check-circle"></i> Ready to apply';
+        }
+        if (previewImg) {
+            previewImg.src = sigDataUrl;
+            previewImg.style.display = 'block';
+        }
+        if (emptyLine) emptyLine.style.display = 'none';
+        if (removeBtn) removeBtn.style.display = 'inline-flex';
+    } else {
+        if (badge) {
+            badge.className = 'badge wait';
+            badge.innerHTML = 'No signature on file';
+        }
+        if (previewImg) previewImg.style.display = 'none';
+        if (emptyLine) emptyLine.style.display = 'inline';
+        if (removeBtn) removeBtn.style.display = 'none';
+    }
+}
+
+async function saveTeacherSignature() {
+    if (!activeSigDataUrl) {
+        return toast('Please draw, upload or type your signature first.', 'bad');
+    }
+
+    loadAll();
+    const teachers = loadJSON('teachers', []);
+    let teacher = classTeacherRecord(currentClass) || currentTeacherRecord();
+
+    if (!teacher && teachers.length > 0) {
+        teacher = teachers[0];
+    }
+
+    if (teacher) {
+        teacher.signature = activeSigDataUrl;
+        const idx = teachers.findIndex(t => String(t.id) === String(teacher.id) || (teacher.email && t.email === teacher.email));
+        if (idx >= 0) {
+            teachers[idx] = { ...teachers[idx], signature: activeSigDataUrl };
+        } else {
+            teachers.push(teacher);
+        }
+        saveJSON('teachers', teachers);
+        localStorage.setItem('teacherSignature_' + teacher.id, activeSigDataUrl);
+        if (teacher.userId) localStorage.setItem('teacherSignature_' + teacher.userId, activeSigDataUrl);
+    }
+
+    localStorage.setItem('currentTeacherSignature', activeSigDataUrl);
+
+    // Sync in background to cloud / Firestore
+    if (teacher && typeof updateDocument === 'function') {
+        try {
+            updateDocument('teachers', teacher.id, { signature: activeSigDataUrl }).catch(() => {});
+        } catch (e) {}
+    }
+
+    closeTeacherSignatureModal();
+    toast('Signature saved! It will now appear on all report cards for ' + (currentClass || 'your class') + '.', 'ok');
+
+    // Refresh UI
+    renderInfo();
+    renderReports();
+    if (typeof currentPreviewReportStudentId !== 'undefined' && currentPreviewReportStudentId) {
+        const body = document.getElementById('previewBody');
+        if (body) body.innerHTML = buildUnifiedReportHTML(currentPreviewReportStudentId);
+    }
+}
+
+async function removeTeacherSignature() {
+    if (!confirm('Are you sure you want to remove your signature from report cards?')) return;
+
+    loadAll();
+    const teachers = loadJSON('teachers', []);
+    const teacher = classTeacherRecord(currentClass) || currentTeacherRecord();
+
+    if (teacher) {
+        teacher.signature = null;
+        const idx = teachers.findIndex(t => String(t.id) === String(teacher.id) || (teacher.email && t.email === teacher.email));
+        if (idx >= 0) {
+            teachers[idx].signature = null;
+        }
+        saveJSON('teachers', teachers);
+        localStorage.removeItem('teacherSignature_' + teacher.id);
+        if (teacher.userId) localStorage.removeItem('teacherSignature_' + teacher.userId);
+
+        if (typeof updateDocument === 'function') {
+            try { updateDocument('teachers', teacher.id, { signature: null }).catch(() => {}); } catch (e) {}
+        }
+    }
+
+    localStorage.removeItem('currentTeacherSignature');
+    activeSigDataUrl = null;
+    clearSigCanvas();
+    updateSigLivePreview(null);
+
+    toast('Signature removed.', 'ok');
+    renderInfo();
+    renderReports();
+    if (typeof currentPreviewReportStudentId !== 'undefined' && currentPreviewReportStudentId) {
+        const body = document.getElementById('previewBody');
+        if (body) body.innerHTML = buildUnifiedReportHTML(currentPreviewReportStudentId);
+    }
 }
 
 function openModal(html) {

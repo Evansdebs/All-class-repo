@@ -377,38 +377,106 @@ function getActiveGradingScale() {
 }
 
 // Get appropriate grading scale for a specific class or level
-function getGradingScaleForClass(classId) {
-    if (!classId) return getActiveGradingScale();
+function getGradingScaleForClass(classIdOrName) {
+    if (!classIdOrName) return getActiveGradingScale();
 
-    const classes = JSON.parse(localStorage.getItem('classes') || '[]');
-    const cls = classes.find(c => c.id === classId || c.name === classId);
+    let classes = [];
+    try {
+        if (typeof adminState !== 'undefined' && Array.isArray(adminState.classes) && adminState.classes.length > 0) {
+            classes = adminState.classes;
+        } else {
+            classes = JSON.parse(localStorage.getItem('classes') || '[]');
+        }
+    } catch(e) {
+        classes = JSON.parse(localStorage.getItem('classes') || '[]');
+    }
+
+    const needle = String(classIdOrName).toLowerCase().trim();
+    const cls = classes.find(c => 
+        String(c.id).toLowerCase().trim() === needle || 
+        String(c.name || '').toLowerCase().trim() === needle
+    );
 
     if (cls?.gradingScaleId) {
-        const scales = JSON.parse(localStorage.getItem('gradingScales') || '[]');
-        const customScale = scales.find(s => s.id === cls.gradingScaleId);
-        if (customScale?.items) return customScale.items;
+        if (cls.gradingScaleId === 'preset_ghana_primary') return PRESET_GRADING_SCALES.GHANA_PRIMARY.items;
+        if (cls.gradingScaleId === 'preset_jhs_bece') return PRESET_GRADING_SCALES.JHS_BECE.items;
+        if (cls.gradingScaleId === 'preset_standard_letter') return PRESET_GRADING_SCALES.STANDARD_LETTER.items;
+
+        let scales = [];
+        try {
+            if (typeof adminState !== 'undefined' && Array.isArray(adminState.gradingScales) && adminState.gradingScales.length > 0) {
+                scales = adminState.gradingScales;
+            } else {
+                scales = JSON.parse(localStorage.getItem('gradingScales') || '[]');
+            }
+        } catch(e) {
+            scales = JSON.parse(localStorage.getItem('gradingScales') || '[]');
+        }
+
+        const customScale = scales.find(s => 
+            String(s.id).trim() === String(cls.gradingScaleId).trim() ||
+            String(s.name || '').toLowerCase().trim() === String(cls.gradingScaleId).toLowerCase().trim()
+        );
+        if (customScale && (customScale.items || customScale.ranges)) {
+            return customScale.items || customScale.ranges;
+        }
     }
 
-    // Auto-detect JHS vs Primary level
-    const className = (cls?.name || classId).toLowerCase();
-    if (className.includes('jhs') || cls?.level === 'JHS') {
+    // Auto-detect department/level
+    let scales = [];
+    try {
+        if (typeof adminState !== 'undefined' && Array.isArray(adminState.gradingScales)) {
+            scales = adminState.gradingScales;
+        } else {
+            scales = JSON.parse(localStorage.getItem('gradingScales') || '[]');
+        }
+    } catch(e) {
+        scales = JSON.parse(localStorage.getItem('gradingScales') || '[]');
+    }
+
+    const className = (cls?.name || String(classIdOrName)).toLowerCase();
+    const dept = (cls?.department || cls?.level || '').toLowerCase();
+    
+    // Check if there is an active custom scale configured for this department
+    if (dept) {
+        const deptScale = scales.find(s => s.isActive && s.department && s.department.toLowerCase() === dept);
+        if (deptScale && (deptScale.items || deptScale.ranges)) {
+            return deptScale.items || deptScale.ranges;
+        }
+    }
+
+    if (className.includes('jhs') || className.includes('basic 7') || className.includes('basic 8') || className.includes('basic 9') || dept === 'jhs' || cls?.level === 'JHS') {
+        const jhsScale = scales.find(s => s.isActive && (s.department === 'JHS' || (s.name || '').toLowerCase().includes('jhs')));
+        if (jhsScale && (jhsScale.items || jhsScale.ranges)) return jhsScale.items || jhsScale.ranges;
         return PRESET_GRADING_SCALES.JHS_BECE.items;
     }
+
+    const primaryScale = scales.find(s => s.isActive && (s.department === 'Primary' || (s.name || '').toLowerCase().includes('primary')));
+    if (primaryScale && (primaryScale.items || primaryScale.ranges)) return primaryScale.items || primaryScale.ranges;
 
     return getActiveGradingScale();
 }
 
-function getGradeForScore(totalScore, scale = null) {
-    const activeScale = scale || getActiveGradingScale();
-    if (totalScore < 0) totalScore = 0;
-    if (totalScore > 100) totalScore = 100;
+function getGradeForScore(totalScore, scaleOrClass = null) {
+    let activeScale = null;
+    if (Array.isArray(scaleOrClass)) {
+        activeScale = scaleOrClass;
+    } else if (typeof scaleOrClass === 'string' && scaleOrClass) {
+        activeScale = getGradingScaleForClass(scaleOrClass);
+    } else {
+        activeScale = getActiveGradingScale();
+    }
+
+    let t = Number(totalScore) || 0;
+    if (t < 0) t = 0;
+    if (t > 100) t = 100;
 
     for (const item of activeScale) {
-        if (totalScore >= item.min && totalScore <= item.max) {
+        if (t >= item.min && t <= item.max) {
             return item;
         }
     }
-    return activeScale[activeScale.length - 1];
+    return activeScale[activeScale.length - 1] || { grade: 'B', remark: 'BEGINNER' };
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -508,36 +576,179 @@ function calculateBECEAggregate(subjectScoresMap) {
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
+// COLOR THEME & CSS VARIABLES INJECTION
+// ──────────────────────────────────────────────────────────────────────────────
+
+function hexToRgb(hex) {
+    if (!hex || typeof hex !== 'string') return null;
+    let c = hex.trim().replace(/^#/, '');
+    if (c.length === 3) c = c.split('').map(x => x + x).join('');
+    if (c.length !== 6) return null;
+    const num = parseInt(c, 16);
+    if (isNaN(num)) return null;
+    return { r: (num >> 16) & 255, g: (num >> 8) & 255, b: num & 255 };
+}
+
+function adjustColorBrightness(hex, percent) {
+    const rgb = hexToRgb(hex);
+    if (!rgb) return hex;
+    const adjust = (val) => Math.max(0, Math.min(255, Math.round(val + (val * percent) / 100)));
+    const r = adjust(rgb.r).toString(16).padStart(2, '0');
+    const g = adjust(rgb.g).toString(16).padStart(2, '0');
+    const b = adjust(rgb.b).toString(16).padStart(2, '0');
+    return `#${r}${g}${b}`;
+}
+
+function applySystemTheme(customSettings) {
+    let settings = customSettings;
+    if (!settings) {
+        try {
+            settings = JSON.parse(localStorage.getItem('schoolSettings') || '{}');
+        } catch (e) { settings = {}; }
+    }
+    if (!settings || typeof settings !== 'object') settings = {};
+
+    const primary = settings.primaryColor || '#4f46e5';
+    const secondary = settings.secondaryColor || '#7e3af2';
+    const headerText = settings.headerTextColor || '#ffffff';
+
+    const root = document.documentElement;
+    if (!root) return;
+
+    const rgbP = hexToRgb(primary);
+    const rgbS = hexToRgb(secondary);
+
+    const primaryLight = adjustColorBrightness(primary, 20);
+    const primaryDark = adjustColorBrightness(primary, -20);
+    const primaryDarker = adjustColorBrightness(primary, -35);
+    const secondaryLight = adjustColorBrightness(secondary, 20);
+    const secondaryDark = adjustColorBrightness(secondary, -20);
+
+    // Apply CSS Custom Variables across portals
+    root.style.setProperty('--primary', primary);
+    root.style.setProperty('--primary-light', primaryLight);
+    root.style.setProperty('--primary-dark', primaryDark);
+    root.style.setProperty('--primary-darker', primaryDarker);
+    root.style.setProperty('--secondary', secondary);
+    root.style.setProperty('--secondary-light', secondaryLight);
+    root.style.setProperty('--secondary-dark', secondaryDark);
+    root.style.setProperty('--header-text-color', headerText);
+    root.style.setProperty('--brand-header-text', headerText);
+    root.style.setProperty('--brand-accent', secondary);
+
+    if (rgbP) {
+        root.style.setProperty('--primary-rgb', `${rgbP.r}, ${rgbP.g}, ${rgbP.b}`);
+        root.style.setProperty('--primary-10', `rgba(${rgbP.r}, ${rgbP.g}, ${rgbP.b}, 0.1)`);
+        root.style.setProperty('--primary-20', `rgba(${rgbP.r}, ${rgbP.g}, ${rgbP.b}, 0.2)`);
+    }
+    if (rgbS) {
+        root.style.setProperty('--secondary-rgb', `${rgbS.r}, ${rgbS.g}, ${rgbS.b}`);
+        root.style.setProperty('--secondary-10', `rgba(${rgbS.r}, ${rgbS.g}, ${rgbS.b}, 0.1)`);
+    }
+
+    try {
+        window.dispatchEvent(new CustomEvent('systemThemeApplied', { detail: { settings, primary, secondary, headerText } }));
+    } catch (e) {}
+}
+
+// Auto-run theme injection on script parse and lifecycle events
+try {
+    applySystemTheme();
+    if (typeof document !== 'undefined') {
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', () => applySystemTheme());
+        }
+        window.addEventListener('storage', (e) => {
+            if (e.key === 'schoolSettings') {
+                try {
+                    const updated = JSON.parse(e.newValue || '{}');
+                    applySystemTheme(updated);
+                } catch (err) {}
+            }
+        });
+    }
+} catch (e) {}
+
+// ──────────────────────────────────────────────────────────────────────────────
 // SCHOOL SETTINGS — Fetch & Cache
 // ──────────────────────────────────────────────────────────────────────────────
 
 async function fetchSchoolSettings() {
-    const cached = localStorage.getItem('schoolSettings');
-    let settings = cached ? JSON.parse(cached) : null;
+    let settings = null;
 
+    // 1. Try local server API
+    try {
+        const res = await fetch('/api/school-settings');
+        if (res.ok) {
+            const apiSettings = await res.json();
+            if (apiSettings && typeof apiSettings === 'object' && Object.keys(apiSettings).length) {
+                settings = apiSettings;
+                localStorage.setItem('schoolSettings', JSON.stringify(settings));
+                applySystemTheme(settings);
+            }
+        }
+    } catch (e) {}
+
+    // 2. Try Firestore if active
     if (isFirebaseActive && db) {
         try {
             const doc = await db.collection('schoolSettings').doc('main').get();
             if (doc.exists) {
-                settings = doc.data();
+                const cloudSettings = doc.data();
+                settings = { ...(settings || {}), ...cloudSettings };
                 localStorage.setItem('schoolSettings', JSON.stringify(settings));
+                applySystemTheme(settings);
             }
         } catch (e) {
-            console.warn('Could not fetch school settings:', e);
+            console.warn('Could not fetch school settings from Firestore:', e);
         }
     }
 
-    return settings;
+    // 3. Fallback to localStorage
+    if (!settings) {
+        const cached = localStorage.getItem('schoolSettings');
+        if (cached) {
+            try { settings = JSON.parse(cached); } catch (e) {}
+        }
+    }
+
+    if (settings) {
+        applySystemTheme(settings);
+    }
+    return settings || {};
 }
 
 async function saveSchoolSettings(settings) {
     localStorage.setItem('schoolSettings', JSON.stringify(settings));
-    if (isFirebaseActive && db) {
-        await db.collection('schoolSettings').doc('main').set({
-            ...settings,
-            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-        }, { merge: true });
+    applySystemTheme(settings);
+
+    // Save to local server API
+    try {
+        await fetch('/api/school-settings', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(settings)
+        });
+    } catch (e) {
+        console.warn('Could not save school settings to local API:', e);
     }
+
+    // Save to Firestore if active
+    if (isFirebaseActive && db) {
+        try {
+            await db.collection('schoolSettings').doc('main').set({
+                ...settings,
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+            }, { merge: true });
+        } catch (e) {
+            console.warn('Could not save school settings to Firestore:', e);
+        }
+    }
+
+    try {
+        window.dispatchEvent(new CustomEvent('schoolSettingsUpdated', { detail: settings }));
+    } catch (e) {}
+
     await logActivity('School Settings Updated', 'School settings saved');
 }
 

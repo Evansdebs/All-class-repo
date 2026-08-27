@@ -1023,15 +1023,29 @@ function calculateTotalScore(classScore, examScore) {
     return Math.round((classScore50 + examScore50) * 10) / 10;
 }
 
-/// Get grade for a score - BASED ON TOTAL SCORE (Dynamic grading scale)
-function getGrade(totalScore) {
+/// Get grade for a score - BASED ON TOTAL SCORE (Dynamic grading scale & custom class scheme)
+function getGrade(totalScore, classIdOrName) {
     // Ensure totalScore is between 0-100
     if (totalScore < 0) totalScore = 0;
     if (totalScore > 100) totalScore = 100;
 
+    const targetClass = classIdOrName || (typeof currentClass !== 'undefined' ? currentClass : null);
+
+    if (typeof getGradingScaleForClass === 'function' && targetClass) {
+        const clsScale = getGradingScaleForClass(targetClass);
+        if (clsScale && Array.isArray(clsScale) && clsScale.length > 0) {
+            for (const grade of clsScale) {
+                if (totalScore >= grade.min && totalScore <= grade.max) {
+                    return grade;
+                }
+            }
+            return clsScale[clsScale.length - 1];
+        }
+    }
+
     // Prefer firebase-config.js dynamic lookup if available
     if (typeof getGradeForScore === 'function') {
-        return getGradeForScore(totalScore);
+        return getGradeForScore(totalScore, targetClass);
     }
 
     // Use the local gradingSystem (default or cached active scale)
@@ -4302,6 +4316,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 function applySchoolSettings(settings) {
     if (!settings) return;
 
+    if (typeof applySystemTheme === 'function') {
+        applySystemTheme(settings);
+    }
+
     // Apply school logo if set in Admin and not already in schoolInfo
     if (settings.schoolLogo && !schoolInfo.schoolLogo) {
         schoolInfo.schoolLogo = settings.schoolLogo;
@@ -4324,6 +4342,19 @@ function applySchoolSettings(settings) {
         window._reportFieldToggles = settings.fieldToggles;
     }
 }
+
+window.addEventListener('storage', (e) => {
+    if (e.key === 'schoolSettings') {
+        try {
+            const s = JSON.parse(e.newValue || '{}');
+            applySchoolSettings(s);
+        } catch (err) {}
+    }
+});
+
+window.addEventListener('schoolSettingsUpdated', (e) => {
+    applySchoolSettings(e.detail);
+});
 
 // Helper: check if a report field should be displayed
 // Usage: if (reportFieldEnabled('showAttendance')) { ... }

@@ -1,0 +1,6 @@
+{
+  "name": "OneReal School Management System",
+  "description": "Comprehensive school management system featuring teacher portal, admin dashboard, student portal, report sheet generation, and grading analytics.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

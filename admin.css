@@ -49,7 +49,7 @@ body {
 ────────────────────────────────────────────── */
 .auth-overlay {
     position: fixed; inset: 0; z-index: 9999;
-    background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 50%, #312e81 100%);
+    background: #0f172a;
     display: flex; align-items: center; justify-content: center;
     min-height: 100vh;
 }
@@ -74,7 +74,7 @@ body {
 
 .auth-logo {
     width: 72px; height: 72px;
-    background: linear-gradient(135deg, var(--primary), var(--secondary));
+    background: var(--primary);
     border-radius: 20px;
     display: flex; align-items: center; justify-content: center;
     font-size: 32px; color: #fff;
@@ -122,13 +122,13 @@ body {
 
 .auth-btn {
     width: 100%; padding: 14px;
-    background: linear-gradient(135deg, var(--primary), var(--secondary));
+    background: var(--primary);
     color: #fff; border: none; border-radius: var(--radius-sm);
     font-size: 15px; font-weight: 600; cursor: pointer;
     margin-top: 8px; transition: all var(--transition);
     box-shadow: 0 4px 14px rgba(79,70,229,.4);
 }
-.auth-btn:hover { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(79,70,229,.5); }
+.auth-btn:hover { transform: translateY(-1px); background: var(--primary-dark); box-shadow: 0 6px 20px rgba(79,70,229,.5); }
 .auth-btn:active { transform: translateY(0); }
 
 .forgot-link {
@@ -191,7 +191,7 @@ body {
 
 .sidebar-logo {
     width: 38px; height: 38px; flex-shrink: 0;
-    background: linear-gradient(135deg, var(--primary), var(--secondary));
+    background: var(--primary);
     border-radius: 10px;
     display: flex; align-items: center; justify-content: center;
     font-size: 17px; color: #fff;
@@ -258,7 +258,7 @@ body {
 
 .sidebar-user-avatar {
     width: 36px; height: 36px; flex-shrink: 0;
-    background: linear-gradient(135deg, var(--primary), var(--secondary));
+    background: var(--primary);
     border-radius: 50%;
     display: flex; align-items: center; justify-content: center;
     color: #fff; font-weight: 700; font-size: 14px;
@@ -328,7 +328,7 @@ body {
 
 .topbar-avatar {
     width: 36px; height: 36px;
-    background: linear-gradient(135deg, var(--primary), var(--secondary));
+    background: var(--primary);
     border-radius: 50%;
     display: flex; align-items: center; justify-content: center;
     color: #fff; font-weight: 700; font-size: 14px; cursor: pointer;

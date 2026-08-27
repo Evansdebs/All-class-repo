@@ -1,0 +1,12 @@
+{
+  "name": "onereal-school-management",
+  "version": "2.2.0",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "dev": "node server.js",
+    "build": "node -e \"console.log('Build complete')\"",
+    "start": "node server.js"
+  },
+  "dependencies": {}
+}

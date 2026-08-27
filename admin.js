@@ -1162,9 +1162,71 @@ function openTeacherModal(id = null) {
         const el = document.getElementById(fId);
         if (el) el.value = '';
     });
+let currentEditingTeacherSignature = null;
+
+function renderAdminTeacherSignaturePreview(sig) {
+    const preview = document.getElementById('tm-signature-preview');
+    const removeBtn = document.getElementById('tm-signature-remove-btn');
+    if (!preview) return;
+    if (sig) {
+        preview.innerHTML = `<img src="${sig}" style="max-height:46px;max-width:180px;object-fit:contain;" alt="Teacher Signature">`;
+        if (removeBtn) removeBtn.style.display = 'inline-flex';
+    } else {
+        preview.innerHTML = `<span style="color:#94a3b8;font-size:12px;font-style:italic;">No signature on file (teacher can also sign in their portal)</span>`;
+        if (removeBtn) removeBtn.style.display = 'none';
+    }
+}
+
+function handleAdminTeacherSignatureUpload(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = e => {
+        currentEditingTeacherSignature = e.target.result;
+        renderAdminTeacherSignaturePreview(currentEditingTeacherSignature);
+    };
+    reader.readAsDataURL(file);
+}
+
+function clearAdminTeacherSignature() {
+    currentEditingTeacherSignature = null;
+    renderAdminTeacherSignaturePreview(null);
+    const fileInput = document.getElementById('tm-signature-file');
+    if (fileInput) fileInput.value = '';
+}
+
+function onTeacherRoleChange() {
+    const role = document.getElementById('tm-role')?.value || 'Teacher';
+    const classGroup = document.getElementById('tm-classTeacherClassGroup');
+    if (classGroup) {
+        if (role === 'Class Teacher') {
+            classGroup.style.borderColor = 'var(--primary)';
+            classGroup.style.background = '#eef2ff';
+        } else {
+            classGroup.style.borderColor = '#e2e8f0';
+            classGroup.style.background = '#f8fafc';
+        }
+    }
+}
+
+function openTeacherModal(id = null) {
+    const modal = document.getElementById('teacherModal');
+    if (!modal) return;
+    const title = document.getElementById('teacherModalTitle');
+
+    // Populate Class Teacher Assignment dropdown
+    const activeClasses = (adminState.classes || []).filter(c => c.status !== 'inactive');
+    populateSelect('tm-classTeacherClass', activeClasses, 'id', 'name', 'None (Subject Teacher only)');
+
+    document.getElementById('tm-name').value  = '';
+    document.getElementById('tm-email').value = '';
+    document.getElementById('tm-phone').value = '';
     document.getElementById('tm-id').value = '';
     document.getElementById('tm-role').value = 'Teacher';
     document.getElementById('tm-status').value = 'active';
+    document.getElementById('tm-classTeacherClass').value = '';
+    currentEditingTeacherSignature = null;
+    renderAdminTeacherSignaturePreview(null);
 
     renderCheckboxes('tm-classes-checkboxes',  adminState.classes,  'id', 'name');
     renderCheckboxes('tm-subjects-checkboxes', adminState.subjects, 'id', 'name');
@@ -1184,6 +1246,19 @@ function openTeacherModal(id = null) {
             document.getElementById('tm-phone').value = t.phone || '';
             document.getElementById('tm-role').value  = t.role || 'Teacher';
             document.getElementById('tm-status').value = t.status || 'active';
+            
+            // Resolve assigned primary class (Class Teacher Of)
+            const assignedClass = adminState.classes.find(c => String(c.classTeacherId) === String(t.id)) ||
+                                  adminState.classes.find(c => String(c.id) === String(t.classTeacherOf) || String(c.name) === String(t.classTeacherOf));
+            if (assignedClass) {
+                document.getElementById('tm-classTeacherClass').value = assignedClass.id;
+            } else if (t.classTeacherOf) {
+                document.getElementById('tm-classTeacherClass').value = t.classTeacherOf;
+            }
+
+            currentEditingTeacherSignature = t.signature || t.teacherSignature || localStorage.getItem('teacherSignature_' + t.id) || null;
+            renderAdminTeacherSignaturePreview(currentEditingTeacherSignature);
+
             if (pwSection) pwSection.style.display = 'block';
             if (pwLabel) pwLabel.textContent = 'New Password (leave blank to keep current)';
             renderCheckboxes('tm-classes-checkboxes',  adminState.classes,  'id', 'name', t.assignedClasses  || []);
@@ -1195,6 +1270,7 @@ function openTeacherModal(id = null) {
         if (pwLabel) pwLabel.textContent = 'Password *';
     }
 
+    onTeacherRoleChange();
     modal.style.display = 'flex';
 }
 
@@ -1206,7 +1282,8 @@ async function saveTeacher() {
     const role     = document.getElementById('tm-role')?.value || 'Teacher';
     const password = document.getElementById('tm-password')?.value || '';
     const status   = document.getElementById('tm-status')?.value || 'active';
-    const assignedClasses  = getCheckedValues('tm-classes-checkboxes');
+    const primaryClassId = document.getElementById('tm-classTeacherClass')?.value || '';
+    let assignedClasses  = getCheckedValues('tm-classes-checkboxes');
     const assignedSubjects = getCheckedValues('tm-subjects-checkboxes');
 
     if (!name || !email) { showToast('Name and email are required.', 'error'); return; }
@@ -1217,7 +1294,29 @@ async function saveTeacher() {
 
     if (!effectiveId && !password) { showToast('A password is required so the teacher can sign in.', 'error'); return; }
 
-    const teacherData = { name, email, phone, role, status, assignedClasses, assignedSubjects };
+    // If a primary class was selected as Class Teacher, make sure it is in assignedClasses
+    if (primaryClassId && !assignedClasses.includes(primaryClassId)) {
+        assignedClasses.push(primaryClassId);
+    }
+
+    const teacherData = {
+        name,
+        email,
+        phone,
+        role,
+        status,
+        classTeacherOf: primaryClassId,
+        assignedClasses,
+        assignedSubjects
+    };
+    if (currentEditingTeacherSignature) {
+        teacherData.signature = currentEditingTeacherSignature;
+    } else if (effectiveId) {
+        const existingT = adminState.teachers.find(t => String(t.id) === String(effectiveId));
+        if (existingT?.signature && currentEditingTeacherSignature !== null) {
+            teacherData.signature = existingT.signature;
+        }
+    }
     if (password) teacherData.password = password;
 
     try {
@@ -1238,10 +1337,43 @@ async function saveTeacher() {
             showToast('Teacher profile updated!', 'success');
         }
 
+        if (teacherId && currentEditingTeacherSignature) {
+            localStorage.setItem('teacherSignature_' + teacherId, currentEditingTeacherSignature);
+        }
+
+        // ── Assign as Class Teacher to the selected class (or remove from old if changed) ──
         if (teacherId) {
-            adminState.classes.forEach(c => {
-                if (String(c.classTeacherId) === String(teacherId)) c.classTeacherName = name;
-            });
+            // First, if primaryClassId is assigned:
+            if (primaryClassId) {
+                adminState.classes.forEach(c => {
+                    if (String(c.id) === String(primaryClassId) || String(c.name) === String(primaryClassId)) {
+                        c.classTeacherId = teacherId;
+                        c.classTeacherName = name;
+                        if (!Array.isArray(c.assignedTeacherIds)) c.assignedTeacherIds = [];
+                        if (!c.assignedTeacherIds.includes(teacherId)) c.assignedTeacherIds.push(teacherId);
+                    } else if (String(c.classTeacherId) === String(teacherId)) {
+                        // Unassign from previous primary class if they moved to a different one
+                        c.classTeacherId = '';
+                        c.classTeacherName = '';
+                    }
+                });
+            } else {
+                // If role is Class Teacher and checked classes exist, assign first checked class if not already assigned
+                if (role === 'Class Teacher' && assignedClasses.length > 0) {
+                    const firstClass = adminState.classes.find(c => assignedClasses.includes(c.id) || assignedClasses.includes(c.name));
+                    if (firstClass && (!firstClass.classTeacherId || String(firstClass.classTeacherId) === String(teacherId))) {
+                        firstClass.classTeacherId = teacherId;
+                        firstClass.classTeacherName = name;
+                        teacherData.classTeacherOf = firstClass.id;
+                        if (!Array.isArray(firstClass.assignedTeacherIds)) firstClass.assignedTeacherIds = [];
+                        if (!firstClass.assignedTeacherIds.includes(teacherId)) firstClass.assignedTeacherIds.push(teacherId);
+                    }
+                }
+                // Keep updated name for all classes already assigned to this teacher
+                adminState.classes.forEach(c => {
+                    if (String(c.classTeacherId) === String(teacherId)) c.classTeacherName = name;
+                });
+            }
             localStorage.setItem('classes', JSON.stringify(adminState.classes));
         }
 
@@ -1278,13 +1410,24 @@ async function saveTeacher() {
             if (typeof syncSaveCollection === 'function') {
                 await syncSaveCollection('teachers', adminState.teachers);
             }
-            for (const c of adminState.classes.filter(c => String(c.classTeacherId) === String(teacherId))) {
-                try { await updateDocument('classes', c.id, { classTeacherName: name }); } catch (e) {}
+            for (const c of adminState.classes) {
+                if (String(c.classTeacherId) === String(teacherId) || primaryClassId === c.id) {
+                    try {
+                        await updateDocument('classes', c.id, {
+                            classTeacherId: c.classTeacherId || '',
+                            classTeacherName: c.classTeacherName || '',
+                            assignedTeacherIds: c.assignedTeacherIds || []
+                        });
+                    } catch (e) {}
+                }
+            }
+            if (typeof syncSaveCollection === 'function') {
+                await syncSaveCollection('classes', adminState.classes);
             }
             if (role === 'Headteacher' && status !== 'inactive') {
                 try { await saveSchoolSettings({ ...(adminState.settings || {}), headTeacher: name }); } catch (e) {}
             }
-            await logActivity(isNew ? 'Teacher Added' : 'Teacher Updated', `${isNew ? 'Added' : 'Updated'} teacher ${name}`, docId);
+            await logActivity(isNew ? 'Teacher Added' : 'Teacher Updated', `${isNew ? 'Added' : 'Updated'} teacher ${name}${primaryClassId ? ` (Class Teacher of ${primaryClassId})` : ''}`, docId);
         })().catch(e => console.warn('Background teacher save error:', e));
     } catch (e) {
         showToast(`Error: ${e.message}`, 'error');
@@ -1411,6 +1554,47 @@ async function confirmDeleteTeacher(id) {
 }
 
 // ─── CLASSES ─────────────────────────────────────────────────────────────────
+function getReadableGradingScaleName(c) {
+    if (!c) return 'Ghana Primary (Default)';
+    if (c.gradingScaleId) {
+        if (c.gradingScaleId === 'preset_jhs_bece') return 'BECE Stanine (1-9)';
+        if (c.gradingScaleId === 'preset_ghana_primary') return 'Ghana Primary (A-B)';
+        if (c.gradingScaleId === 'preset_standard_letter') return 'Standard Letter (A-F)';
+        const custom = (adminState.gradingScales || []).find(s => String(s.id) === String(c.gradingScaleId) || String(s.name || '').toLowerCase() === String(c.gradingScaleId).toLowerCase());
+        if (custom) return `${custom.name} (Custom)`;
+        return `Custom Scale (${c.gradingScaleId})`;
+    }
+    const level = c.level || (String(c.name || '').toLowerCase().includes('jhs') ? 'JHS' : 'Primary');
+    return level === 'JHS' ? 'BECE Scale (Dept Auto)' : 'Ghana Primary (Dept Auto)';
+}
+
+function populateClassGradingScaleDropdown(selectedVal = '') {
+    const gsEl = document.getElementById('cm-gradingScale');
+    if (!gsEl) return;
+
+    let html = `
+        <option value="">(Auto-detect by Department)</option>
+        <optgroup label="Standard Scale Presets">
+            <option value="preset_ghana_primary">Ghana Primary Scale (A, P, AP, D, B)</option>
+            <option value="preset_jhs_bece">JHS / BECE Stanine Scale (Grade 1 - 9)</option>
+            <option value="preset_standard_letter">Standard Letter Scale (A+, A, B, C, D, F)</option>
+        </optgroup>
+    `;
+
+    const customScales = (adminState.gradingScales || []).filter(s => s && s.id);
+    if (customScales.length > 0) {
+        html += `<optgroup label="Custom School Grading Schemes">`;
+        customScales.forEach(s => {
+            const deptText = s.department ? ` • Dept: ${s.department}` : '';
+            html += `<option value="${escHtml(s.id)}">${escHtml(s.name)}${deptText}</option>`;
+        });
+        html += `</optgroup>`;
+    }
+
+    gsEl.innerHTML = html;
+    gsEl.value = selectedVal || '';
+}
+
 function renderClassesTable() {
     const tbody = document.getElementById('classesTableBody');
     if (!tbody) return;
@@ -1418,20 +1602,25 @@ function renderClassesTable() {
         const teacher  = adminState.teachers.find(t => t.id === c.classTeacherId);
         const students = adminState.students.filter(s => s.classId === c.id || s.class === c.name).length;
         const level    = c.level || (c.name.toLowerCase().includes('jhs') ? 'JHS' : 'Primary');
-        const scaleName= c.gradingScaleId ? (c.gradingScaleId.includes('bece') ? 'BECE Scale' : c.gradingScaleId.includes('letter') ? 'Standard Letter' : 'Ghana Primary') : (level === 'JHS' ? 'BECE Scale (Default)' : 'Ghana Primary (Default)');
+        const scaleName= getReadableGradingScaleName(c);
+        const isCustomAssigned = !!c.gradingScaleId;
 
         return `<tr>
             <td>${i + 1}</td>
             <td><strong>${escHtml(c.name)}</strong></td>
             <td><span class="status-pill ${level === 'JHS' ? 'published' : 'active'}">${escHtml(level)}</span></td>
-            <td>${escHtml(scaleName)}</td>
+            <td>
+                <span class="status-pill ${isCustomAssigned ? 'active' : 'inactive'}" style="font-size:12px;" title="${escHtml(scaleName)}">
+                    ${isCustomAssigned ? '<i class="fas fa-check-circle" style="margin-right:4px;"></i>' : ''}${escHtml(scaleName)}
+                </span>
+            </td>
             <td>${escHtml(teacher?.name || '—')}</td>
             <td>${students}</td>
             <td><span class="status-pill ${c.status || 'active'}">${c.status || 'active'}</span></td>
             <td>
                 <div class="action-btns">
-                    <button class="action-btn" onclick="openClassModal('${c.id}')"><i class="fas fa-edit"></i></button>
-                    <button class="action-btn delete" onclick="confirmDeleteClass('${c.id}')"><i class="fas fa-trash"></i></button>
+                    <button class="action-btn" onclick="openClassModal('${c.id}')" title="Edit Class"><i class="fas fa-edit"></i></button>
+                    <button class="action-btn delete" onclick="confirmDeleteClass('${c.id}')" title="Delete Class"><i class="fas fa-trash"></i></button>
                 </div>
             </td>
         </tr>`;
@@ -1446,8 +1635,6 @@ function openClassModal(id = null) {
     document.getElementById('cm-id').value   = '';
     document.getElementById('cm-name').value  = '';
     document.getElementById('cm-level').value = 'Primary';
-    const gsEl = document.getElementById('cm-gradingScale');
-    if (gsEl) gsEl.value = '';
     document.getElementById('cm-status').value = 'active';
     populateSelect('cm-classTeacher', adminState.teachers.filter(t => t.status !== 'deleted' && !t.isDeleted), 'id', 'name', 'None');
 
@@ -1460,7 +1647,7 @@ function openClassModal(id = null) {
             document.getElementById('cm-id').value            = c.id;
             document.getElementById('cm-name').value          = c.name || '';
             document.getElementById('cm-level').value         = c.level || 'Primary';
-            if (gsEl) gsEl.value                               = c.gradingScaleId || '';
+            populateClassGradingScaleDropdown(c.gradingScaleId || '');
             document.getElementById('cm-classTeacher').value  = c.classTeacherId || '';
             document.getElementById('cm-status').value        = c.status || 'active';
 
@@ -1473,6 +1660,7 @@ function openClassModal(id = null) {
         }
     } else {
         document.getElementById('classModalTitle').innerHTML = '<i class="fas fa-school"></i> Add Class';
+        populateClassGradingScaleDropdown('');
         renderCheckboxes('cm-teachers-checkboxes', teachersList, 'id', 'name', []);
     }
     modal.style.display = 'flex';
@@ -1872,7 +2060,7 @@ async function confirmDeleteYear(id) {
     });
 }
 
-// ─── GRADING SYSTEM (MULTIPLE ACTIVE BY DEPARTMENT) ───────────────────────────
+// ─── GRADING SYSTEM (MULTIPLE ACTIVE BY DEPARTMENT & CUSTOM CLASS ASSIGNMENT) ─────
 function renderGradingScales() {
     const container = document.getElementById('gradingScalesContainer');
     if (!container) return;
@@ -1885,24 +2073,47 @@ function renderGradingScales() {
     container.innerHTML = adminState.gradingScales.map(scale => {
         const dept = scale.department || 'All';
         const isActive = scale.isActive !== false;
+        const assignedClasses = (adminState.classes || []).filter(c => 
+            String(c.gradingScaleId) === String(scale.id) || 
+            String(c.gradingScaleId) === String(scale.name)
+        );
+
         return `
         <div class="scale-card ${isActive ? 'active-scale' : ''}">
             <div class="scale-card-header">
                 <div>
                     <div class="scale-name" style="font-weight:700;font-size:15px;">${escHtml(scale.name)}</div>
-                    <div style="margin-top:4px;display:flex;gap:6px;align-items:center;">
+                    <div style="margin-top:4px;display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
                         <span class="status-pill published" style="font-size:11px;">Department: ${escHtml(dept)}</span>
                         ${isActive ? '<span class="scale-active-badge">Active</span>' : '<span class="status-pill inactive" style="font-size:11px;">Inactive</span>'}
+                        ${assignedClasses.length > 0 ? `<span class="status-pill active" style="font-size:11px;"><i class="fas fa-school" style="margin-right:3px;"></i> ${assignedClasses.length} ${assignedClasses.length === 1 ? 'Class' : 'Classes'} Assigned</span>` : ''}
                     </div>
                 </div>
-                <div style="display:flex;gap:8px;align-items:center;">
+                <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                    <button class="btn-admin btn-ghost btn-sm" onclick="openAssignClassesToScaleModal('${scale.id}')" title="Assign directly to classes">
+                        <i class="fas fa-link"></i> Assign Classes
+                    </button>
                     ${isActive 
                         ? `<button class="btn-admin btn-ghost btn-sm" onclick="toggleActiveGradingScale('${scale.id}')">Deactivate</button>` 
                         : `<button class="btn-admin btn-primary btn-sm" onclick="toggleActiveGradingScale('${scale.id}')">Set Active</button>`}
-                    <button class="action-btn" onclick="openGradingScaleModal('${scale.id}')"><i class="fas fa-edit"></i></button>
-                    <button class="action-btn delete" onclick="confirmDeleteGradingScale('${scale.id}')"><i class="fas fa-trash"></i></button>
+                    <button class="action-btn" onclick="openGradingScaleModal('${scale.id}')" title="Edit Scale"><i class="fas fa-edit"></i></button>
+                    <button class="action-btn delete" onclick="confirmDeleteGradingScale('${scale.id}')" title="Delete Scale"><i class="fas fa-trash"></i></button>
                 </div>
             </div>
+
+            <!-- Assigned Classes Row -->
+            <div style="margin-top:10px;padding:8px 12px;background:var(--bg-secondary,#f8fafc);border-radius:6px;font-size:12px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;border:1px solid var(--border,#e2e8f0);">
+                <div style="display:flex;align-items:center;flex-wrap:wrap;gap:6px;">
+                    <span style="font-weight:600;color:var(--text-primary,#1e293b);"><i class="fas fa-layer-group" style="color:var(--primary,#4f46e5);margin-right:4px;"></i> Custom Assigned Classes:</span>
+                    ${assignedClasses.length > 0 
+                        ? assignedClasses.map(c => `<span class="status-pill active" style="font-size:11px;padding:2px 8px;">${escHtml(c.name)}</span>`).join('') 
+                        : '<span style="color:var(--text-secondary,#94a3b8);font-style:italic;">None (Uses department default)</span>'}
+                </div>
+                <button class="btn-admin btn-ghost btn-sm" style="font-size:11px;padding:2px 8px;" onclick="openAssignClassesToScaleModal('${scale.id}')">
+                    <i class="fas fa-plus"></i> / <i class="fas fa-minus"></i> Change
+                </button>
+            </div>
+
             <table class="scale-table" style="margin-top:10px;">
                 <thead><tr><th>Min</th><th>Max</th><th>Grade</th><th>Remark</th><th>Description</th></tr></thead>
                 <tbody>
@@ -1935,6 +2146,8 @@ function openGradingScaleModal(id = null) {
     ];
 
     let rows = defaultRows;
+    let assignedClassIds = [];
+
     if (id) {
         const scale = adminState.gradingScales.find(s => String(s.id) === String(id));
         if (scale) {
@@ -1943,10 +2156,19 @@ function openGradingScaleModal(id = null) {
             if (deptEl) deptEl.value = scale.department || 'Primary';
             document.getElementById('gs-isActive').checked = scale.isActive !== false;
             rows = scale.items || scale.ranges || defaultRows;
+
+            assignedClassIds = (adminState.classes || [])
+                .filter(c => String(c.gradingScaleId) === String(scale.id) || String(c.gradingScaleId) === String(scale.name))
+                .map(c => c.id);
         }
     }
 
     renderGradeRows(rows);
+
+    // Populate Class Assignment Checkboxes in Grading Scale Modal
+    const activeClasses = (adminState.classes || []).filter(c => c.status !== 'inactive');
+    renderCheckboxes('gs-classes-checkboxes', activeClasses, 'id', 'name', assignedClassIds);
+
     document.getElementById('gradingScaleModal').style.display = 'flex';
 }
 
@@ -1976,6 +2198,18 @@ function applyGradingPreset(type) {
             { min:54, max:67,  grade:'AP', remark:'APPROACHING PROFICIENCY', description:'Developing required skills' },
             { min:40, max:53,  grade:'D',  remark:'DEVELOPING', description:'Basic comprehension' },
             { min:0,  max:39,  grade:'B',  remark:'BEGINNER', description:'Needs focused assistance' }
+        ]);
+    } else if (type === 'letter') {
+        document.getElementById('gs-name').value = 'Standard Letter Grade System (A-F)';
+        const deptEl = document.getElementById('gs-department');
+        if (deptEl) deptEl.value = 'All';
+        renderGradeRows([
+            { min:90, max:100, grade:'A+', remark:'EXCELLENT', description:'Outstanding mastery' },
+            { min:80, max:89,  grade:'A',  remark:'VERY GOOD',  description:'High level of achievement' },
+            { min:70, max:79,  grade:'B',  remark:'GOOD',       description:'Competent performance' },
+            { min:60, max:69,  grade:'C',  remark:'CREDIT',     description:'Satisfactory understanding' },
+            { min:50, max:59,  grade:'D',  remark:'PASS',       description:'Minimum passing standard' },
+            { min:0,  max:49,  grade:'F',  remark:'FAIL',       description:'Needs substantial improvement' }
         ]);
     }
 }
@@ -2042,10 +2276,32 @@ async function saveGradingScale() {
         adminState.gradingScales.push({ id: scaleId, ...data });
     }
 
+    // Process Custom Class Assignments
+    const checkedClassIds = getCheckedValues('gs-classes-checkboxes');
+    let classesUpdated = false;
+
+    (adminState.classes || []).forEach(c => {
+        const isChecked = checkedClassIds.includes(String(c.id));
+        const wasAssigned = String(c.gradingScaleId) === String(scaleId) || (id && String(c.gradingScaleId) === String(id));
+
+        if (isChecked && c.gradingScaleId !== scaleId) {
+            c.gradingScaleId = scaleId;
+            classesUpdated = true;
+        } else if (!isChecked && wasAssigned) {
+            c.gradingScaleId = '';
+            classesUpdated = true;
+        }
+    });
+
+    if (classesUpdated) {
+        localStorage.setItem('classes', JSON.stringify(adminState.classes));
+        renderClassesTable();
+    }
+
     localStorage.setItem('gradingScales', JSON.stringify(adminState.gradingScales));
     closeModal('gradingScaleModal');
     renderGradingScales();
-    showToast('Grading scale saved!', 'success');
+    showToast('Grading scale saved successfully!', 'success');
 
     // Background sync
     (async () => {
@@ -2056,9 +2312,75 @@ async function saveGradingScale() {
         }
         if (typeof syncSaveCollection === 'function') {
             try { await syncSaveCollection('gradingScales', adminState.gradingScales); } catch (e) {}
+            if (classesUpdated) {
+                try { await syncSaveCollection('classes', adminState.classes); } catch (e) {}
+            }
         }
         await logActivity(isNew ? 'Grading Scale Created' : 'Grading Scale Updated', `Saved grading scale ${name} for ${department}`, scaleId);
     })().catch(e => console.warn('Background grading save error:', e));
+}
+
+// Open Quick Modal to Assign Classes to a Grading Scheme
+function openAssignClassesToScaleModal(scaleId) {
+    const scale = (adminState.gradingScales || []).find(s => String(s.id) === String(scaleId));
+    if (!scale) return;
+
+    const modal = document.getElementById('assignScaleClassesModal');
+    if (!modal) return;
+
+    document.getElementById('asc-scaleId').value = scaleId;
+    document.getElementById('assignScaleModalTitle').innerHTML = `<i class="fas fa-link"></i> Assign "${escHtml(scale.name)}" to Classes`;
+    document.getElementById('assignScaleDescription').textContent = `Select which classes should strictly use the "${scale.name}" grading scheme:`;
+
+    const assignedClassIds = (adminState.classes || [])
+        .filter(c => String(c.gradingScaleId) === String(scaleId) || String(c.gradingScaleId) === String(scale.name))
+        .map(c => c.id);
+
+    const activeClasses = (adminState.classes || []).filter(c => c.status !== 'inactive');
+    renderCheckboxes('asc-classes-checkboxes', activeClasses, 'id', 'name', assignedClassIds);
+
+    modal.style.display = 'flex';
+}
+
+// Save Class Assignments from Quick Modal
+async function saveScaleClassAssignments() {
+    const scaleId = document.getElementById('asc-scaleId')?.value;
+    if (!scaleId) return;
+
+    const scale = (adminState.gradingScales || []).find(s => String(s.id) === String(scaleId));
+    const scaleName = scale ? scale.name : scaleId;
+    const checkedClassIds = getCheckedValues('asc-classes-checkboxes');
+
+    let classesUpdated = false;
+    (adminState.classes || []).forEach(c => {
+        const isChecked = checkedClassIds.includes(String(c.id));
+        const wasAssigned = String(c.gradingScaleId) === String(scaleId);
+
+        if (isChecked && c.gradingScaleId !== scaleId) {
+            c.gradingScaleId = scaleId;
+            classesUpdated = true;
+        } else if (!isChecked && wasAssigned) {
+            c.gradingScaleId = '';
+            classesUpdated = true;
+        }
+    });
+
+    if (classesUpdated) {
+        localStorage.setItem('classes', JSON.stringify(adminState.classes));
+        renderClassesTable();
+    }
+
+    closeModal('assignScaleClassesModal');
+    renderGradingScales();
+    showToast(`Assigned "${scaleName}" to ${checkedClassIds.length} ${checkedClassIds.length === 1 ? 'class' : 'classes'}!`, 'success');
+
+    // Background sync
+    (async () => {
+        if (typeof syncSaveCollection === 'function') {
+            try { await syncSaveCollection('classes', adminState.classes); } catch (e) {}
+        }
+        await logActivity('Grading Scale Assigned', `Assigned scale ${scaleName} to ${checkedClassIds.length} classes`, scaleId);
+    })().catch(e => console.warn(e));
 }
 
 async function toggleActiveGradingScale(id) {
@@ -2211,8 +2533,18 @@ const JHS_SCALE = [
     { min:0,  max:39,  grade:'9', remark:'FAIL' }
 ];
 
-function getGradeForDept(score, isJHS, deptOrClassName = '') {
+function getGradeForDept(score, isJHS, deptOrClassName = '', classId = '') {
     const t = Math.max(0, Math.min(100, Number(score) || 0));
+
+    // 0. Check custom class scale override via getGradingScaleForClass
+    const classRef = classId || deptOrClassName;
+    if (classRef && typeof getGradingScaleForClass === 'function') {
+        const clsScale = getGradingScaleForClass(classRef);
+        if (clsScale && Array.isArray(clsScale) && clsScale.length > 0) {
+            return clsScale.find(g => t >= g.min && t <= g.max) || clsScale[clsScale.length - 1];
+        }
+    }
+
     let targetDept = 'Primary';
     if (isJHS) {
         targetDept = 'JHS';
