@@ -1,6 +1,6 @@
 {
   "name": "OneReal School Management & Report System",
-  "short_name": "OneReal SMS",
+  "short_name": "OneReal OR",
   "description": "Comprehensive School Management, Student Reports, Alumni Transcripts & Timetables with Offline Capability",
   "start_url": "/report.html",
   "display": "standalone",
@@ -8,6 +8,12 @@
   "theme_color": "#1e40af",
   "orientation": "any",
   "icons": [
+    {
+      "src": "/icon-or.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    },
     {
       "src": "/icon-192.png",
       "sizes": "192x192",
@@ -22,6 +28,13 @@
     }
   ],
   "shortcuts": [
+    {
+      "name": "Student & Parent Portal",
+      "short_name": "Student",
+      "description": "Check terminal academic reports and class schedules",
+      "url": "/student.html",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+    },
     {
       "name": "Teacher Portal",
       "short_name": "Teachers",

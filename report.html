@@ -4,6 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>Teacher Portal — OneReal Report Generator</title>
+    <link rel="icon" type="image/svg+xml" href="/icon-or.svg">
+    <link rel="apple-touch-icon" href="/icon-192.png">
     <link rel="manifest" href="/manifest.json">
     <meta name="theme-color" content="#2563eb">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -15,7 +17,9 @@
 
 <div id="teacherAuthOverlay" class="auth-overlay">
     <div class="auth-card">
-        <div class="auth-logo"><i class="fas fa-chalkboard-teacher"></i></div>
+        <div class="auth-logo" style="background:transparent;box-shadow:none;width:64px;height:64px;margin:0 auto 16px;">
+            <img src="/icon-or.svg" alt="OR" style="width:100%;height:100%;object-fit:contain;border-radius:16px;">
+        </div>
         <h1>Teacher Portal</h1>
         <p>Sign in with the account your administrator created for you</p>
         <label>Email</label>
@@ -31,7 +35,6 @@
             <i class="fas fa-sign-in-alt"></i> Sign In
         </button>
         <a class="auth-link" href="/excel.html"><i class="fas fa-file-excel"></i> Excel templates — no login</a>
-        <a class="auth-link" href="/admin.html"><i class="fas fa-user-shield"></i> Admin Dashboard</a>
     </div>
 </div>
 
@@ -39,7 +42,7 @@
     <div class="app-layout" id="appLayout">
         <aside class="sidebar" id="sidebar">
             <div class="sidebar-head">
-                <div class="brand-mark"><i class="fas fa-school"></i></div>
+                <div class="brand-mark" style="background:transparent;padding:0;display:flex;align-items:center;justify-content:center;overflow:hidden;"><img src="/icon-or.svg" alt="OR" style="width:34px;height:34px;border-radius:8px;object-fit:cover;"></div>
                 <div class="sidebar-head-text" style="flex:1;min-width:0;">
                     <strong id="schoolNameLabel">OneReal Teacher</strong>
                     <span id="termLabel">2025/2026 · Term 1</span>

@@ -13,6 +13,71 @@ const BACKUPS_DIR = path.join(__dirname, 'backups');
 
 // ─── DB helpers ──────────────────────────────────────────────────────────────
 
+function cleanJsonString(str) {
+    if (typeof str !== 'string') return str;
+    let out = '';
+    let inStr = false;
+    let escaped = false;
+    const len = str.length;
+    for (let i = 0; i < len; i++) {
+        const c = str[i];
+        const code = str.charCodeAt(i);
+        if (inStr) {
+            if (escaped) {
+                if (c === '"' || c === '\\' || c === '/' || c === 'b' || c === 'f' || c === 'n' || c === 'r' || c === 't') {
+                    out += c;
+                    escaped = false;
+                } else if (c === 'u' && /^[0-9a-fA-F]{4}/.test(str.slice(i + 1, i + 5))) {
+                    out += c;
+                    escaped = false;
+                } else {
+                    out += '\\' + c;
+                    escaped = false;
+                }
+            } else if (c === '\\') {
+                out += c;
+                escaped = true;
+            } else if (c === '"') {
+                out += c;
+                inStr = false;
+            } else if (code < 0x20) {
+                if (c === '\n') out += '\\n';
+                else if (c === '\r') out += '\\r';
+                else if (c === '\t') out += '\\t';
+                else if (c === '\b') out += '\\b';
+                else if (c === '\f') out += '\\f';
+                else out += '\\u' + code.toString(16).padStart(4, '0');
+            } else {
+                out += c;
+            }
+        } else {
+            if (c === '"') {
+                inStr = true;
+            }
+            out += c;
+        }
+    }
+    // Remove trailing commas in objects or arrays
+    out = out.replace(/,\s*([}\]])/g, (_, p1) => p1);
+    return out;
+}
+
+function safeJsonParse(str, fallback = null) {
+    if (str === null || str === undefined || str === '') return fallback;
+    if (typeof str !== 'string') return str;
+    try {
+        return JSON.parse(str);
+    } catch (err) {
+        try {
+            const cleaned = cleanJsonString(str);
+            return JSON.parse(cleaned);
+        } catch (repairErr) {
+            console.warn('safeJsonParse fallback used due to parse failure:', repairErr.message);
+            return fallback;
+        }
+    }
+}
+
 function ensureBackupsDir() {
     if (!fs.existsSync(BACKUPS_DIR)) fs.mkdirSync(BACKUPS_DIR, { recursive: true });
 }
@@ -57,14 +122,50 @@ function initDb() {
     ensureBackupsDir();
 }
 
+function tryRecoverFromSnapshot() {
+    try {
+        if (!fs.existsSync(BACKUPS_DIR)) return null;
+        const files = fs.readdirSync(BACKUPS_DIR)
+            .filter(f => f.endsWith('.json'))
+            .map(f => ({ name: f, time: fs.statSync(path.join(BACKUPS_DIR, f)).mtimeMs }))
+            .sort((a, b) => b.time - a.time);
+        for (const file of files) {
+            try {
+                const raw = fs.readFileSync(path.join(BACKUPS_DIR, file.name), 'utf8');
+                const parsed = safeJsonParse(raw, null);
+                if (parsed && typeof parsed === 'object' && (parsed.students || parsed.schoolInfo || parsed.results)) {
+                    return parsed;
+                }
+            } catch (e) {}
+        }
+    } catch (e) {}
+    return null;
+}
+
 function readDb() {
     try {
         initDb();
-        const data = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
+        const raw = fs.readFileSync(DB_FILE, 'utf8');
+        let data = safeJsonParse(raw, null);
+        if (!data || typeof data !== 'object') {
+            const recovered = tryRecoverFromSnapshot();
+            if (recovered) {
+                console.log('Database restored from latest valid backup snapshot after read error.');
+                data = recovered;
+                writeDb(data);
+            } else {
+                data = initBlankDb();
+            }
+        }
         seedNewCollections(data);
         return data;
     } catch (err) {
         console.error('Error reading database.json:', err);
+        const recovered = tryRecoverFromSnapshot();
+        if (recovered) {
+            seedNewCollections(recovered);
+            return recovered;
+        }
         return initBlankDb();
     }
 }
@@ -234,11 +335,19 @@ function seedNewCollections(db) {
 
 function writeDb(data) {
     try {
-        fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2), 'utf8');
+        const tmpFile = DB_FILE + '.tmp';
+        fs.writeFileSync(tmpFile, JSON.stringify(data, null, 2), 'utf8');
+        fs.renameSync(tmpFile, DB_FILE);
         return true;
     } catch (err) {
-        console.error('Error writing database.json:', err);
-        return false;
+        console.error('Error writing database.json with atomic rename:', err);
+        try {
+            fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2), 'utf8');
+            return true;
+        } catch (e2) {
+            console.error('Critical error writing database.json directly:', e2);
+            return false;
+        }
     }
 }
 
@@ -509,7 +618,7 @@ function listSnapshots() {
                 };
                 try {
                     const raw = fs.readFileSync(p, 'utf8');
-                    const parsed = JSON.parse(raw);
+                    const parsed = safeJsonParse(raw, {});
                     if (parsed._metadata) {
                         meta = { ...meta, ...parsed._metadata };
                     } else {
@@ -545,8 +654,16 @@ function readBody(req) {
         let body = '';
         req.on('data', chunk => { body += chunk; });
         req.on('end',  ()    => {
-            try { resolve(JSON.parse(body)); }
-            catch (e) { reject(new Error('Invalid JSON')); }
+            if (!body || body.trim() === '') {
+                resolve({});
+                return;
+            }
+            const parsed = safeJsonParse(body, null);
+            if (parsed !== null && typeof parsed === 'object') {
+                resolve(parsed);
+            } else {
+                reject(new Error('Invalid JSON'));
+            }
         });
         req.on('error', reject);
     });
@@ -1332,7 +1449,11 @@ const server = http.createServer(async (req, res) => {
                     return;
                 }
                 const raw = fs.readFileSync(filepath, 'utf8');
-                const parsed = JSON.parse(raw);
+                const parsed = safeJsonParse(raw, null);
+                if (!parsed || typeof parsed !== 'object') {
+                    sendJson(res, 400, { error: 'Invalid snapshot data format' });
+                    return;
+                }
                 const db = readDb();
                 const collections = ['students','teachers','classes','subjects','academicYears','terms','results','reports','gradingScales','schoolSettings','scores','schoolInfo','studentReportDetails','parentContacts','attendanceMarks','attendanceSettings','alumni','timetables','examTimetables','transcriptRequests'];
                 collections.forEach(col => {
@@ -1772,18 +1893,22 @@ const server = http.createServer(async (req, res) => {
 
         if ((pathname === '/api/export/timetable.xlsx' || pathname === '/api/export/timetable.csv') && method === 'GET') {
             const db = readDb();
-            const list = db.timetables || [];
+            let list = db.timetables || [];
+            const targetClass = parsedUrl.searchParams.get('class');
+            if (targetClass) {
+                list = list.filter(t => (t.class || '').toLowerCase() === targetClass.toLowerCase() || (t.classId || '').toLowerCase() === targetClass.toLowerCase());
+            }
             const rows = [];
             list.forEach(tt => {
                 ['Monday','Tuesday','Wednesday','Thursday','Friday'].forEach(day => {
                     ((tt.schedule || {})[day] || []).forEach(s => {
                         rows.push({
-                            Class: tt.class,
+                            Class: tt.class || '',
                             Day: day,
                             Period: s.period,
-                            Time: (tt.periods || []).find(p => p.period === s.period)?.time || '',
-                            Subject: s.subject,
-                            Teacher: s.teacher || '',
+                            Time: (tt.periods || []).find(p => Number(p.period) === Number(s.period))?.time || '',
+                            Subject: s.subject || '',
+                            Teacher: s.teacher || 'Unassigned',
                             Room: s.room || tt.room || ''
                         });
                     });
@@ -1791,24 +1916,43 @@ const server = http.createServer(async (req, res) => {
             });
             const headers = ['Class', 'Day', 'Period', 'Time', 'Subject', 'Teacher', 'Room'];
             const table = [headers, ...rows.map(r => headers.map(h => r[h] ?? ''))];
+            const fileName = targetClass ? `timetable_${targetClass.replace(/\s+/g, '_')}` : 'school_timetables';
             if (pathname.endsWith('.xlsx')) {
-                sendExcel(res, table, 'school_timetables.xlsx', 'Timetables');
+                sendExcel(res, table, `${fileName}.xlsx`, 'Timetables');
                 return;
             }
-            sendAttachment(res, rowsToCsv(rows, headers), 'school_timetables.csv', 'text/csv; charset=UTF-8');
+            sendAttachment(res, rowsToCsv(rows, headers), `${fileName}.csv`, 'text/csv; charset=UTF-8');
             return;
         }
 
         if ((pathname === '/api/export/exams.xlsx' || pathname === '/api/export/exams.csv') && method === 'GET') {
             const db = readDb();
-            const list = db.examTimetables || [];
-            const headers = ['examTitle', 'class', 'subject', 'examDate', 'startTime', 'endTime', 'hall', 'chiefInvigilator', 'assistantInvigilator', 'instructions', 'status'];
-            const table = [headers, ...list.map(e => headers.map(h => e[h] ?? ''))];
+            let list = db.examTimetables || [];
+            const targetClass = parsedUrl.searchParams.get('class');
+            if (targetClass) {
+                list = list.filter(e => (e.class || '').toLowerCase() === targetClass.toLowerCase());
+            }
+            const rows = list.map(e => ({
+                'Exam Title': e.title || e.examTitle || 'Exam Paper',
+                'Class': e.class || 'All Classes',
+                'Subject': e.subject || '',
+                'Exam Date': e.examDate || '',
+                'Term': e.term ? `Term ${e.term}` : 'Term 1',
+                'Start Time': e.startTime || '',
+                'End Time': e.endTime || '',
+                'Hall / Venue': e.hall || 'Main Hall',
+                'Chief Invigilator': e.chiefInvigilator || 'TBD',
+                'Assistant Invigilator': e.assistantInvigilator || '—',
+                'Status': e.status || 'Scheduled'
+            }));
+            const headers = ['Exam Title', 'Class', 'Subject', 'Exam Date', 'Term', 'Start Time', 'End Time', 'Hall / Venue', 'Chief Invigilator', 'Assistant Invigilator', 'Status'];
+            const table = [headers, ...rows.map(r => headers.map(h => r[h] ?? ''))];
+            const fileName = targetClass ? `exams_${targetClass.replace(/\s+/g, '_')}` : 'master_exam_schedules';
             if (pathname.endsWith('.xlsx')) {
-                sendExcel(res, table, 'exam_schedules.xlsx', 'Exams');
+                sendExcel(res, table, `${fileName}.xlsx`, 'Exam Schedules');
                 return;
             }
-            sendAttachment(res, rowsToCsv(list, headers), 'exam_schedules.csv', 'text/csv; charset=UTF-8');
+            sendAttachment(res, rowsToCsv(rows, headers), `${fileName}.csv`, 'text/csv; charset=UTF-8');
             return;
         }
 

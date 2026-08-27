@@ -3,6 +3,15 @@
 // Real-time, read-only performance viewer for students & parents
 // ════════════════════════════════════════════════════════════════════
 
+function safeLocalGet(key, fallback) {
+    try {
+        const val = localStorage.getItem(key);
+        return val ? JSON.parse(val) : fallback;
+    } catch (e) {
+        return fallback;
+    }
+}
+
 function togglePasswordVisibility(inputId, iconId) {
     const input = document.getElementById(inputId);
     const icon  = iconId ? document.getElementById(iconId) : null;
@@ -19,14 +28,47 @@ function togglePasswordVisibility(inputId, iconId) {
 let activeStudentData = null;
 let realtimeUnsubscribers = [];
 
+function getSystemSchoolName() {
+    const settings = safeLocalGet('schoolSettings', {});
+    const schoolInfo = safeLocalGet('schoolInfo', {});
+    return settings.schoolName || schoolInfo.schoolName || 'OneReal School';
+}
+
+function syncStudentPortalBranding(customSettings) {
+    const settings = customSettings || safeLocalGet('schoolSettings', {});
+    const schoolInfo = safeLocalGet('schoolInfo', {});
+    const schoolName = settings.schoolName || schoolInfo.schoolName || 'OneReal School';
+    const schoolLogo = settings.schoolLogo || schoolInfo.schoolLogo || null;
+
+    if (typeof applySystemTheme === 'function') {
+        applySystemTheme(settings);
+    }
+
+    const schoolNameEl = document.getElementById('studentSchoolName');
+    if (schoolNameEl) schoolNameEl.textContent = schoolName;
+
+    const authSchoolNameEl = document.getElementById('studentAuthSchoolName');
+    if (authSchoolNameEl) authSchoolNameEl.textContent = schoolName;
+
+    const logoContainer = document.getElementById('studentSchoolLogo');
+    if (logoContainer) {
+        if (schoolLogo) {
+            logoContainer.innerHTML = `<img src="${schoolLogo}" alt="${schoolName}" style="width:38px;height:38px;border-radius:8px;object-fit:cover;">`;
+        } else {
+            logoContainer.innerHTML = `<img src="/icon-or.svg" alt="OR Logo" style="width:38px;height:38px;border-radius:8px;object-fit:cover;">`;
+        }
+    }
+
+    document.title = `${schoolName} — Student Portal`;
+}
+
 document.addEventListener('DOMContentLoaded', async () => {
+    syncStudentPortalBranding();
     if (typeof fetchSchoolSettings === 'function') {
         try {
             const s = await fetchSchoolSettings();
-            if (typeof applySystemTheme === 'function') applySystemTheme(s);
+            syncStudentPortalBranding(s);
         } catch (e) {}
-    } else if (typeof applySystemTheme === 'function') {
-        applySystemTheme();
     }
     const savedId = sessionStorage.getItem('studentAuthId');
     if (savedId) {
@@ -37,17 +79,16 @@ document.addEventListener('DOMContentLoaded', async () => {
 });
 
 window.addEventListener('storage', (e) => {
-    if (e.key === 'schoolSettings') {
+    if (e.key === 'schoolSettings' || e.key === 'schoolInfo') {
         try {
-            const s = JSON.parse(e.newValue || '{}');
-            if (typeof applySystemTheme === 'function') applySystemTheme(s);
+            syncStudentPortalBranding();
             if (activeStudentData) renderStudentResults(activeStudentData);
         } catch (err) {}
     }
 });
 
 window.addEventListener('schoolSettingsUpdated', (e) => {
-    if (typeof applySystemTheme === 'function') applySystemTheme(e.detail);
+    syncStudentPortalBranding(e.detail);
     if (activeStudentData) renderStudentResults(activeStudentData);
 });
 
@@ -86,7 +127,7 @@ async function loadStudentDashboard(admissionNo) {
     }
 
     // 1. Search in local / cloud students
-    const localStudents = JSON.parse(localStorage.getItem('students') || '[]');
+    const localStudents = safeLocalGet('students', []);
     studentsList = localStudents;
 
     if (typeof isFirebaseActive !== 'undefined' && isFirebaseActive && typeof db !== 'undefined' && db) {
@@ -112,22 +153,29 @@ async function loadStudentDashboard(admissionNo) {
     activeStudentData = student;
 
     // Hide Overlay & Display Main Content
-    document.getElementById('studentAuthOverlay').style.display = 'none';
-    document.getElementById('studentMainContent').style.display = 'block';
+    const overlayEl = document.getElementById('studentAuthOverlay');
+    if (overlayEl) overlayEl.style.display = 'none';
+    const mainEl = document.getElementById('studentMainContent');
+    if (mainEl) mainEl.style.display = 'block';
 
-    // Populate Student Meta Info
-    document.getElementById('st-name').textContent  = student.name || '—';
-    document.getElementById('st-admNo').textContent = student.admissionNo || student.id || '—';
-    document.getElementById('st-class').textContent = student.class || '—';
+    // Populate Student Meta Info (if present in DOM)
+    const stNameEl = document.getElementById('st-name');
+    if (stNameEl) stNameEl.textContent = student.name || '—';
+    const stAdmNoEl = document.getElementById('st-admNo');
+    if (stAdmNoEl) stAdmNoEl.textContent = student.admissionNo || student.id || '—';
+    const stClassEl = document.getElementById('st-class');
+    if (stClassEl) stClassEl.textContent = student.class || '—';
 
-    const schoolInfo = JSON.parse(localStorage.getItem('schoolInfo') || '{}');
-    document.getElementById('st-term').textContent = `${schoolInfo.academicYear || '2024/2025'} — Term ${schoolInfo.term || '1'}`;
+    const schoolInfo = safeLocalGet('schoolInfo', {});
+    const stTermEl = document.getElementById('st-term');
+    if (stTermEl) stTermEl.textContent = `${schoolInfo.academicYear || '2024/2025'} — Term ${schoolInfo.term || '1'}`;
     if (typeof Attendance !== 'undefined') {
         Attendance.load();
         const attEl = document.getElementById('st-attendance');
         if (attEl) attEl.textContent = Attendance.label(student.id) || '—';
     }
-    document.getElementById('studentDisplayTag').textContent = `Welcome, ${student.name.split(' ')[0]}`;
+    const displayTagEl = document.getElementById('studentDisplayTag');
+    if (displayTagEl) displayTagEl.textContent = `Welcome, ${(student.name || 'Student').split(' ')[0]}`;
     const excelBtn = document.getElementById('studentExcelBtn');
     if (excelBtn) {
         const key = encodeURIComponent(student.admissionNo || student.id || '');
@@ -137,9 +185,8 @@ async function loadStudentDashboard(admissionNo) {
     }
 
     // Apply School Branding
-    const settings = JSON.parse(localStorage.getItem('schoolSettings') || '{}');
-    if (typeof applySystemTheme === 'function') applySystemTheme(settings);
-    if (settings.schoolName) document.getElementById('studentSchoolName').textContent = settings.schoolName;
+    const settings = safeLocalGet('schoolSettings', {});
+    syncStudentPortalBranding(settings);
 
     // Fetch Results for Student
     await renderStudentResults(student);
@@ -154,7 +201,7 @@ async function renderStudentResults(student) {
     if (!container) return;
 
     const rows = collectStudentResultRows(student);
-    const details = JSON.parse(localStorage.getItem('studentReportDetails') || '{}');
+    const details = safeLocalGet('studentReportDetails', {});
     const d = details[student.id] || details[String(student.id)] || {};
     const jhsKeywords = ['basic 7', 'basic 8', 'basic 9', 'jhs 1', 'jhs 2', 'jhs 3', 'jhs'];
     const className = String(student.class || '');
@@ -286,15 +333,27 @@ function setupStudentRealtimeListener(student) {
 
 function handleStudentLogout() {
     sessionStorage.removeItem('studentAuthId');
-    realtimeUnsubscribers.forEach(unsub => unsub());
-    realtimeUnsubscribers = [];
-    document.getElementById('studentMainContent').style.display = 'none';
-    document.getElementById('studentAuthOverlay').style.display = 'flex';
+    sessionStorage.removeItem('studentClass');
+    activeStudentData = null;
+    if (Array.isArray(realtimeUnsubscribers)) {
+        realtimeUnsubscribers.forEach(unsub => {
+            try { if (typeof unsub === 'function') unsub(); } catch (e) {}
+        });
+        realtimeUnsubscribers = [];
+    }
+    const errEl = document.getElementById('studentAuthError');
+    if (errEl) { errEl.style.display = 'none'; errEl.textContent = ''; }
+    const input = document.getElementById('studentLoginId');
+    if (input) input.value = '';
+    const main = document.getElementById('studentMainContent');
+    if (main) main.style.display = 'none';
+    const overlay = document.getElementById('studentAuthOverlay');
+    if (overlay) overlay.style.display = 'flex';
 }
 
 function collectStudentResultRows(student) {
-    const scores = JSON.parse(localStorage.getItem('scores') || '{}');
-    const results = JSON.parse(localStorage.getItem('results') || '[]');
+    const scores = safeLocalGet('scores', {});
+    const results = safeLocalGet('results', []);
     const rowsMap = new Map();
 
     // 1. Load from scores
@@ -351,12 +410,12 @@ function formatOrdinal(n) {
 
 function getStudentClassRank(student) {
     if (!student || !student.class) return null;
-    const allStudents = JSON.parse(localStorage.getItem('students') || '[]');
+    const allStudents = safeLocalGet('students', []);
     const classMates = allStudents.filter(s => (s.class || '') === student.class && !s.isDeleted && s.status !== 'deleted');
     if (!classMates.length) return null;
 
-    const allScores = JSON.parse(localStorage.getItem('scores') || '{}');
-    const allResults = JSON.parse(localStorage.getItem('results') || '[]');
+    const allScores = safeLocalGet('scores', {});
+    const allResults = safeLocalGet('results', []);
 
     const ranked = classMates.map(cm => {
         let total = 0, count = 0;
@@ -405,7 +464,7 @@ function buildUnifiedStudentReportHTML(student) {
     if (!student) return '';
     const settings = JSON.parse(localStorage.getItem('schoolSettings') || '{}');
     const schoolInfo = JSON.parse(localStorage.getItem('schoolInfo') || '{}');
-    const school = settings.schoolName || schoolInfo.schoolName || 'The Living Spring School';
+    const school = getSystemSchoolName();
     const details = JSON.parse(localStorage.getItem('studentReportDetails') || '{}');
     const d = details[student.id] || details[String(student.id)] || {};
 
@@ -628,14 +687,6 @@ function buildUnifiedStudentReportHTML(student) {
     </div>`;
 }
 
-function handleStudentLogout() {
-    sessionStorage.removeItem('studentAuthId');
-    sessionStorage.removeItem('studentClass');
-    activeStudentData = null;
-    document.getElementById('studentMainContent').style.display = 'none';
-    document.getElementById('studentAuthOverlay').style.display = 'flex';
-}
-
 let activeStudentTab = 'report';
 
 function switchStudentTab(tab) {
@@ -691,7 +742,8 @@ async function renderStudentTimetable(student) {
         const studentClass = student.class || '';
         const classSlots = timetables.filter(t => (t.class || '').toLowerCase() === studentClass.toLowerCase());
 
-        document.getElementById('studentTimetableSubtitle').textContent = `Official Weekly Schedule for ${studentClass} (Managed by Administration)`;
+        const ttSub = document.getElementById('studentTimetableSubtitle');
+        if (ttSub) ttSub.textContent = `Official Weekly Schedule for ${studentClass} (Managed by Administration)`;
 
         if (!classSlots.length) {
             container.innerHTML = `
@@ -785,7 +837,8 @@ async function renderStudentExams(student) {
         const studentClass = student.class || '';
         const classExams = allExams.filter(e => (e.class || '').toLowerCase() === studentClass.toLowerCase());
 
-        document.getElementById('studentExamsSubtitle').textContent = `Official Examinations Schedule for ${studentClass}`;
+        const exSub = document.getElementById('studentExamsSubtitle');
+        if (exSub) exSub.textContent = `Official Examinations Schedule for ${studentClass}`;
 
         if (!classExams.length) {
             container.innerHTML = `

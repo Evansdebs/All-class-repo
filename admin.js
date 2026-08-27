@@ -4,6 +4,18 @@
 
 'use strict';
 
+// Safe localStorage JSON parser to guard against malformed data
+function safeLocalGet(key, fallback = null) {
+    try {
+        const raw = localStorage.getItem(key);
+        if (!raw) return fallback;
+        return JSON.parse(raw);
+    } catch (e) {
+        console.warn(`[LocalStore] Failed parsing key "${key}":`, e.message);
+        return fallback;
+    }
+}
+
 // ─── State ──────────────────────────────────────────────────────────────────
 let adminState = {
     students:      [],
@@ -357,6 +369,14 @@ async function initAdminApp() {
             if (name === 'results')   { adminState.results   = data; renderResultsTable(); updateNavBadges(); }
             if (name === 'auditLogs') { adminState.auditLogs = data; renderAuditLogs(); }
         });
+    }
+
+    // Support URL hash routing (e.g. #timetables, #attendance)
+    if (window.location.hash) {
+        const targetSection = window.location.hash.replace('#', '').trim();
+        if (targetSection && document.getElementById(`section-${targetSection}`)) {
+            switchSection(targetSection);
+        }
     }
 
     // Poll data in the background, but do not rebuild open form checkboxes
@@ -953,6 +973,14 @@ function populateAllDropdowns() {
     populateSelect('gr-year',    adminState.academicYears, 'id', 'name', 'Select Year');
     populateSelect('gr-term',    adminState.terms,         'id', 'name', 'Select Term');
     populateSelect('gr-student', adminState.students,      'id', 'name', 'Select Student');
+
+    // Timetables and Exams section dropdowns
+    if (typeof populateAdminTtClassDropdown === 'function') {
+        populateAdminTtClassDropdown();
+    }
+    if (typeof populateAdminTtTeacherDropdown === 'function') {
+        populateAdminTtTeacherDropdown();
+    }
 }
 
 function populateSelect(id, items, valField, labelField, defaultLabel = '') {
@@ -3843,6 +3871,10 @@ function viewReport(id) {
     const d = detailsBag[student.id] || detailsBag[String(student.id)] || {};
     const settings = adminState.settings || {};
     const schoolInf = getSchoolInfo();
+    const primaryColor = settings.primaryColor || '#4f46e5';
+    const secondaryColor = settings.secondaryColor || '#7e3af2';
+    const headerTextColor = settings.headerTextColor || '#ffffff';
+    const primaryDark = (typeof adjustColorBrightness === 'function') ? adjustColorBrightness(primaryColor, -15) : '#4338ca';
 
     const classRec = adminState.classes.find(c => String(c.id) === String(r.classId) || c.name === className);
     let classSubs = adminState.subjects;
@@ -3878,7 +3910,7 @@ function viewReport(id) {
                 <td style="padding:8px 10px;border:1px solid #cbd5e1;">${cs50}</td>
                 <td style="padding:8px 10px;border:1px solid #cbd5e1;">${es50}</td>
                 <td style="padding:8px 10px;border:1px solid #cbd5e1;"><strong>${tot}</strong></td>
-                <td style="padding:8px 10px;border:1px solid #cbd5e1;"><span style="display:inline-block;padding:2px 8px;border-radius:4px;font-weight:700;background:rgba(79,70,229,.1);color:#4338ca;">${gradeObj.grade}</span></td>
+                <td style="padding:8px 10px;border:1px solid #cbd5e1;"><span style="display:inline-block;padding:2px 8px;border-radius:4px;font-weight:700;background:${primaryColor}1a;color:${primaryDark};">${gradeObj.grade}</span></td>
                 <td style="padding:8px 10px;border:1px solid #cbd5e1;">${gradeObj.remark}</td>
             </tr>`;
         } else {
@@ -3894,6 +3926,15 @@ function viewReport(id) {
     const overallGrade = getGradeForDept(avg, isJHS);
     const logoSrc = settings.schoolLogo || schoolInf.schoolLogo || null;
     const isApproved = ['approved', 'published'].includes(String(r.status || '').toLowerCase());
+
+    const fieldToggles = settings.fieldToggles || {};
+    const showPosition = fieldToggles.showPosition !== false;
+    const showLogo = fieldToggles.showSchoolLogo !== false;
+    const showNextTerm = fieldToggles.showNextTerm !== false;
+
+    const logoEl = (showLogo && logoSrc)
+        ? `<img src="${logoSrc}" style="width:70px;height:70px;object-fit:contain;border-radius:8px;" alt="Logo" crossorigin="anonymous">`
+        : (showLogo ? `<div style="width:70px;height:70px;border:2px dashed #cbd5e1;border-radius:8px;display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:11px;text-align:center;">No Logo</div>` : '');
 
     // JHS Aggregate
     let jhsAggregateHTML = '';
@@ -3916,22 +3957,26 @@ function viewReport(id) {
         const bestTwo = electiveResults.slice(0, 2);
         const allAgg = [...coreResults, ...bestTwo];
         const totalAgg = allAgg.reduce((s, r) => s + r.grade, 0);
+        const aggSubjects = allAgg.map(r => `${r.sub}: Grade ${r.grade}`).join(' | ');
+        const coreLabel = useFallback ? 'Core' : `Core (${coreResults.length}/4)`;
         jhsAggregateHTML = `
-        <div style="background:#1e1b4b;color:#fff;padding:6px 12px;border-radius:8px;margin-bottom:10px;font-size:12.5px;">
-            <div style="font-weight:700;font-size:13px;margin-bottom:3px;">JHS TOTAL AGGREGATE</div>
-            <div style="font-size:20px;font-weight:800;letter-spacing:-1px;">${totalAgg}</div>
-            ${allAgg.length < 6 ? '<div style="font-size:10.5px;margin-top:3px;color:#fbbf24;">&#9888; Not all 6 aggregate subjects have scores</div>' : ''}
+        <div style="background:${primaryDark};color:#fff;padding:12px 16px;border-radius:8px;margin-bottom:16px;font-size:12.5px;">
+            <div style="font-weight:700;font-size:14px;margin-bottom:6px;">JHS TOTAL AGGREGATE</div>
+            <div style="font-size:22px;font-weight:800;letter-spacing:-1px;">${totalAgg}</div>
+            <div style="font-size:11px;margin-top:4px;opacity:0.85;">${aggSubjects}</div>
+            <div style="font-size:10.5px;margin-top:4px;opacity:0.65;">${coreLabel} + Best ${bestTwo.length} Elective(s)</div>
+            ${allAgg.length < 6 ? '<div style="font-size:11px;margin-top:4px;color:#fbbf24;">⚠ Not all 6 aggregate subjects have scores</div>' : ''}
         </div>`;
     }
 
-    const assignedTeacher = classRec?.classTeacherId ? adminState.teachers.find(t => String(t.id) === String(classRec.classTeacherId) && !t.isDeleted && t.status !== 'deleted') : null;
-    const ctName = assignedTeacher?.name || '';
+    const allTeachers = adminState.teachers || [];
+    const tMatch = allTeachers.find(t => t.class === className || (Array.isArray(t.classes) && t.classes.includes(className)) || (classRec?.classTeacherId && String(t.id) === String(classRec.classTeacherId)));
+    const teacherName = tMatch ? (tMatch.name || tMatch.fullName) : (d.classTeacher || '');
+    const teacherSig = localStorage.getItem('teacherSignature_' + className) || (tMatch && tMatch.signature) || null;
     const htTeacher = adminState.teachers.find(t => t.role === 'Headteacher' && t.status !== 'inactive' && !t.isDeleted);
-    const htName = htTeacher?.name || settings.headTeacher || schoolInf.headTeacher || '';
-    const htSignature = settings.signature || schoolInf.signature || null;
+    const htName = htTeacher?.name || settings.headTeacher || schoolInf.headTeacher || '—';
+    const htSignature = settings.headTeacherSignature || schoolInf.headTeacherSignature || localStorage.getItem('headTeacherSignature') || settings.signature || schoolInf.signature || null;
 
-    const fieldToggles = settings.fieldToggles || {};
-    const showPosition = fieldToggles.showPosition !== false;
     let posText = '—';
     if (showPosition) {
         const rankInfo = getAdminStudentClassRank(student.id, r.classId || student.classId || student.class);
@@ -3942,76 +3987,80 @@ function viewReport(id) {
     if (!modalBody) return;
 
     modalBody.innerHTML = `
-        <div id="printableReportCard" style="background:#fff;color:#1e293b;padding:28px;border-radius:12px;box-shadow:0 2px 10px rgba(0,0,0,.08);font-family:'Inter',sans-serif;">
-            <div style="display:flex;align-items:center;justify-content:space-between;border-bottom:2px solid #4f46e5;padding-bottom:14px;margin-bottom:18px;">
-                ${logoSrc ? `<img src="${logoSrc}" style="width:70px;height:70px;object-fit:contain;border-radius:8px;" alt="Logo">` : '<div style="width:70px;height:70px;border:2px dashed #cbd5e1;border-radius:8px;display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:11px;text-align:center;">No Logo</div>'}
+        <div id="printableReportCard" style="background:#fff;color:#1e293b;padding:28px;border-radius:12px;box-shadow:0 2px 10px rgba(0,0,0,.08);font-family:'Inter',sans-serif;max-width:800px;margin:0 auto;">
+            <div style="display:flex;align-items:center;justify-content:space-between;border-bottom:2px solid ${primaryColor};padding-bottom:14px;margin-bottom:18px;">
+                ${logoEl}
                 <div style="text-align:center;flex:1;padding:0 12px;">
-                    <h2 style="font-size:20px;font-weight:800;color:#1e1b4b;margin:0 0 4px 0;letter-spacing:-0.5px;">${escHtml(settings.schoolName || schoolInf.schoolName || 'ONEREAL SCHOOL')}</h2>
+                    <h2 style="font-size:20px;font-weight:800;color:#1e1b4b;margin:0 0 4px 0;letter-spacing:-0.5px;">${escHtml(settings.schoolName || schoolInf.schoolName || 'The Living Spring School')}</h2>
                     <p style="font-size:12px;color:#64748b;margin:0 0 2px 0;">${escHtml(settings.address || '')}</p>
-                    <p style="font-size:11.5px;color:#4f46e5;font-weight:600;margin:0 0 6px 0;"><em>&ldquo;${escHtml(settings.motto || 'Drink deep or taste not the spring of knowledge')}&rdquo;</em></p>
-                    <div style="display:inline-block;background:#4f46e5;color:#fff;font-size:12px;font-weight:700;padding:4px 14px;border-radius:20px;letter-spacing:0.5px;">
+                    <p style="font-size:11.5px;color:${primaryColor};font-weight:600;margin:0 0 6px 0;"><em>&ldquo;${escHtml(settings.motto || 'Drink deep or taste not the spring of knowledge')}&rdquo;</em></p>
+                    <div style="display:inline-block;background:${primaryColor};color:${headerTextColor};font-size:12px;font-weight:700;padding:4px 14px;border-radius:20px;letter-spacing:0.5px;">
                         END OF ${escHtml(String(tm).toUpperCase())} REPORT SHEET
                     </div>
                 </div>
-                ${logoSrc ? `<img src="${logoSrc}" style="width:70px;height:70px;object-fit:contain;border-radius:8px;" alt="Logo">` : '<div style="width:70px;height:70px;border:2px dashed #cbd5e1;border-radius:8px;display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:11px;text-align:center;">No Logo</div>'}
+                ${logoEl}
             </div>
 
-            <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(130px, 1fr));gap:10px;background:#f8fafc;padding:12px 16px;border-radius:8px;margin-bottom:16px;font-size:12.5px;border:1px solid #e2e8f0;">
-                <div><span style="color:#64748b;font-size:11px;display:block;font-weight:600;">NAME OF LEARNER</span><strong>${escHtml(student.name)}</strong></div>
-                <div><span style="color:#64748b;font-size:11px;display:block;font-weight:600;">CLASS</span><strong>${escHtml(className)}</strong></div>
-                ${showPosition ? `<div><span style="color:#64748b;font-size:11px;display:block;font-weight:600;">CLASS POSITION</span><strong style="color:#4338ca;">${escHtml(posText)}</strong></div>` : ''}
-                <div><span style="color:#64748b;font-size:11px;display:block;font-weight:600;">ACADEMIC YEAR</span><strong>${escHtml(yr)}</strong></div>
-                <div><span style="color:#64748b;font-size:11px;display:block;font-weight:600;">TERM</span><strong>${escHtml(tm)}</strong></div>
-                <div><span style="color:#64748b;font-size:11px;display:block;font-weight:600;">DATE OF VACATION</span><strong>${escHtml(settings.closingDate || schoolInf.closingDate || '—')}</strong></div>
-                <div><span style="color:#64748b;font-size:11px;display:block;font-weight:600;">RE-OPENING DATE</span><strong>${escHtml(settings.reopeningDate || schoolInf.reopeningDate || '—')}</strong></div>
+            <div class="report-meta-grid" style="display:grid;grid-template-columns:repeat(auto-fit, minmax(130px, 1fr));gap:8px;background:#f8fafc;padding:12px 14px;border-radius:8px;margin-bottom:14px;font-size:12px;border:1px solid #e2e8f0;">
+                <div><span style="color:#64748b;font-size:10.5px;display:block;font-weight:600;">NAME OF LEARNER</span><strong>${escHtml(student.name)}</strong></div>
+                <div><span style="color:#64748b;font-size:10.5px;display:block;font-weight:600;">CLASS</span><strong>${escHtml(className)}</strong></div>
+                ${showPosition ? `<div><span style="color:#64748b;font-size:10.5px;display:block;font-weight:600;">CLASS POSITION</span><strong style="color:${primaryDark};font-size:13.5px;">${escHtml(posText)}</strong></div>` : ''}
+                <div><span style="color:#64748b;font-size:10.5px;display:block;font-weight:600;">ACADEMIC YEAR</span><strong>${escHtml(yr)}</strong></div>
+                <div><span style="color:#64748b;font-size:10.5px;display:block;font-weight:600;">TERM</span><strong>${escHtml(tm)}</strong></div>
+                ${showNextTerm ? `
+                <div><span style="color:#64748b;font-size:10.5px;display:block;font-weight:600;">DATE OF VACATION</span><strong>${escHtml(settings.closingDate || schoolInf.closingDate || '—')}</strong></div>
+                <div><span style="color:#64748b;font-size:10.5px;display:block;font-weight:600;">RE-OPENING DATE</span><strong>${escHtml(settings.reopeningDate || schoolInf.reopeningDate || '—')}</strong></div>
+                ` : ''}
             </div>
 
-            <table style="width:100%;border-collapse:collapse;margin-bottom:16px;font-size:12px;text-align:center;">
-                <thead>
-                    <tr style="background:#4f46e5;color:#fff;">
-                        <th style="padding:8px 10px;text-align:left;border:1px solid #4338ca;">SUBJECT</th>
-                        <th style="padding:8px 10px;border:1px solid #4338ca;">CLASS 50%</th>
-                        <th style="padding:8px 10px;border:1px solid #4338ca;">EXAM 50%</th>
-                        <th style="padding:8px 10px;border:1px solid #4338ca;">TOTAL 100%</th>
-                        <th style="padding:8px 10px;border:1px solid #4338ca;">GRADE</th>
-                        <th style="padding:8px 10px;border:1px solid #4338ca;">REMARKS</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    ${rowsHtml || '<tr><td colspan="6" style="padding:16px;color:#94a3b8;">No subjects assigned</td></tr>'}
-                </tbody>
-            </table>
+            <div class="table-wrap" style="margin-bottom:14px;">
+                <table style="width:100%;min-width:440px;border-collapse:collapse;font-size:11.5px;text-align:center;">
+                    <thead>
+                        <tr style="background:${primaryColor};color:${headerTextColor};">
+                            <th style="padding:7px 8px;text-align:left;border:1px solid ${primaryDark};">SUBJECT</th>
+                            <th style="padding:7px 8px;border:1px solid ${primaryDark};">CLASS 50%</th>
+                            <th style="padding:7px 8px;border:1px solid ${primaryDark};">EXAM 50%</th>
+                            <th style="padding:7px 8px;border:1px solid ${primaryDark};">TOTAL 100%</th>
+                            <th style="padding:7px 8px;border:1px solid ${primaryDark};">GRADE</th>
+                            <th style="padding:7px 8px;border:1px solid ${primaryDark};">REMARKS</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${rowsHtml || '<tr><td colspan="6" style="padding:16px;color:#94a3b8;">No subjects assigned</td></tr>'}
+                    </tbody>
+                </table>
+            </div>
 
             ${jhsAggregateHTML}
 
-            <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(130px, 1fr));gap:10px;background:#eef2ff;padding:12px 16px;border-radius:8px;margin-bottom:16px;font-size:12.5px;border:1px solid #c7d2fe;">
-                <div><span style="color:#4338ca;font-size:11px;display:block;font-weight:600;">AVERAGE SCORE</span><strong style="font-size:15px;color:#1e1b4b;">${scoredCount ? avg.toFixed(1) + '%' : '—'}</strong></div>
-                <div><span style="color:#4338ca;font-size:11px;display:block;font-weight:600;">OVERALL AVERAGE GRADE</span><strong style="font-size:15px;color:#1e1b4b;">${scoredCount ? overallGrade.grade + ' (' + overallGrade.remark + ')' : '—'}</strong></div>
-                ${showPosition ? `<div><span style="color:#4338ca;font-size:11px;display:block;font-weight:600;">CLASS POSITION</span><strong style="font-size:15px;color:#1e1b4b;">${escHtml(posText)}</strong></div>` : ''}
-                <div><span style="color:#4338ca;font-size:11px;display:block;font-weight:600;">RECORDED SUBJECTS</span><strong style="font-size:15px;color:#1e1b4b;">${scoredCount} / ${classSubs.length}</strong></div>
+            <div class="report-perf-grid" style="display:grid;grid-template-columns:repeat(auto-fit, minmax(130px, 1fr));gap:8px;background:#eef2ff;padding:12px 14px;border-radius:8px;margin-bottom:14px;font-size:12px;border:1px solid #c7d2fe;">
+                <div><span style="color:${primaryDark};font-size:10.5px;display:block;font-weight:600;">AVERAGE SCORE</span><strong style="font-size:14px;color:#1e1b4b;">${scoredCount ? avg.toFixed(1) + '%' : '—'}</strong></div>
+                <div><span style="color:${primaryDark};font-size:10.5px;display:block;font-weight:600;">OVERALL AVERAGE GRADE</span><strong style="font-size:14px;color:#1e1b4b;">${scoredCount ? overallGrade.grade + ' (' + overallGrade.remark + ')' : '—'}</strong></div>
+                ${showPosition ? `<div><span style="color:${primaryDark};font-size:10.5px;display:block;font-weight:600;">CLASS POSITION</span><strong style="font-size:14px;color:#1e1b4b;">${escHtml(posText)}</strong></div>` : ''}
+                <div><span style="color:${primaryDark};font-size:10.5px;display:block;font-weight:600;">RECORDED SUBJECTS</span><strong style="font-size:14px;color:#1e1b4b;">${scoredCount} / ${classSubs.length}</strong></div>
             </div>
 
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;font-size:12.5px;">
-                <div style="background:#f8fafc;padding:10px 14px;border-radius:8px;border:1px solid #e2e8f0;">
+            <div class="report-conduct-grid" style="display:grid;grid-template-columns:repeat(auto-fit, minmax(200px, 1fr));gap:10px;margin-bottom:14px;font-size:12px;">
+                <div style="background:#f8fafc;padding:10px 12px;border-radius:8px;border:1px solid #e2e8f0;">
                     <div style="margin-bottom:6px;"><span style="color:#64748b;font-weight:600;">Attendance:</span> ${escHtml(d.attendance || '—')}</div>
                     <div style="margin-bottom:6px;"><span style="color:#64748b;font-weight:600;">Conduct:</span> ${escHtml(d.conduct || '—')}</div>
                     <div><span style="color:#64748b;font-weight:600;">Interest:</span> ${escHtml(d.interest || '—')}</div>
                 </div>
-                <div style="background:#f8fafc;padding:10px 14px;border-radius:8px;border:1px solid #e2e8f0;">
+                <div style="background:#f8fafc;padding:10px 12px;border-radius:8px;border:1px solid #e2e8f0;">
                     <div style="margin-bottom:6px;"><span style="color:#64748b;font-weight:600;">Promoted to / In:</span> ${escHtml(d.promotionTarget || (d.promotionStatus || '—'))}</div>
-                    <div><span style="color:#64748b;font-weight:600;">Teacher's Remarks:</span> <em>${escHtml(d.teacherRemarks || '—')}</em></div>
+                    <div><span style="color:#64748b;font-weight:600;">Teacher Remarks:</span> <em>${escHtml(d.teacherRemarks || '—')}</em></div>
                 </div>
             </div>
 
             <div style="display:flex;justify-content:space-between;padding-top:14px;border-top:1px dashed #cbd5e1;font-size:12px;color:#475569;gap:20px;">
                 <div style="flex:1;">
-                    <div><strong>Class Teacher:</strong> ${escHtml(ctName || '—')}</div>
-                    <div style="height:24px;margin-top:4px;"></div>
+                    <div><strong>Class Teacher:</strong> ${escHtml(teacherName || '—')}</div>
+                    ${teacherSig ? `<div style="height:28px;margin-top:2px;display:flex;align-items:flex-end;"><img src="${teacherSig}" style="max-height:26px;max-width:140px;object-fit:contain;" alt="Class Teacher Signature" crossorigin="anonymous"></div>` : '<div style="height:24px;margin-top:4px;"></div>'}
                     <div style="border-top:1px solid #94a3b8;padding-top:3px;font-size:10.5px;color:#94a3b8;">Signature</div>
                 </div>
                 <div style="flex:1;text-align:right;">
                     <div><strong>Headteacher:</strong> ${escHtml(htName || '—')}</div>
-                    ${htSignature ? `<div style="height:28px;margin-top:2px;display:flex;justify-content:flex-end;align-items:flex-end;"><img src="${htSignature}" style="max-height:26px;object-fit:contain;" alt="Signature"></div>` : '<div style="height:24px;margin-top:4px;"></div>'}
+                    ${htSignature ? `<div style="height:28px;margin-top:2px;display:flex;justify-content:flex-end;align-items:flex-end;"><img src="${htSignature}" style="max-height:26px;max-width:140px;object-fit:contain;" alt="Headteacher Signature" crossorigin="anonymous"></div>` : '<div style="height:24px;margin-top:4px;"></div>'}
                     <div style="border-top:1px solid #94a3b8;padding-top:3px;font-size:10.5px;color:#94a3b8;">Signature</div>
                 </div>
             </div>
@@ -4435,6 +4484,7 @@ async function saveAllSettings() {
         await saveSchoolSettings(settings);
         adminState.settings = settings;
         persistSchoolInfoPatch({
+            schoolName:    settings.schoolName,
             academicYear:  activeYear?.name || getSchoolInfo().academicYear || '',
             term:          activeTerm ? String(activeTerm.termNumber || '') : (getSchoolInfo().term || ''),
             closingDate:   settings.closingDate,
@@ -6109,13 +6159,21 @@ function populateAdminTtClassDropdown() {
     const examFilter = document.getElementById('adminExamClassFilter');
     const aemClass = document.getElementById('aem-class');
 
-    const classes = (adminState.classes || []).filter(c => !c.isDeleted && c.status !== 'inactive');
+    let classes = (adminState.classes || []).filter(c => !c.isDeleted && c.status !== 'inactive');
+    if (!classes.length) {
+        const localClasses = safeLocalGet('classes', []);
+        classes = (Array.isArray(localClasses) ? localClasses : []).filter(c => !c.isDeleted && c.status !== 'inactive');
+    }
     const classOptions = classes.map(c => `<option value="${escHtml(c.name || c.id)}">${escHtml(c.name || c.id)}</option>`).join('');
 
     if (classSelect) {
         const prev = classSelect.value;
         classSelect.innerHTML = classOptions || '<option value="">No classes configured</option>';
-        if (prev && classes.some(c => (c.name || c.id) === prev)) classSelect.value = prev;
+        if (prev && classes.some(c => (c.name || c.id) === prev)) {
+            classSelect.value = prev;
+        } else if (classes.length > 0) {
+            classSelect.value = classes[0].name || classes[0].id;
+        }
     }
 
     if (examFilter) {
@@ -6132,7 +6190,11 @@ function populateAdminTtClassDropdown() {
 function populateAdminTtTeacherDropdown() {
     const teacherSelect = document.getElementById('adminTtTeacherSelect');
     if (!teacherSelect) return;
-    const teachers = (adminState.teachers || []).filter(t => !t.isDeleted && t.status !== 'inactive');
+    let teachers = (adminState.teachers || []).filter(t => !t.isDeleted && t.status !== 'inactive');
+    if (!teachers.length) {
+        const localTeachers = safeLocalGet('teachers', []);
+        teachers = (Array.isArray(localTeachers) ? localTeachers : []).filter(t => !t.isDeleted && t.status !== 'inactive');
+    }
     teacherSelect.innerHTML = teachers.length
         ? teachers.map(t => `<option value="${escHtml(t.name)}">${escHtml(t.name)} (${escHtml(t.role || 'Teacher')})</option>`).join('')
         : '<option value="">No teachers registered</option>';
@@ -6157,14 +6219,18 @@ async function loadAdminClassTimetable() {
     if (!classSelect || !classSelect.value) {
         populateAdminTtClassDropdown();
     }
-    const cls = classSelect ? classSelect.value : '';
+    let cls = classSelect ? classSelect.value : '';
+    if (!cls && classSelect && classSelect.options && classSelect.options.length > 0 && classSelect.options[0].value) {
+        cls = classSelect.options[0].value;
+        classSelect.value = cls;
+    }
     currentAdminTtClass = cls;
 
     const classObj = (adminState.classes || []).find(c => (c.name || c.id) === cls);
     const teacherLabel = document.getElementById('adminTtClassTeacherLabel');
     if (teacherLabel) {
-        if (classObj && classObj.classTeacherName) {
-            teacherLabel.textContent = `· Class Teacher: ${classObj.classTeacherName}`;
+        if (classObj && (classObj.classTeacherName || classObj.teacher)) {
+            teacherLabel.textContent = `· Class Teacher: ${classObj.classTeacherName || classObj.teacher}`;
         } else {
             teacherLabel.textContent = '';
         }
@@ -6183,7 +6249,9 @@ async function loadAdminClassTimetable() {
             if (Array.isArray(list) && list.length > 0) {
                 currentAdminTtData = list[0];
             } else {
-                currentAdminTtData = {
+                const localList = safeLocalGet('timetables', []);
+                const localMatch = Array.isArray(localList) ? localList.find(t => (t.class || '').toLowerCase() === cls.toLowerCase()) : null;
+                currentAdminTtData = localMatch || {
                     id: 'tt-' + cls.toLowerCase().replace(/\s+/g, '-'),
                     class: cls,
                     classId: classObj?.id || cls,
@@ -6195,7 +6263,9 @@ async function loadAdminClassTimetable() {
             throw new Error('Server request failed');
         }
     } catch (e) {
-        currentAdminTtData = {
+        const localList = safeLocalGet('timetables', []);
+        const localMatch = Array.isArray(localList) ? localList.find(t => (t.class || '').toLowerCase() === cls.toLowerCase()) : null;
+        currentAdminTtData = localMatch || {
             id: 'tt-' + cls.toLowerCase().replace(/\s+/g, '-'),
             class: cls,
             classId: classObj?.id || cls,
@@ -6325,14 +6395,22 @@ function openAdminEditSlotModal(day, period) {
     if (targetInfo) targetInfo.textContent = `${day} · Period ${period}${timeLabel}`;
 
     // Fill subjects dropdown
-    const subjects = (adminState.subjects || []).filter(s => !s.isDeleted && s.status !== 'inactive');
+    let subjects = (adminState.subjects || []).filter(s => !s.isDeleted && s.status !== 'inactive');
+    if (!subjects.length) {
+        const localSub = safeLocalGet('subjects', []);
+        subjects = (Array.isArray(localSub) ? localSub : []).filter(s => !s.isDeleted && s.status !== 'inactive');
+    }
     if (subjectSelect) {
         subjectSelect.innerHTML = '<option value="">-- Select Subject --</option>' +
             subjects.map(s => `<option value="${escHtml(s.name || s.id)}">${escHtml(s.name || s.id)}</option>`).join('');
     }
 
     // Fill teachers dropdown
-    const teachers = (adminState.teachers || []).filter(t => !t.isDeleted && t.status !== 'inactive');
+    let teachers = (adminState.teachers || []).filter(t => !t.isDeleted && t.status !== 'inactive');
+    if (!teachers.length) {
+        const localTeach = safeLocalGet('teachers', []);
+        teachers = (Array.isArray(localTeach) ? localTeach : []).filter(t => !t.isDeleted && t.status !== 'inactive');
+    }
     if (teacherSelect) {
         teacherSelect.innerHTML = '<option value="">-- Select Teacher --</option>' +
             teachers.map(t => `<option value="${escHtml(t.name)}">${escHtml(t.name)} (${escHtml(t.role || 'Teacher')})</option>`).join('');
@@ -6380,7 +6458,7 @@ function saveAdminTimetableSlot() {
 
     closeModal('adminEditSlotModal');
     renderAdminTimetableGrid();
-    showToast(`Assigned ${subject} for ${day} Period ${period}. Click 'Save Timetable' when done.`, 'info');
+    showToast(`Assigned ${subject} for ${day} Period ${period}. Click 'Save Timetable' to persist.`, 'info');
 }
 
 function clearAdminTimetableSlot() {
@@ -6405,6 +6483,18 @@ async function saveAdminClassTimetable() {
     currentAdminTtData.class = cls;
     currentAdminTtData.updatedAt = new Date().toISOString();
 
+    // Cache locally
+    try {
+        const localList = safeLocalGet('timetables', []) || [];
+        const existingIdx = localList.findIndex(t => (t.class || '').toLowerCase() === cls.toLowerCase() || t.id === currentAdminTtData.id);
+        if (existingIdx >= 0) {
+            localList[existingIdx] = currentAdminTtData;
+        } else {
+            localList.push(currentAdminTtData);
+        }
+        localStorage.setItem('timetables', JSON.stringify(localList));
+    } catch (e) {}
+
     try {
         showToast('Saving class timetable to server...', 'info');
         const res = await fetch('/api/timetables', {
@@ -6420,12 +6510,12 @@ async function saveAdminClassTimetable() {
 
         const saved = await res.json();
         currentAdminTtData = saved;
-        showToast(`Official timetable for ${cls} saved & published! Teachers can now view & download it.`, 'success');
+        showToast(`Official timetable for ${cls} saved & published!`, 'success');
         if (typeof logActivity === 'function') {
             await logActivity('Timetable Published', `Admin published weekly timetable for ${cls}`, currentAdminTtData.id);
         }
     } catch (e) {
-        showToast(`Save error: ${e.message}`, 'error');
+        showToast(`Timetable saved locally: ${e.message}`, 'info');
     }
 }
 
@@ -6487,37 +6577,65 @@ function downloadAdminTimetablePDF() {
     const gridEl = document.getElementById('adminTtGridContainer');
     if (!gridEl || !gridEl.querySelector('table')) return showToast('No timetable to print/export.', 'warning');
 
-    const win = window.open('', '_blank', 'width=950,height=800');
-    win.document.write(`<!DOCTYPE html><html><head><title>${cls} Timetable</title>
+    const settings = adminState.settings || safeLocalGet('schoolSettings', {}) || {};
+    const schoolName = settings.schoolName || 'OneReal Academy';
+    const schoolMotto = settings.schoolMotto || 'Excellence in Education';
+    const schoolPhone = settings.schoolPhone || '';
+
+    const contentHtml = `<!DOCTYPE html><html><head><title>${cls} Timetable</title>
         <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
         <style>
-            body { margin: 24px; font-family: 'Inter', sans-serif; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+            body { margin: 24px; font-family: 'Inter', sans-serif; -webkit-print-color-adjust: exact; print-color-adjust: exact; color: #1e293b; }
             .header { text-align: center; margin-bottom: 20px; border-bottom: 2px solid #0f172a; padding-bottom: 12px; }
-            .header h1 { margin: 0 0 6px; font-size: 20px; color: #1e1b4b; text-transform: uppercase; }
-            .header p { margin: 0; font-size: 13px; color: #475569; font-weight: 600; }
-            table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+            .header h1 { margin: 0 0 4px; font-size: 22px; color: #1e1b4b; text-transform: uppercase; font-weight: 800; }
+            .header .motto { margin: 0 0 6px; font-size: 13px; color: #64748b; font-style: italic; }
+            .header .doc-title { margin: 0; font-size: 15px; color: #4f46e5; font-weight: 700; }
+            table { width: 100%; border-collapse: collapse; margin-top: 14px; }
             th, td { border: 1px solid #cbd5e1; padding: 10px 8px; text-align: center; font-size: 12px; }
-            th { background: #4f46e5; color: #ffffff; }
+            th { background: #4f46e5; color: #ffffff; font-weight: 700; }
             .tt-break-cell { background: #fef3c7; color: #92400e; font-weight: bold; }
+            .tt-subject-badge { font-weight: 700; color: #4338ca; }
+            .tt-teacher-name { font-size: 11px; color: #64748b; margin-top: 2px; }
+            .tt-room-name { font-size: 10.5px; color: #059669; margin-top: 2px; }
+            .tt-time-cell { background: #f8fafc; font-size: 11.5px; }
             @media print { body { margin: 0; } }
         </style>
     </head><body>
         <div class="header">
-            <h1>Official Weekly Master Timetable</h1>
-            <p>Class: ${cls} &nbsp;|&nbsp; Published by School Administration</p>
+            <h1>${escHtml(schoolName)}</h1>
+            <div class="motto">${escHtml(schoolMotto)}${schoolPhone ? ' · Tel: ' + escHtml(schoolPhone) : ''}</div>
+            <div class="doc-title">Official Weekly Class Timetable — ${escHtml(cls)}</div>
         </div>
         ${gridEl.innerHTML}
-        <div style="margin-top: 24px; display: flex; justify-content: space-between; font-size: 11px; color: #64748b; border-top: 1px dashed #cbd5e1; padding-top: 8px;">
+        <div style="margin-top: 28px; display: flex; justify-content: space-between; font-size: 11px; color: #64748b; border-top: 1px dashed #cbd5e1; padding-top: 10px;">
             <span>Official Record — School Administration</span>
-            <span>Printed: ${new Date().toLocaleDateString()}</span>
+            <span>Generated: ${new Date().toLocaleDateString(undefined, { weekday:'long', year:'numeric', month:'long', day:'numeric' })}</span>
         </div>
         <script>window.onload=function(){ window.print(); };<\/script>
-    </body></html>`);
-    win.document.close();
+    </body></html>`;
+
+    const win = window.open('', '_blank', 'width=950,height=800');
+    if (win) {
+        win.document.write(contentHtml);
+        win.document.close();
+    } else {
+        // Fallback for iframe restrictions
+        const frame = document.createElement('iframe');
+        frame.style.display = 'none';
+        document.body.appendChild(frame);
+        frame.contentDocument.write(contentHtml);
+        frame.contentDocument.close();
+        setTimeout(() => {
+            frame.contentWindow.focus();
+            frame.contentWindow.print();
+            setTimeout(() => frame.remove(), 1000);
+        }, 500);
+    }
 }
 
 function exportAdminTimetableExcel() {
-    window.location.href = `/api/export/timetable.xlsx?class=${encodeURIComponent(currentAdminTtClass || '')}`;
+    const cls = currentAdminTtClass || '';
+    window.location.href = `/api/export/timetable.xlsx?class=${encodeURIComponent(cls)}`;
 }
 
 function printAdminTimetable() {
@@ -6535,10 +6653,14 @@ async function renderAdminExamsTable() {
 
     try {
         const res = await fetch('/api/timetables/exams');
-        if (!res.ok) throw new Error('Failed to load exams');
-        adminExamsList = await res.json();
+        if (res.ok) {
+            adminExamsList = await res.json();
+            localStorage.setItem('examTimetables', JSON.stringify(adminExamsList));
+        } else {
+            throw new Error('Server returned error');
+        }
     } catch (e) {
-        adminExamsList = [];
+        adminExamsList = safeLocalGet('examTimetables', []) || [];
     }
 
     let filtered = adminExamsList;
@@ -6624,13 +6746,21 @@ function openAdminAddExamModal(examId) {
     // Populate dropdowns
     populateAdminTtClassDropdown();
 
-    const subjects = (adminState.subjects || []).filter(s => !s.isDeleted && s.status !== 'inactive');
+    let subjects = (adminState.subjects || []).filter(s => !s.isDeleted && s.status !== 'inactive');
+    if (!subjects.length) {
+        const localSub = safeLocalGet('subjects', []);
+        subjects = (Array.isArray(localSub) ? localSub : []).filter(s => !s.isDeleted && s.status !== 'inactive');
+    }
     if (subjectSelect) {
         subjectSelect.innerHTML = '<option value="">-- Select Subject --</option>' +
             subjects.map(s => `<option value="${escHtml(s.name || s.id)}">${escHtml(s.name || s.id)}</option>`).join('');
     }
 
-    const teachers = (adminState.teachers || []).filter(t => !t.isDeleted && t.status !== 'inactive');
+    let teachers = (adminState.teachers || []).filter(t => !t.isDeleted && t.status !== 'inactive');
+    if (!teachers.length) {
+        const localTeach = safeLocalGet('teachers', []);
+        teachers = (Array.isArray(localTeach) ? localTeach : []).filter(t => !t.isDeleted && t.status !== 'inactive');
+    }
     const teacherOpts = '<option value="">-- Select Staff --</option>' +
         teachers.map(t => `<option value="${escHtml(t.name)}">${escHtml(t.name)}</option>`).join('');
 
@@ -6726,6 +6856,17 @@ async function submitAdminExamForm() {
             throw new Error(err.error || 'Failed to save examination schedule');
         }
 
+        const savedItem = await res.json();
+        const localExams = safeLocalGet('examTimetables', []) || [];
+        if (id) {
+            const idx = localExams.findIndex(e => e.id === id);
+            if (idx >= 0) localExams[idx] = savedItem;
+            else localExams.push(savedItem);
+        } else {
+            localExams.push(savedItem);
+        }
+        localStorage.setItem('examTimetables', JSON.stringify(localExams));
+
         closeModal('adminExamModal');
         showToast(`Examination schedule for ${subject} (${cls}) saved!`, 'success');
         await renderAdminExamsTable();
@@ -6741,6 +6882,11 @@ async function deleteAdminExam(id) {
             method: 'DELETE'
         });
         if (!res.ok) throw new Error('Failed to delete examination paper');
+
+        const localExams = safeLocalGet('examTimetables', []) || [];
+        const updated = localExams.filter(e => e.id !== id);
+        localStorage.setItem('examTimetables', JSON.stringify(updated));
+
         showToast('Examination schedule deleted.', 'info');
         await renderAdminExamsTable();
     } catch (e) {
@@ -6752,35 +6898,57 @@ function downloadAdminExamsPDF() {
     const tableEl = document.getElementById('adminExamsTable');
     if (!tableEl || !adminExamsList.length) return showToast('No examination schedule found to export.', 'warning');
 
+    const settings = adminState.settings || safeLocalGet('schoolSettings', {}) || {};
+    const schoolName = settings.schoolName || 'OneReal Academy';
+    const schoolMotto = settings.schoolMotto || 'Excellence in Education';
+    const schoolPhone = settings.schoolPhone || '';
+
     const clone = tableEl.cloneNode(true);
     clone.querySelectorAll('th:last-child, td:last-child').forEach(el => el.remove());
 
-    const win = window.open('', '_blank', 'width=950,height=800');
-    win.document.write(`<!DOCTYPE html><html><head><title>Master Examination Schedule</title>
+    const contentHtml = `<!DOCTYPE html><html><head><title>Master Examination Schedule</title>
         <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
         <style>
-            body { margin: 24px; font-family: 'Inter', sans-serif; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+            body { margin: 24px; font-family: 'Inter', sans-serif; -webkit-print-color-adjust: exact; print-color-adjust: exact; color: #1e293b; }
             .header { text-align: center; margin-bottom: 20px; border-bottom: 2px solid #0f172a; padding-bottom: 12px; }
-            .header h1 { margin: 0 0 6px; font-size: 20px; color: #1e1b4b; text-transform: uppercase; }
-            .header p { margin: 0; font-size: 13px; color: #475569; font-weight: 600; }
-            table { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 12px; }
-            th, td { border: 1px solid #cbd5e1; padding: 8px 10px; text-align: left; }
-            th { background: #1e1b4b; color: #ffffff; }
+            .header h1 { margin: 0 0 4px; font-size: 22px; color: #1e1b4b; text-transform: uppercase; font-weight: 800; }
+            .header .motto { margin: 0 0 6px; font-size: 13px; color: #64748b; font-style: italic; }
+            .header .doc-title { margin: 0; font-size: 15px; color: #7c3aed; font-weight: 700; }
+            table { width: 100%; border-collapse: collapse; margin-top: 14px; font-size: 12px; }
+            th, td { border: 1px solid #cbd5e1; padding: 9px 10px; text-align: left; }
+            th { background: #1e1b4b; color: #ffffff; font-weight: 700; }
             @media print { body { margin: 0; } }
         </style>
     </head><body>
         <div class="header">
-            <h1>Master Examination Timetable</h1>
-            <p>Official Schedules &amp; Invigilation Notices — School Administration</p>
+            <h1>${escHtml(schoolName)}</h1>
+            <div class="motto">${escHtml(schoolMotto)}${schoolPhone ? ' · Tel: ' + escHtml(schoolPhone) : ''}</div>
+            <div class="doc-title">Official Master Examination Timetable &amp; Invigilation Duties</div>
         </div>
         ${clone.outerHTML}
-        <div style="margin-top: 24px; display: flex; justify-content: space-between; font-size: 11px; color: #64748b; border-top: 1px dashed #cbd5e1; padding-top: 8px;">
+        <div style="margin-top: 28px; display: flex; justify-content: space-between; font-size: 11px; color: #64748b; border-top: 1px dashed #cbd5e1; padding-top: 10px;">
             <span>Official Document — School Administration</span>
-            <span>Printed: ${new Date().toLocaleDateString()}</span>
+            <span>Generated: ${new Date().toLocaleDateString(undefined, { weekday:'long', year:'numeric', month:'long', day:'numeric' })}</span>
         </div>
         <script>window.onload=function(){ window.print(); };<\/script>
-    </body></html>`);
-    win.document.close();
+    </body></html>`;
+
+    const win = window.open('', '_blank', 'width=950,height=800');
+    if (win) {
+        win.document.write(contentHtml);
+        win.document.close();
+    } else {
+        const frame = document.createElement('iframe');
+        frame.style.display = 'none';
+        document.body.appendChild(frame);
+        frame.contentDocument.write(contentHtml);
+        frame.contentDocument.close();
+        setTimeout(() => {
+            frame.contentWindow.focus();
+            frame.contentWindow.print();
+            setTimeout(() => frame.remove(), 1000);
+        }, 500);
+    }
 }
 
 function exportAdminExamsExcel() {

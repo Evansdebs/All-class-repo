@@ -4,9 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>OneReal School Management — Student Portal</title>
+    <link rel="icon" type="image/svg+xml" href="/icon-or.svg">
+    <link rel="apple-touch-icon" href="/icon-192.png">
+    <link rel="manifest" href="/manifest.json">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="font-awesome.css">
-    <link rel="stylesheet" href="student.css?v=m1">
+    <link rel="stylesheet" href="student.css?v=m2">
 </head>
 <body class="student-portal-body">
 
@@ -14,10 +17,10 @@
     <div id="studentAuthOverlay" class="student-auth-overlay">
         <div class="student-auth-card">
             <div class="student-avatar-icon">
-                <i class="fas fa-user-graduate"></i>
+                <img src="/icon-or.svg" alt="OR Logo" style="width:100%;height:100%;object-fit:contain;border-radius:18px;">
             </div>
-            <h2>Student & Parent Portal</h2>
-            <p>Enter your Admission Number to view your academic report</p>
+            <h2 id="studentAuthSchoolName">OneReal School</h2>
+            <p>Student & Parent Performance Portal — Enter your Admission Number or Student ID to view your official report card.</p>
             <div class="form-group-student">
                 <label>Admission Number / Student ID *</label>
                 <input type="text" id="studentLoginId" placeholder="e.g. TLS/2026/001" class="student-input" autocomplete="username">
@@ -40,33 +43,24 @@
             <button id="studentLoginBtn" class="btn-student-login" onclick="handleStudentLogin()">
                 <i class="fas fa-sign-in-alt"></i> Access Report
             </button>
-            <div style="margin-top:20px; display:flex; flex-direction:column; gap:8px;">
-                <a href="/alumni.html" style="color:#fbbf24;font-size:13px;text-decoration:none;font-weight:600;">
-                    <i class="fas fa-award"></i> Graduated? Access Alumni & Transcripts Portal &rarr;
-                </a>
-                <a href="/excel.html" style="color:rgba(255,255,255,.7);font-size:13px;text-decoration:none;">
-                    <i class="fas fa-file-excel"></i> Excel templates — no login
-                </a>
-                <a href="/report.html" style="color:rgba(255,255,255,.4);font-size:12.5px;text-decoration:none;">
-                    <i class="fas fa-chalkboard-teacher"></i> Teacher Sign In
-                </a>
-            </div>
         </div>
     </div>
 
     <!-- ════ MAIN STUDENT DASHBOARD ════ -->
     <header class="student-header">
         <div class="student-brand">
-            <div id="studentSchoolLogo"><i class="fas fa-school" style="font-size:24px;color:#818cf8;"></i></div>
-            <div>
-                <h1 id="studentSchoolName">The Living Spring School</h1>
+            <div id="studentSchoolLogo" class="student-logo-wrap">
+                <img src="/icon-or.svg" alt="OR Logo" style="width:38px;height:38px;border-radius:8px;object-fit:cover;">
+            </div>
+            <div class="student-brand-text">
+                <h1 id="studentSchoolName">OneReal School</h1>
                 <p id="studentPortalTitle">Student & Parent Performance Dashboard</p>
             </div>
         </div>
         <div class="student-user-info">
-            <span id="studentDisplayTag" style="font-size:14px;font-weight:600;color:#fff;"></span>
+            <span id="studentDisplayTag"></span>
             <button class="btn-student-logout" onclick="handleStudentLogout()">
-                <i class="fas fa-sign-out-alt"></i> Sign Out
+                <i class="fas fa-sign-out-alt"></i> <span>Sign Out</span>
             </button>
         </div>
     </header>

@@ -2442,11 +2442,15 @@ function buildUnifiedReportHTML(id) {
         const bestTwo = electiveResults.slice(0, 2);
         const allAgg = [...coreResults, ...bestTwo];
         const totalAgg = allAgg.reduce((s, r) => s + (Number(r.grade) || 0), 0);
+        const aggSubjects = allAgg.map(r => `${r.sub}: Grade ${r.grade}`).join(' | ');
+        const coreLabel = useFallback ? 'Core' : `Core (${coreResults.length}/4)`;
         jhsAggregateHTML = `
-        <div style="background:${primaryDark};color:#fff;padding:6px 12px;border-radius:8px;margin-bottom:10px;font-size:12.5px;">
-            <div style="font-weight:700;font-size:13px;margin-bottom:3px;">JHS TOTAL AGGREGATE</div>
-            <div style="font-size:20px;font-weight:800;letter-spacing:-1px;">${totalAgg}</div>
-            ${allAgg.length < 6 ? '<div style="font-size:10.5px;margin-top:3px;color:#fbbf24;">⚠ Not all 6 aggregate subjects have scores</div>' : ''}
+        <div style="background:${primaryDark};color:#fff;padding:12px 16px;border-radius:8px;margin-bottom:16px;font-size:12.5px;">
+            <div style="font-weight:700;font-size:14px;margin-bottom:6px;">JHS TOTAL AGGREGATE</div>
+            <div style="font-size:22px;font-weight:800;letter-spacing:-1px;">${totalAgg}</div>
+            <div style="font-size:11px;margin-top:4px;opacity:0.85;">${aggSubjects}</div>
+            <div style="font-size:10.5px;margin-top:4px;opacity:0.65;">${coreLabel} + Best ${bestTwo.length} Elective(s)</div>
+            ${allAgg.length < 6 ? '<div style="font-size:11px;margin-top:4px;color:#fbbf24;">⚠ Not all 6 aggregate subjects have scores</div>' : ''}
         </div>`;
     }
 

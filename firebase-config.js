@@ -87,6 +87,14 @@ function initFirebase(config = getStoredFirebaseConfig()) {
         }
 
         db = firebase.firestore();
+        // Configure firestore settings for stability & bounded cache
+        try {
+            if (typeof db.settings === 'function') {
+                db.settings({
+                    cacheSizeBytes: 10485760 // 10MB cache limit to avoid unbounded queue buildup
+                });
+            }
+        } catch (e) {}
         auth = firebase.auth();
         if (firebase.storage) storage = firebase.storage();
 
@@ -910,6 +918,50 @@ async function getCollection(collectionName) {
     return JSON.parse(localStorage.getItem(collectionName) || '[]');
 }
 
+// ──────────────────────────────────────────────────────────────────────────────
+// CLOUD WRITE DEBOUNCER & HASH CACHE (Prevents Firestore Write Queue Exhaustion)
+// ──────────────────────────────────────────────────────────────────────────────
+const _firestoreWriteTimers = {};
+const _firestoreLastPayloadHash = {};
+
+function _simpleHash(str) {
+    let hash = 0;
+    if (!str || str.length === 0) return hash;
+    for (let i = 0; i < str.length; i++) {
+        const char = str.charCodeAt(i);
+        hash = ((hash << 5) - hash) + char;
+        hash |= 0;
+    }
+    return String(hash);
+}
+
+function scheduleDebouncedFirestoreSync(collectionName, data) {
+    if (!isFirebaseActive || !db) return;
+    const str = typeof data === 'string' ? data : JSON.stringify(data || []);
+    const hash = _simpleHash(str);
+    if (_firestoreLastPayloadHash[collectionName] === hash) {
+        return; // No change in data, avoid redundant cloud write
+    }
+
+    if (_firestoreWriteTimers[collectionName]) {
+        clearTimeout(_firestoreWriteTimers[collectionName]);
+    }
+
+    _firestoreWriteTimers[collectionName] = setTimeout(async () => {
+        delete _firestoreWriteTimers[collectionName];
+        try {
+            const schoolId = localStorage.getItem('schoolId') || 'default_school';
+            await db.collection('schools').doc(schoolId).collection(collectionName).doc('main_data').set({
+                payload: str,
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+            _firestoreLastPayloadHash[collectionName] = hash;
+        } catch (e) {
+            console.warn(`Firestore debounced sync notice for ${collectionName}:`, e);
+        }
+    }, 1500); // 1.5s debounce batching
+}
+
 async function addDocument(collectionName, data) {
     let newItem;
     const docId = data.id || data.uid || `id_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
@@ -923,25 +975,8 @@ async function addDocument(collectionName, data) {
     localStorage.setItem(collectionName, JSON.stringify(items));
     syncCollectionToServer(collectionName);
 
-    // 2. Cloud Firestore write in the background (non-blocking)
-    if (isFirebaseActive && db) {
-        (async () => {
-            try {
-                await db.collection(collectionName).doc(String(docId)).set({
-                    ...newItem,
-                    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-                }, { merge: true });
-
-                const schoolId = localStorage.getItem('schoolId') || 'default_school';
-                await db.collection('schools').doc(schoolId).collection(collectionName).doc('main_data').set({
-                    payload: JSON.stringify(items),
-                    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-                });
-            } catch (e) {
-                console.warn(`Background Firestore add error on ${collectionName}/${docId}:`, e);
-            }
-        })();
-    }
+    // 2. Cloud Firestore write in background via debounced scheduler
+    scheduleDebouncedFirestoreSync(collectionName, items);
 
     return newItem;
 }
@@ -956,25 +991,8 @@ async function updateDocument(collectionName, docId, data) {
         syncCollectionToServer(collectionName);
     }
 
-    // 2. Cloud Firestore write in the background (non-blocking)
-    if (isFirebaseActive && db) {
-        (async () => {
-            try {
-                await db.collection(collectionName).doc(String(docId)).set({
-                    ...data,
-                    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-                }, { merge: true });
-
-                const schoolId = localStorage.getItem('schoolId') || 'default_school';
-                await db.collection('schools').doc(schoolId).collection(collectionName).doc('main_data').set({
-                    payload: JSON.stringify(items),
-                    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-                });
-            } catch (e) {
-                console.warn(`Background Firestore update error on ${collectionName}/${docId}:`, e);
-            }
-        })();
-    }
+    // 2. Cloud Firestore write in background via debounced scheduler
+    scheduleDebouncedFirestoreSync(collectionName, items);
 }
 
 async function deleteDocument(collectionName, docId) {
@@ -983,24 +1001,8 @@ async function deleteDocument(collectionName, docId) {
     localStorage.setItem(collectionName, JSON.stringify(items));
     syncCollectionToServer(collectionName);
 
-    // 2. Cloud Firestore write in the background (non-blocking)
-    if (isFirebaseActive && db) {
-        (async () => {
-            try {
-                await db.collection(collectionName).doc(String(docId)).delete();
-            } catch (e) {
-                console.warn(`Firestore delete error on ${collectionName}/${docId}:`, e);
-            }
-
-            try {
-                const schoolId = localStorage.getItem('schoolId') || 'default_school';
-                await db.collection('schools').doc(schoolId).collection(collectionName).doc('main_data').set({
-                    payload: JSON.stringify(items),
-                    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-                });
-            } catch (e) {}
-        })();
-    }
+    // 2. Cloud Firestore write in background via debounced scheduler
+    scheduleDebouncedFirestoreSync(collectionName, items);
 }
 
 async function getDocument(collectionName, docId) {
@@ -1049,34 +1051,8 @@ async function syncSaveCollection(collectionName, data) {
         }).catch(() => {});
     } catch (e) {}
 
-    if (!isFirebaseActive || !db) return;
-
-    // Run Firebase cloud write in the background so local actions return immediately (0ms delay)
-    (async () => {
-        try {
-            const schoolId = localStorage.getItem('schoolId') || 'default_school';
-            await db.collection('schools').doc(schoolId).collection(collectionName).doc('main_data').set({
-                payload: JSON.stringify(data),
-                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-            });
-
-            // Also write individual docs to Firestore root collection
-            if (Array.isArray(data)) {
-                const batch = db.batch();
-                let count = 0;
-                for (const item of data) {
-                    const docId = String(item.id || item.uid || ('id_' + Date.now()));
-                    const ref = db.collection(collectionName).doc(docId);
-                    batch.set(ref, { ...item, id: docId }, { merge: true });
-                    count++;
-                    if (count >= 450) break;
-                }
-                if (count > 0) await batch.commit();
-            }
-        } catch (err) {
-            console.error(`Firebase Sync Error on ${collectionName}:`, err);
-        }
-    })();
+    // Non-blocking, debounced and diff-checked Firestore sync
+    scheduleDebouncedFirestoreSync(collectionName, data);
 }
 
 async function syncFetchCollection(collectionName, fallbackData) {
@@ -1142,16 +1118,23 @@ async function runAutoSyncCycle() {
             }
         }
 
-        // 2. Sync with Firebase Firestore (background)
+        // 2. Sync with Firebase Firestore (background with diff-checking)
         if (isFirebaseActive && db) {
             const schoolId = localStorage.getItem('schoolId') || 'default_school';
             for (const col of collectionsToSync) {
                 const data = localPayload[col];
                 if (data) {
-                    await db.collection('schools').doc(schoolId).collection(col).doc('main_data').set({
-                        payload: JSON.stringify(data),
-                        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-                    }).catch(() => {});
+                    const rawStr = JSON.stringify(data);
+                    const hash = _simpleHash(rawStr);
+                    // Only write to Firestore if the content has changed since the last write
+                    if (_firestoreLastPayloadHash[col] !== hash) {
+                        await db.collection('schools').doc(schoolId).collection(col).doc('main_data').set({
+                            payload: rawStr,
+                            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                        }).then(() => {
+                            _firestoreLastPayloadHash[col] = hash;
+                        }).catch(() => {});
+                    }
                 }
             }
         }
@@ -1164,8 +1147,9 @@ async function runAutoSyncCycle() {
 
 function startContinuousAutoSync() {
     if (autoSyncInterval) clearInterval(autoSyncInterval);
-    setTimeout(runAutoSyncCycle, 1500);
-    autoSyncInterval = setInterval(runAutoSyncCycle, 12000);
+    setTimeout(runAutoSyncCycle, 3000);
+    // Interval adjusted to 60s to prevent stream queue saturation
+    autoSyncInterval = setInterval(runAutoSyncCycle, 60000);
 
     window.addEventListener('online', runAutoSyncCycle);
     document.addEventListener('visibilitychange', () => {

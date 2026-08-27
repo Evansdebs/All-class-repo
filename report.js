@@ -45,9 +45,18 @@ function refreshGradingSystem() {
 }
 
 // Initialize data
-let students = JSON.parse(localStorage.getItem('students')) || [];
-let scores = JSON.parse(localStorage.getItem('scores')) || {};
-let schoolInfo = JSON.parse(localStorage.getItem('schoolInfo')) || {
+function safeLocalGet(key, fallback) {
+    try {
+        const val = localStorage.getItem(key);
+        return val ? JSON.parse(val) : fallback;
+    } catch (e) {
+        return fallback;
+    }
+}
+
+let students = safeLocalGet('students', []);
+let scores = safeLocalGet('scores', {});
+let schoolInfo = safeLocalGet('schoolInfo', {
     academicYear: "2024/2025",
     term: "1",
     closingDate: "19th DEC, 2024",
@@ -59,9 +68,9 @@ let schoolInfo = JSON.parse(localStorage.getItem('schoolInfo')) || {
     basicLevel: "6",
     classTeacher: "",
     schoolLogo: null
-};
-let parentContacts = JSON.parse(localStorage.getItem('parentContacts')) || {};
-let studentReportDetails = JSON.parse(localStorage.getItem('studentReportDetails')) || {};
+});
+let parentContacts = safeLocalGet('parentContacts', {});
+let studentReportDetails = safeLocalGet('studentReportDetails', {});
 let currentEditingStudentId = null; // tracks student being edited in the Edit Report modal
 
 
