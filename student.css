@@ -467,3 +467,31 @@ body.student-portal-body {
         border-radius: 10px !important;
     }
 }
+
+/* ═══════════════════════════════════════════════════════════════════
+   Universal Loading Animations & Spinner Keyframes
+   ═══════════════════════════════════════════════════════════════════ */
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+@keyframes fa-spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+@keyframes studentSlideIn {
+    from { opacity: 0; transform: translateY(18px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.student-auth-card {
+    animation: studentSlideIn 0.35s cubic-bezier(.4,0,.2,1);
+}
+
+.fa-spin, .spinner, .loading-spinner {
+    animation: spin 1s infinite linear !important;
+    display: inline-block;
+}
+

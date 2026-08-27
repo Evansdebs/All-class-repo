@@ -581,3 +581,51 @@ body.dark .trajectory-pill.steady {
 .term-spark-bar.t1 { background: #94a3b8; }
 .term-spark-bar.t2 { background: #60a5fa; }
 .term-spark-bar.t3 { background: #4f46e5; }
+
+/* ═══════════════════════════════════════════════════════════════════
+   Universal Loading Animations & Spinner Keyframes
+   ═══════════════════════════════════════════════════════════════════ */
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+@keyframes fa-spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes authSlideIn {
+    from { opacity: 0; transform: translateY(18px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.fa-spin, .spinner, .loading-spinner {
+    animation: spin 1s infinite linear !important;
+    display: inline-block;
+}
+
+.loading {
+    width: 18px;
+    height: 18px;
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    border-radius: 50%;
+    border-top-color: #ffffff;
+    animation: spin 0.8s linear infinite;
+    display: inline-block;
+    vertical-align: middle;
+}
+
+.auth-card {
+    animation: authSlideIn 0.35s cubic-bezier(.4,0,.2,1);
+}
+
+.view.active, .tab-panel.active {
+    animation: fadeIn 0.25s ease-out;
+}
+

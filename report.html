@@ -8,9 +8,10 @@
     <link rel="apple-touch-icon" href="/icon-192.png">
     <link rel="manifest" href="/manifest.json">
     <meta name="theme-color" content="#2563eb">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" integrity="sha512-DTOQO9RWCH3ppGqcWaEA1BIZOC6xxalwEsw9c2QQeAIftl+Vegovlnee1c9QX4TctnWMn13TZye+giMm8e2LwA==" crossorigin="anonymous" referrerpolicy="no-referrer" />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="font-awesome.css">
-    <link rel="stylesheet" href="report.css?v=hub10">
+    <link rel="stylesheet" href="report.css?v=hub11">
     <script src="app-logo.js?v=logo1"></script>
 </head>
 <body>
@@ -35,7 +36,11 @@
         <button class="btn btn-primary btn-block" id="teacherLoginBtn" onclick="teacherLogin()">
             <i class="fas fa-sign-in-alt"></i> Sign In
         </button>
-        <a class="auth-link" href="/excel.html"><i class="fas fa-file-excel"></i> Excel templates — no login</a>
+        <div style="margin-top: 14px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.12); display: flex; flex-direction: column; gap: 8px;">
+            <a class="auth-link" href="/admin.html" style="font-weight:600; color:#818cf8;"><i class="fas fa-user-shield"></i> Switch to Admin Dashboard</a>
+            <a class="auth-link" href="/student.html"><i class="fas fa-user-graduate"></i> Student &amp; Parent Portal</a>
+            <a class="auth-link" href="/excel.html"><i class="fas fa-file-excel"></i> Excel templates — no login</a>
+        </div>
     </div>
 </div>
 
@@ -74,6 +79,7 @@
             </nav>
             <div class="sidebar-foot">
                 <button class="side-link" id="hubLink" onclick="showHub()"><i class="fas fa-th-large"></i><span>All classes</span></button>
+                <a class="side-link" href="/admin.html" style="text-decoration:none;"><i class="fas fa-user-shield"></i><span>Admin Dashboard</span></a>
                 <button class="side-link" id="darkBtn" onclick="toggleDark()"><i class="fas fa-moon"></i><span>Dark mode</span></button>
                 <button class="side-link danger" onclick="teacherLogout()"><i class="fas fa-sign-out-alt"></i><span>Log out</span></button>
             </div>
