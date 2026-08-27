@@ -40,8 +40,11 @@
             <button id="studentLoginBtn" class="btn-student-login" onclick="handleStudentLogin()">
                 <i class="fas fa-sign-in-alt"></i> Access Report
             </button>
-            <div style="margin-top:20px;">
-                <a href="/excel.html" style="color:rgba(255,255,255,.7);font-size:13px;text-decoration:none;display:block;margin-bottom:8px;">
+            <div style="margin-top:20px; display:flex; flex-direction:column; gap:8px;">
+                <a href="/alumni.html" style="color:#fbbf24;font-size:13px;text-decoration:none;font-weight:600;">
+                    <i class="fas fa-award"></i> Graduated? Access Alumni & Transcripts Portal &rarr;
+                </a>
+                <a href="/excel.html" style="color:rgba(255,255,255,.7);font-size:13px;text-decoration:none;">
                     <i class="fas fa-file-excel"></i> Excel templates — no login
                 </a>
                 <a href="/report.html" style="color:rgba(255,255,255,.4);font-size:12.5px;text-decoration:none;">
@@ -68,28 +71,82 @@
         </div>
     </header>
 
-    <main class="student-container" id="studentMainContent" style="display:none;max-width:920px;margin:0 auto;padding:20px 16px;">
+    <main class="student-container" id="studentMainContent" style="display:none;max-width:960px;margin:0 auto;padding:20px 16px;">
 
-        <!-- Action Bar -->
-        <div class="student-action-bar" style="display:flex;gap:10px;justify-content:space-between;align-items:center;flex-wrap:wrap;margin-bottom:18px;background:#1e293b;padding:14px 18px;border-radius:12px;border:1px solid rgba(255,255,255,0.08);">
-            <div style="color:#fff;font-weight:700;font-size:15px;">
-                <i class="fas fa-file-alt" style="color:#818cf8;margin-right:8px;"></i> Official Academic Report Sheet
+        <!-- Top Student Portal Tabs -->
+        <div class="student-portal-tabs" style="display:flex;gap:10px;margin-bottom:20px;border-bottom:2px solid rgba(255,255,255,0.1);padding-bottom:8px;overflow-x:auto;">
+            <button id="studentTabReportBtn" class="student-tab-btn active" onclick="switchStudentTab('report')">
+                <i class="fas fa-file-alt"></i> Academic Report Sheet
+            </button>
+            <button id="studentTabTimetableBtn" class="student-tab-btn" onclick="switchStudentTab('timetable')">
+                <i class="fas fa-calendar-alt"></i> Class Timetable
+            </button>
+            <button id="studentTabExamsBtn" class="student-tab-btn" onclick="switchStudentTab('exams')">
+                <i class="fas fa-clipboard-check"></i> Examination Schedule
+            </button>
+        </div>
+
+        <!-- ════ SECTION 1: ACADEMIC REPORT SHEET ════ -->
+        <div id="studentSectionReport" class="student-section-view">
+            <!-- Action Bar -->
+            <div class="student-action-bar" style="display:flex;gap:10px;justify-content:space-between;align-items:center;flex-wrap:wrap;margin-bottom:18px;background:#1e293b;padding:14px 18px;border-radius:12px;border:1px solid rgba(255,255,255,0.08);">
+                <div style="color:#fff;font-weight:700;font-size:15px;">
+                    <i class="fas fa-file-alt" style="color:#818cf8;margin-right:8px;"></i> Official Academic Report Sheet
+                </div>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                    <button class="btn-student-action primary" onclick="downloadStudentReportFile()" style="background:#4f46e5;color:#fff;border:none;padding:8px 18px;border-radius:8px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:6px;">
+                        <i class="fas fa-file-pdf"></i> Download PDF
+                    </button>
+                    <button class="btn-student-action" onclick="printStudentReportSheet()" style="background:#4338ca;color:#fff;border:none;padding:8px 18px;border-radius:8px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:6px;">
+                        <i class="fas fa-print"></i> Print Report Sheet
+                    </button>
+                </div>
             </div>
-            <div style="display:flex;gap:8px;flex-wrap:wrap;">
-                <button class="btn-student-action primary" onclick="downloadStudentReportFile()" style="background:#4f46e5;color:#fff;border:none;padding:8px 18px;border-radius:8px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:6px;">
-                    <i class="fas fa-file-pdf"></i> Download PDF
-                </button>
-                <button class="btn-student-action" onclick="printStudentReportSheet()" style="background:#4338ca;color:#fff;border:none;padding:8px 18px;border-radius:8px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:6px;">
-                    <i class="fas fa-print"></i> Print Report Sheet
-                </button>
+
+            <!-- Student Results Summary KPI Cards -->
+            <div id="studentResultsSummaryCards" style="display:grid;grid-template-columns:repeat(auto-fit, minmax(180px, 1fr));gap:12px;margin-bottom:20px;"></div>
+
+            <!-- Official Report Card Container (Unified layout) -->
+            <div id="studentReportCardContainer" style="margin-bottom:30px;"></div>
+        </div>
+
+        <!-- ════ SECTION 2: CLASS TIMETABLE ════ -->
+        <div id="studentSectionTimetable" class="student-section-view" style="display:none;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:10px;background:#1e293b;padding:14px 18px;border-radius:12px;border:1px solid rgba(255,255,255,0.08);">
+                <div>
+                    <h3 style="color:#fff;margin:0 0 4px;font-size:16px;font-weight:700;"><i class="fas fa-chalkboard" style="color:#38bdf8;margin-right:8px;"></i> Weekly Class Timetable</h3>
+                    <p id="studentTimetableSubtitle" style="color:#94a3b8;font-size:12.5px;margin:0;">Class Schedule managed by School Administration</p>
+                </div>
+                <div>
+                    <button class="btn-student-action" onclick="printStudentTimetable()" style="background:#0284c7;color:#fff;border:none;padding:8px 16px;border-radius:8px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:6px;">
+                        <i class="fas fa-print"></i> Print Timetable
+                    </button>
+                </div>
+            </div>
+
+            <div id="studentTimetableContainer" style="background:#ffffff;border-radius:14px;padding:20px;overflow-x:auto;color:#0f172a;box-shadow:0 4px 16px rgba(0,0,0,0.2);">
+                <!-- Rendered dynamically -->
             </div>
         </div>
 
-        <!-- Student Results Summary KPI Cards -->
-        <div id="studentResultsSummaryCards" style="display:grid;grid-template-columns:repeat(auto-fit, minmax(180px, 1fr));gap:12px;margin-bottom:20px;"></div>
+        <!-- ════ SECTION 3: EXAMINATION SCHEDULE ════ -->
+        <div id="studentSectionExams" class="student-section-view" style="display:none;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:10px;background:#1e293b;padding:14px 18px;border-radius:12px;border:1px solid rgba(255,255,255,0.08);">
+                <div>
+                    <h3 style="color:#fff;margin:0 0 4px;font-size:16px;font-weight:700;"><i class="fas fa-clipboard-check" style="color:#a855f7;margin-right:8px;"></i> Upcoming Examination Schedule</h3>
+                    <p id="studentExamsSubtitle" style="color:#94a3b8;font-size:12.5px;margin:0;">Official Exam Dates, Rooms & Instructions</p>
+                </div>
+                <div>
+                    <button class="btn-student-action" onclick="printStudentExams()" style="background:#7c3aed;color:#fff;border:none;padding:8px 16px;border-radius:8px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:6px;">
+                        <i class="fas fa-print"></i> Print Exam Schedule
+                    </button>
+                </div>
+            </div>
 
-        <!-- Official Report Card Container (Identical to Admin & Teacher Layout) -->
-        <div id="studentReportCardContainer" style="margin-bottom:30px;"></div>
+            <div id="studentExamsContainer" style="background:#ffffff;border-radius:14px;padding:20px;overflow-x:auto;color:#0f172a;box-shadow:0 4px 16px rgba(0,0,0,0.2);">
+                <!-- Rendered dynamically -->
+            </div>
+        </div>
 
     </main>
 

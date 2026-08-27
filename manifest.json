@@ -1,0 +1,54 @@
+{
+  "name": "OneReal School Management & Report System",
+  "short_name": "OneReal SMS",
+  "description": "Comprehensive School Management, Student Reports, Alumni Transcripts & Timetables with Offline Capability",
+  "start_url": "/report.html",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#1e40af",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Teacher Portal",
+      "short_name": "Teachers",
+      "description": "Generate terminal reports & record marks",
+      "url": "/report.html",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Admin Dashboard",
+      "short_name": "Admin",
+      "description": "Manage school, classes, teachers & backup",
+      "url": "/admin.html",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Alumni & Transcripts",
+      "short_name": "Alumni",
+      "description": "Issue transcripts and verify graduation records",
+      "url": "/alumni.html",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Timetables & Exams",
+      "short_name": "Timetable",
+      "description": "Class schedules, teacher periods & exam timetables",
+      "url": "/timetable.html",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+    }
+  ]
+}

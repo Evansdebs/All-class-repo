@@ -833,6 +833,7 @@ function openTab(tab) {
     if (tab === 'reports') renderReports();
     if (tab === 'performance') renderPerformance();
     if (tab === 'attendance') renderAttendance();
+    if (tab === 'timetable') renderTeacherTimetableTab();
     if (tab === 'whatsapp') renderWhatsApp();
     if (tab === 'info') renderInfo();
 }
@@ -3992,6 +3993,323 @@ async function removeTeacherSignature() {
         const body = document.getElementById('previewBody');
         if (body) body.innerHTML = buildUnifiedReportHTML(currentPreviewReportStudentId);
     }
+}
+
+async function renderTeacherTimetableTab() {
+    const panel = document.getElementById('tab-timetable');
+    if (!panel) return;
+
+    panel.innerHTML = '<div style="text-align:center;padding:40px;color:var(--muted);"><i class="fas fa-spinner fa-spin fa-2x"></i><p style="margin-top:10px;">Loading schedule data from school system…</p></div>';
+
+    try {
+        const [ttRes, exRes] = await Promise.all([
+            fetch('/api/timetables'),
+            fetch('/api/timetables/exams')
+        ]);
+
+        const timetables = ttRes.ok ? await ttRes.json() : [];
+        const allExams = exRes.ok ? await exRes.json() : [];
+
+        const allowedClasses = teacherAllowedClasses();
+        const activeClass = currentClass || allowedClasses[0] || '';
+
+        const activeDoc = timetables.find(t => (t.class || '').toLowerCase() === activeClass.toLowerCase());
+        const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+        const periods = (activeDoc && activeDoc.periods && activeDoc.periods.length) ? activeDoc.periods : [
+            { period: 1, time: '08:00 - 08:45', name: 'Period 1' },
+            { period: 2, time: '08:45 - 09:30', name: 'Period 2' },
+            { period: 3, time: '09:30 - 10:15', name: 'Period 3' },
+            { period: 4, time: '10:15 - 10:45', isBreak: true, name: 'Snack Break' },
+            { period: 5, time: '10:45 - 11:30', name: 'Period 4' },
+            { period: 6, time: '11:30 - 12:15', name: 'Period 5' },
+            { period: 7, time: '12:15 - 01:00', isBreak: true, name: 'Lunch & Rest' },
+            { period: 8, time: '01:00 - 01:45', name: 'Period 6' },
+            { period: 9, time: '01:45 - 02:30', name: 'Period 7' }
+        ];
+
+        const getSlot = (day, periodNum) => {
+            if (!activeDoc) return null;
+            if (activeDoc.schedule && Array.isArray(activeDoc.schedule[day])) {
+                return activeDoc.schedule[day].find(s => Number(s.period) === Number(periodNum));
+            }
+            return timetables.find(x => (x.class || '').toLowerCase() === activeClass.toLowerCase() && (x.day || '').toLowerCase() === day.toLowerCase() && Number(x.period) === Number(periodNum));
+        };
+
+        let totalScheduled = 0;
+        days.forEach(d => {
+            periods.forEach(p => {
+                if (!p.isBreak) {
+                    const s = getSlot(d, p.period);
+                    if (s && s.subject) totalScheduled++;
+                }
+            });
+        });
+
+        // 2. Exams for active class
+        const classExams = allExams.filter(e => (e.class || '').toLowerCase() === activeClass.toLowerCase());
+        classExams.sort((a, b) => (a.examDate || '').localeCompare(b.examDate || ''));
+
+        let html = `
+            <div class="panel-head" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:18px;">
+                <div>
+                    <h3 style="margin:0;font-size:18px;display:flex;align-items:center;gap:8px;">
+                        <i class="fas fa-calendar-alt" style="color:var(--primary);"></i> Class Timetable &amp; Examination Schedule
+                    </h3>
+                    <p class="muted" style="margin:4px 0 0;font-size:12.5px;">
+                        Official timetables and exam notices published by School Administration for <strong>${esc(activeClass)}</strong>.
+                    </p>
+                </div>
+                ${allowedClasses.length > 1 ? `
+                    <div style="display:flex;align-items:center;gap:8px;">
+                        <label style="font-size:13px;font-weight:600;color:var(--ink);">Switch Class:</label>
+                        <select onchange="switchClass(this.value)" style="padding:6px 12px;font-size:13px;border-radius:6px;border:1px solid var(--line);background:var(--card);color:var(--ink);font-weight:600;">
+                            ${allowedClasses.map(c => `<option value="${esc(c)}" ${c === activeClass ? 'selected' : ''}>${esc(c)}</option>`).join('')}
+                        </select>
+                    </div>
+                ` : ''}
+            </div>
+
+            <!-- 1. CLASS TIMETABLE -->
+            <div class="card" style="margin-bottom:24px;padding:20px;background:var(--card);border:1px solid var(--line);border-radius:12px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:10px;">
+                    <div>
+                        <strong style="font-size:16px;color:var(--ink);"><i class="fas fa-chalkboard" style="color:var(--primary);margin-right:6px;"></i> ${esc(activeClass)} Weekly Master Timetable</strong>
+                        <span class="badge ok" style="margin-left:8px;font-size:11px;">${totalScheduled} Periods Scheduled</span>
+                    </div>
+                    ${totalScheduled ? `
+                        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                            <button class="btn btn-primary btn-sm" onclick="downloadTeacherTimetablePDF('${esc(activeClass)}')">
+                                <i class="fas fa-file-pdf"></i> Download PDF
+                            </button>
+                            <button class="btn btn-ghost btn-sm" onclick="printTeacherTimetable('${esc(activeClass)}')">
+                                <i class="fas fa-print"></i> Print Timetable
+                            </button>
+                        </div>
+                    ` : ''}
+                </div>
+
+                ${!totalScheduled ? `
+                    <div class="empty" style="padding:32px 20px;text-align:center;color:var(--muted);background:var(--bg);border-radius:8px;border:1px dashed var(--line);">
+                        <i class="fas fa-calendar-times fa-2x" style="margin-bottom:8px;opacity:0.5;"></i>
+                        <h4 style="font-size:15px;color:var(--ink);margin:0 0 6px;">No Timetable Published Yet</h4>
+                        <p style="margin:0;font-size:13px;max-width:460px;margin:0 auto;line-height:1.5;">The school administration has not published a weekly timetable for <strong>${esc(activeClass)}</strong> yet. Once scheduled and published by admin, it will appear here automatically for you to view and download in PDF.</p>
+                    </div>
+                ` : `
+                    <div class="table-wrap" id="printableTeacherClassTimetable" style="overflow-x:auto;">
+                        <table style="width:100%;border-collapse:collapse;font-size:12px;min-width:620px;text-align:center;">
+                            <thead>
+                                <tr style="background:var(--primary);color:#ffffff;">
+                                    <th style="padding:10px 8px;width:120px;">Period / Time</th>
+                                    ${days.map(d => `<th style="padding:10px 8px;">${esc(d)}</th>`).join('')}
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${periods.map(p => {
+                                    if (p.isBreak) {
+                                        return `
+                                            <tr style="background:rgba(245,158,11,0.08);">
+                                                <td style="padding:8px;border:1px solid var(--line);font-weight:700;color:#b45309;">
+                                                    <div>${esc(p.name || 'Break')}</div>
+                                                    <div style="font-size:10px;font-weight:normal;">${esc(p.time || '')}</div>
+                                                </td>
+                                                <td colspan="5" style="padding:8px;border:1px solid var(--line);color:#b45309;font-weight:700;letter-spacing:0.04em;">
+                                                    <i class="fas fa-mug-hot" style="margin-right:6px;"></i> ${esc(p.name || 'Break Interval')} (${esc(p.time || '')})
+                                                </td>
+                                            </tr>
+                                        `;
+                                    }
+                                    return `
+                                        <tr>
+                                            <td style="padding:8px;border:1px solid var(--line);background:var(--bg);font-weight:700;">
+                                                <div>Period ${p.period}</div>
+                                                <div style="font-size:10.5px;color:var(--muted);font-weight:normal;">${esc(p.time || '')}</div>
+                                            </td>
+                                            ${days.map(d => {
+                                                const s = getSlot(d, p.period);
+                                                if (s && s.subject) {
+                                                    return `
+                                                        <td style="padding:8px;border:1px solid var(--line);background:rgba(79,70,229,0.05);vertical-align:top;">
+                                                            <div style="font-weight:700;color:var(--primary);font-size:12.5px;">${esc(s.subject)}</div>
+                                                            ${s.teacher ? `<div style="font-size:11px;color:var(--ink);margin-top:3px;"><i class="fas fa-user-tie" style="font-size:10px;opacity:0.7;"></i> ${esc(s.teacher)}</div>` : ''}
+                                                            ${s.room ? `<div style="font-size:10px;color:#059669;margin-top:2px;font-weight:500;"><i class="fas fa-map-marker-alt"></i> ${esc(s.room)}</div>` : ''}
+                                                        </td>
+                                                    `;
+                                                }
+                                                return `<td style="padding:8px;border:1px solid var(--line);color:var(--muted);">—</td>`;
+                                            }).join('')}
+                                        </tr>
+                                    `;
+                                }).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                `}
+            </div>
+
+            <!-- 2. EXAMINATION TIMETABLE -->
+            <div class="card" style="padding:20px;background:var(--card);border:1px solid var(--line);border-radius:12px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:10px;">
+                    <div>
+                        <strong style="font-size:16px;color:var(--ink);"><i class="fas fa-clipboard-check" style="color:#7c3aed;margin-right:6px;"></i> ${esc(activeClass)} Examination Schedule</strong>
+                        <span class="badge info" style="margin-left:8px;font-size:11px;">${classExams.length} Papers</span>
+                    </div>
+                    ${classExams.length ? `
+                        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                            <button class="btn btn-primary btn-sm" onclick="downloadTeacherExamsPDF('${esc(activeClass)}')">
+                                <i class="fas fa-file-pdf"></i> Download PDF
+                            </button>
+                            <button class="btn btn-ghost btn-sm" onclick="printTeacherExams('${esc(activeClass)}')">
+                                <i class="fas fa-print"></i> Print Exam Schedule
+                            </button>
+                        </div>
+                    ` : ''}
+                </div>
+
+                ${!classExams.length ? `
+                    <div class="empty" style="padding:32px 20px;text-align:center;color:var(--muted);background:var(--bg);border-radius:8px;border:1px dashed var(--line);">
+                        <i class="fas fa-clipboard-list fa-2x" style="margin-bottom:8px;opacity:0.5;"></i>
+                        <h4 style="font-size:15px;color:var(--ink);margin:0 0 6px;">No Examinations Scheduled Yet</h4>
+                        <p style="margin:0;font-size:13px;max-width:460px;margin:0 auto;line-height:1.5;">The school administration has not scheduled examinations for <strong>${esc(activeClass)}</strong> yet. Once scheduled by admin, the dates, times, halls, and invigilators will appear here automatically for you to view and download.</p>
+                    </div>
+                ` : `
+                    <div class="table-wrap" id="printableTeacherClassExams" style="overflow-x:auto;">
+                        <table style="width:100%;border-collapse:collapse;font-size:12.5px;min-width:620px;text-align:left;">
+                            <thead>
+                                <tr style="background:#1e1b4b;color:#ffffff;">
+                                    <th style="padding:10px 12px;border:1px solid #312e81;">Subject</th>
+                                    <th style="padding:10px 12px;border:1px solid #312e81;">Exam Title</th>
+                                    <th style="padding:10px 12px;border:1px solid #312e81;">Date &amp; Time</th>
+                                    <th style="padding:10px 12px;border:1px solid #312e81;">Hall / Venue</th>
+                                    <th style="padding:10px 12px;border:1px solid #312e81;">Invigilator</th>
+                                    <th style="padding:10px 12px;border:1px solid #312e81;">Status</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${classExams.map(ex => `
+                                    <tr style="border-bottom:1px solid var(--line);">
+                                        <td style="padding:10px 12px;font-weight:700;color:var(--ink);">
+                                            <i class="fas fa-book" style="color:#7c3aed;margin-right:6px;"></i> ${esc(ex.subject)}
+                                        </td>
+                                        <td style="padding:10px 12px;color:var(--ink);">${esc(ex.title || ex.examTitle || 'Official Paper')}</td>
+                                        <td style="padding:10px 12px;">
+                                            <div style="font-weight:600;color:var(--ink);"><i class="fas fa-calendar-day" style="color:var(--primary);"></i> ${esc(ex.examDate)}</div>
+                                            <div style="font-size:11px;color:var(--muted);">${esc(ex.startTime || '09:00')} - ${esc(ex.endTime || '11:00')}</div>
+                                        </td>
+                                        <td style="padding:10px 12px;">
+                                            <span style="display:inline-block;padding:2px 8px;border-radius:4px;background:var(--bg);font-weight:600;color:var(--ink);border:1px solid var(--line);">
+                                                ${esc(ex.hall || 'Main Hall')}
+                                            </span>
+                                        </td>
+                                        <td style="padding:10px 12px;color:var(--ink);font-size:12px;">
+                                            ${ex.chiefInvigilator ? `<div><i class="fas fa-user-check" style="color:#059669;"></i> ${esc(ex.chiefInvigilator)}</div>` : '<span style="color:var(--muted);">Assigned by Admin</span>'}
+                                            ${ex.assistantInvigilator ? `<div style="font-size:11px;color:var(--muted);">Asst: ${esc(ex.assistantInvigilator)}</div>` : ''}
+                                        </td>
+                                        <td style="padding:10px 12px;">
+                                            <span class="badge ok" style="font-size:11px;">${esc(ex.status || 'Scheduled')}</span>
+                                        </td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                `}
+            </div>
+        `;
+
+        panel.innerHTML = html;
+
+    } catch (err) {
+        panel.innerHTML = `<div style="color:var(--danger);padding:20px;text-align:center;">Failed to load timetable: ${esc(err.message)}</div>`;
+    }
+}
+
+async function downloadTeacherTimetablePDF(className) {
+    className = className || currentClass || 'Class';
+    toast('Generating Timetable PDF...', 'ok');
+    const el = document.getElementById('printableTeacherClassTimetable');
+    if (!el) return toast('No timetable available to download.', 'bad');
+
+    try {
+        const sName = schoolSettings.schoolName || schoolName() || 'School';
+        const docMarkup = `
+            <div style="font-family:'Inter',Arial,sans-serif;padding:24px;color:#0f172a;max-width:800px;margin:0 auto;">
+                <div style="text-align:center;margin-bottom:16px;border-bottom:2px solid #0f172a;padding-bottom:12px;">
+                    <h1 style="margin:0 0 4px;font-size:20px;font-weight:800;color:#1e1b4b;text-transform:uppercase;">${sName}</h1>
+                    <h2 style="margin:0 0 4px;font-size:15px;font-weight:700;color:#4f46e5;">Official Weekly Class Timetable</h2>
+                    <p style="margin:0;font-size:13px;font-weight:600;color:#334155;">Class: ${className} &nbsp;|&nbsp; Academic Year: ${schoolInfo.academicYear || '2025/2026'} &nbsp;|&nbsp; Term: ${schoolInfo.term || '1'}</p>
+                </div>
+                ${el.innerHTML}
+                <div style="margin-top:20px;padding-top:12px;border-top:1px dashed #cbd5e1;display:flex;justify-content:space-between;font-size:11px;color:#64748b;">
+                    <span>Issued by Administration</span>
+                    <span>Printed / Downloaded: ${new Date().toLocaleDateString()}</span>
+                </div>
+            </div>
+        `;
+
+        // Direct printable PDF / print fallback
+        const win = window.open('', '_blank', 'width=950,height=800');
+        win.document.write(`<!DOCTYPE html><html><head><title>${className} Timetable</title>
+            <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+            <style>
+                body{margin:20px;font-family:'Inter',sans-serif;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
+                table{width:100%;border-collapse:collapse;margin-top:10px;}
+                th,td{border:1px solid #cbd5e1;padding:8px;text-align:center;}
+                @media print { body { margin: 0; } }
+            </style>
+        </head><body>${docMarkup}<script>window.onload=function(){window.print();};<\/script></body></html>`);
+        win.document.close();
+        toast('Timetable PDF print dialogue opened.', 'ok');
+    } catch (err) {
+        toast('Failed to export PDF: ' + err.message, 'bad');
+    }
+}
+
+async function downloadTeacherExamsPDF(className) {
+    className = className || currentClass || 'Class';
+    toast('Generating Examination Schedule PDF...', 'ok');
+    const el = document.getElementById('printableTeacherClassExams');
+    if (!el) return toast('No exam schedule available to download.', 'bad');
+
+    try {
+        const sName = schoolSettings.schoolName || schoolName() || 'School';
+        const docMarkup = `
+            <div style="font-family:'Inter',Arial,sans-serif;padding:24px;color:#0f172a;max-width:850px;margin:0 auto;">
+                <div style="text-align:center;margin-bottom:16px;border-bottom:2px solid #0f172a;padding-bottom:12px;">
+                    <h1 style="margin:0 0 4px;font-size:20px;font-weight:800;color:#1e1b4b;text-transform:uppercase;">${sName}</h1>
+                    <h2 style="margin:0 0 4px;font-size:15px;font-weight:700;color:#7c3aed;">Official Examination Timetable &amp; Schedule</h2>
+                    <p style="margin:0;font-size:13px;font-weight:600;color:#334155;">Class: ${className} &nbsp;|&nbsp; Academic Year: ${schoolInfo.academicYear || '2025/2026'} &nbsp;|&nbsp; Term: ${schoolInfo.term || '1'}</p>
+                </div>
+                ${el.innerHTML}
+                <div style="margin-top:20px;padding-top:12px;border-top:1px dashed #cbd5e1;display:flex;justify-content:space-between;font-size:11px;color:#64748b;">
+                    <span>Official Schedule — School Administration</span>
+                    <span>Printed / Downloaded: ${new Date().toLocaleDateString()}</span>
+                </div>
+            </div>
+        `;
+
+        const win = window.open('', '_blank', 'width=950,height=800');
+        win.document.write(`<!DOCTYPE html><html><head><title>${className} Examination Schedule</title>
+            <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+            <style>
+                body{margin:20px;font-family:'Inter',sans-serif;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
+                table{width:100%;border-collapse:collapse;margin-top:10px;}
+                th,td{border:1px solid #cbd5e1;padding:8px;}
+                @media print { body { margin: 0; } }
+            </style>
+        </head><body>${docMarkup}<script>window.onload=function(){window.print();};<\/script></body></html>`);
+        win.document.close();
+        toast('Exam Schedule PDF print dialogue opened.', 'ok');
+    } catch (err) {
+        toast('Failed to export Exam PDF: ' + err.message, 'bad');
+    }
+}
+
+function printTeacherTimetable(className) {
+    downloadTeacherTimetablePDF(className);
+}
+
+function printTeacherExams(className) {
+    downloadTeacherExamsPDF(className);
 }
 
 function openModal(html) {

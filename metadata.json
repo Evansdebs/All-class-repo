@@ -1,6 +1,6 @@
 {
   "name": "OneReal School Management System",
-  "description": "Comprehensive school management system featuring teacher portal, admin dashboard, student portal, report sheet generation, and grading analytics.",
+  "description": "Comprehensive school management system featuring teacher portal, admin dashboard, student & alumni transcript portal, exam & teacher timetables, PWA offline sync, and automated cloud backups.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

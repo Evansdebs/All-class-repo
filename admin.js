@@ -537,10 +537,11 @@ function switchSection(sectionId) {
         'dashboard':'Dashboard','students':'Students','teachers':'Teachers',
         'classes':'Classes','subjects':'Subjects','academic-years':'Academic Years & Terms',
         'grading':'Grading System','results':'Results','reports':'Reports',
+        'timetables':'Timetables & Examination Management',
         'settings':'School Settings','firebase':'Firebase Cloud Connection',
         'attendance':'Attendance',
         'audit-logs':'Activity Logs','data-management':'Data Management',
-        'templates':'Excel & CSV Templates'
+        'templates':'Excel & CSV Templates','backup-sync':'One-Click Cloud Backup & Offline Sync'
     };
     const bc = document.getElementById('breadcrumb');
     if (bc) bc.innerHTML = `<span>${labels[sectionId] || sectionId}</span>`;
@@ -574,6 +575,7 @@ function switchSection(sectionId) {
         case 'grading':        renderGradingScales(); break;
         case 'results':        renderResultsTable(); break;
         case 'reports':        renderReportsTable(); break;
+        case 'timetables':     initAdminTimetablesSection(); break;
         case 'users':          renderUsersTable(); break;
         case 'firebase':       loadFirebaseForm(); break;
         case 'audit-logs':     renderAuditLogs(); break;
@@ -581,6 +583,7 @@ function switchSection(sectionId) {
         case 'templates':      renderTemplatesSection(); break;
         case 'attendance':     renderAttendanceSection(); break;
         case 'settings':       loadSettingsForm(); break;
+        case 'backup-sync':    loadBackupSnapshots(); break;
     }
 }
 
@@ -5864,7 +5867,7 @@ function parseConfigJsonInput() {
 window.addEventListener('storage', (e) => {
     if (['reports', 'scores', 'results', 'students', 'classes', 'subjects', 'schoolSettings'].includes(e.key)) {
         loadAllData({ refreshForms: false }).then(() => {
-            const activeSection = document.querySelector('.admin-section.active');
+            const activeSection = document.querySelector('.admin-section.active, .content-section.active');
             if (activeSection) {
                 const id = activeSection.id;
                 if (id === 'section-reports') renderReportsTable();
@@ -5874,3 +5877,1046 @@ window.addEventListener('storage', (e) => {
         });
     }
 });
+
+// ─── One-Click Cloud Backup & Offline Sync Management ─────────────────────────
+async function loadBackupSnapshots() {
+    const tbody = document.getElementById('backupSnapshotsTbody');
+    const countEl = document.getElementById('backup-snapshot-count');
+    const pwaStatusEl = document.getElementById('pwa-sync-status');
+    const pwaHintEl = document.getElementById('pwa-pending-hint');
+
+    // Update PWA offline status indicator
+    if (pwaStatusEl && pwaHintEl) {
+        const isOnline = navigator.onLine;
+        const pendingCount = (window.OneRealSync && typeof window.OneRealSync.getPendingCount === 'function')
+            ? window.OneRealSync.getPendingCount() : 0;
+
+        pwaStatusEl.textContent = isOnline ? 'Ready (Online)' : 'Offline Working Mode';
+        pwaStatusEl.style.color = isOnline ? '#10b981' : '#f59e0b';
+        pwaHintEl.textContent = `${pendingCount} Offline Action${pendingCount === 1 ? '' : 's'} Pending`;
+    }
+
+    if (!tbody) return;
+    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; padding:20px; color:#94a3b8;"><i class="fas fa-spinner fa-spin"></i> Fetching snapshots from cloud storage...</td></tr>`;
+
+    try {
+        const res = await fetch('/api/backup/list');
+        if (!res.ok) throw new Error('Failed to retrieve backup list');
+        const snapshots = await res.json();
+
+        if (countEl) countEl.textContent = snapshots.length;
+
+        if (!snapshots || snapshots.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; padding:28px; color:#64748b;">No snapshots found. Click <strong>"Create Instant Cloud Snapshot"</strong> above to create your first safe backup!</td></tr>`;
+            return;
+        }
+
+        tbody.innerHTML = snapshots.map(s => {
+            const sizeKb = (s.size / 1024).toFixed(1);
+            const dateStr = s.created ? new Date(s.created).toLocaleString() : 'N/A';
+            const isManual = s.isManual;
+            const recordsSummary = `${s.recordsSummary?.students || 0} students, ${s.recordsSummary?.teachers || 0} staff, ${s.recordsSummary?.results || 0} marks`;
+
+            return `
+                <tr>
+                    <td>
+                        <div style="font-weight:600; font-family:monospace; font-size:13px; color:#1e293b;">
+                            <i class="fas fa-file-archive" style="color:#3b82f6; margin-right:6px;"></i>${s.filename}
+                        </div>
+                    </td>
+                    <td style="font-size:13px; color:#475569;">${dateStr}</td>
+                    <td>
+                        <span class="badge ${isManual ? 'badge-verified' : 'badge-pending'}">
+                            ${isManual ? 'Manual Instant Snapshot' : 'Daily Automated Export'}
+                        </span>
+                    </td>
+                    <td style="font-size:12.5px; color:#64748b;">${recordsSummary}</td>
+                    <td style="font-size:13px; font-weight:600; color:#334155;">${sizeKb} KB</td>
+                    <td>
+                        <div style="display:flex; gap:6px; align-items:center;">
+                            <button class="btn-admin btn-ghost btn-sm" onclick="downloadCloudSnapshot('${s.filename}')" title="Download Snapshot file">
+                                <i class="fas fa-download"></i>
+                            </button>
+                            <button class="btn-admin btn-ghost btn-sm" style="color:#059669;" onclick="restoreCloudSnapshot('${s.filename}')" title="Restore database to this point in time">
+                                <i class="fas fa-undo"></i> Restore
+                            </button>
+                            <button class="btn-admin btn-ghost btn-sm" style="color:#ef4444;" onclick="deleteCloudSnapshot('${s.filename}')" title="Delete snapshot">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </div>
+                    </td>
+                </tr>
+            `;
+        }).join('');
+
+    } catch (err) {
+        console.error('Backup load error:', err);
+        tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; padding:20px; color:#ef4444;"><i class="fas fa-exclamation-circle"></i> Error loading cloud snapshots: ${err.message}</td></tr>`;
+    }
+}
+
+async function triggerManualCloudSnapshot() {
+    try {
+        showToast('Initiating cloud backup snapshot...', 'info');
+        const res = await fetch('/api/backup/snapshot', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ reason: 'Admin Manual Snapshot' })
+        });
+        if (!res.ok) throw new Error('Snapshot generation failed');
+        const data = await res.json();
+        showToast('Instant Cloud Snapshot Created Successfully!', 'success');
+        await loadBackupSnapshots();
+    } catch (e) {
+        showToast(`Backup error: ${e.message}`, 'error');
+    }
+}
+
+function downloadCloudSnapshot(filename) {
+    window.location.href = `/api/backup/download?file=${encodeURIComponent(filename)}`;
+}
+
+async function restoreCloudSnapshot(filename) {
+    if (!confirm(`Are you sure you want to restore the database from snapshot "${filename}"?\n\nThis will safely reset all records to the point in time when this snapshot was created. A safety backup of your current database will be generated automatically before restoring.`)) {
+        return;
+    }
+
+    try {
+        showToast('Restoring database snapshot...', 'info');
+        const res = await fetch('/api/backup/restore-snapshot', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ filename })
+        });
+        if (!res.ok) {
+            const err = await res.json();
+            throw new Error(err.error || 'Failed to restore snapshot');
+        }
+        showToast('Database Restored Successfully! Reloading records...', 'success');
+        setTimeout(() => {
+            window.location.reload();
+        }, 1200);
+    } catch (e) {
+        showToast(`Restore error: ${e.message}`, 'error');
+    }
+}
+
+async function deleteCloudSnapshot(filename) {
+    if (!confirm(`Delete snapshot "${filename}" permanently?`)) return;
+    try {
+        const res = await fetch(`/api/backup/delete?file=${encodeURIComponent(filename)}`, {
+            method: 'DELETE'
+        });
+        if (res.ok) {
+            showToast('Snapshot deleted.', 'info');
+            await loadBackupSnapshots();
+        } else {
+            showToast('Failed to delete snapshot', 'error');
+        }
+    } catch (e) {
+        showToast(`Delete error: ${e.message}`, 'error');
+    }
+}
+
+function exportBrowserSnapshot() {
+    try {
+        const fullData = {
+            exportDate: new Date().toISOString(),
+            system: 'OneReal School Management System',
+            state: adminState
+        };
+        const blob = new Blob([JSON.stringify(fullData, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `onereal-local-backup-${new Date().toISOString().split('T')[0]}.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        showToast('Local JSON Backup downloaded.', 'success');
+    } catch (e) {
+        showToast('Export error: ' + e.message, 'error');
+    }
+}
+
+async function forceSyncOfflineQueue() {
+    if (window.OneRealSync && typeof window.OneRealSync.syncNow === 'function') {
+        showToast('Triggering offline mutation sync...', 'info');
+        await window.OneRealSync.syncNow();
+        await loadBackupSnapshots();
+    } else {
+        showToast('Offline sync service ready. No pending offline items.', 'info');
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ADMIN TIMETABLES & EXAMINATION MANAGEMENT
+// ─────────────────────────────────────────────────────────────────────────────
+let currentAdminTtClass = '';
+let currentAdminTtData = null;
+let currentAdminConfigPeriods = [];
+let adminExamsList = [];
+
+function switchAdminTimetableSubTab(tab) {
+    const btnClass = document.getElementById('adminTtSubTabClass');
+    const btnExams = document.getElementById('adminTtSubTabExams');
+    const btnTeachers = document.getElementById('adminTtSubTabTeachers');
+
+    const viewClass = document.getElementById('adminTtViewClass');
+    const viewExams = document.getElementById('adminTtViewExams');
+    const viewTeachers = document.getElementById('adminTtViewTeachers');
+
+    if (!btnClass || !viewClass) return;
+
+    [btnClass, btnExams, btnTeachers].forEach(b => {
+        if (b) {
+            b.classList.remove('btn-primary');
+            b.classList.add('btn-ghost');
+        }
+    });
+    [viewClass, viewExams, viewTeachers].forEach(v => {
+        if (v) v.style.display = 'none';
+    });
+
+    if (tab === 'class') {
+        btnClass.classList.add('btn-primary');
+        btnClass.classList.remove('btn-ghost');
+        viewClass.style.display = 'block';
+        loadAdminClassTimetable();
+    } else if (tab === 'exams') {
+        btnExams.classList.add('btn-primary');
+        btnExams.classList.remove('btn-ghost');
+        viewExams.style.display = 'block';
+        renderAdminExamsTable();
+    } else if (tab === 'teachers') {
+        btnTeachers.classList.add('btn-primary');
+        btnTeachers.classList.remove('btn-ghost');
+        viewTeachers.style.display = 'block';
+        populateAdminTtTeacherDropdown();
+        renderAdminTeacherSchedule();
+    }
+}
+
+function initAdminTimetablesSection() {
+    populateAdminTtClassDropdown();
+    loadAdminClassTimetable();
+    renderAdminExamsTable();
+}
+
+function populateAdminTtClassDropdown() {
+    const classSelect = document.getElementById('adminTtClassSelect');
+    const examFilter = document.getElementById('adminExamClassFilter');
+    const aemClass = document.getElementById('aem-class');
+
+    const classes = (adminState.classes || []).filter(c => !c.isDeleted && c.status !== 'inactive');
+    const classOptions = classes.map(c => `<option value="${escHtml(c.name || c.id)}">${escHtml(c.name || c.id)}</option>`).join('');
+
+    if (classSelect) {
+        const prev = classSelect.value;
+        classSelect.innerHTML = classOptions || '<option value="">No classes configured</option>';
+        if (prev && classes.some(c => (c.name || c.id) === prev)) classSelect.value = prev;
+    }
+
+    if (examFilter) {
+        const prev = examFilter.value;
+        examFilter.innerHTML = '<option value="">All Classes</option>' + classOptions;
+        if (prev) examFilter.value = prev;
+    }
+
+    if (aemClass) {
+        aemClass.innerHTML = '<option value="">-- Select Class --</option>' + classOptions;
+    }
+}
+
+function populateAdminTtTeacherDropdown() {
+    const teacherSelect = document.getElementById('adminTtTeacherSelect');
+    if (!teacherSelect) return;
+    const teachers = (adminState.teachers || []).filter(t => !t.isDeleted && t.status !== 'inactive');
+    teacherSelect.innerHTML = teachers.length
+        ? teachers.map(t => `<option value="${escHtml(t.name)}">${escHtml(t.name)} (${escHtml(t.role || 'Teacher')})</option>`).join('')
+        : '<option value="">No teachers registered</option>';
+}
+
+function getDefaultAdminPeriods() {
+    return [
+        { period: 1, time: '08:00 - 08:45', name: 'Period 1' },
+        { period: 2, time: '08:45 - 09:30', name: 'Period 2' },
+        { period: 3, time: '09:30 - 10:15', name: 'Period 3' },
+        { period: 4, time: '10:15 - 10:45', isBreak: true, name: 'Snack Break' },
+        { period: 5, time: '10:45 - 11:30', name: 'Period 4' },
+        { period: 6, time: '11:30 - 12:15', name: 'Period 5' },
+        { period: 7, time: '12:15 - 01:00', isBreak: true, name: 'Lunch & Rest' },
+        { period: 8, time: '01:00 - 01:45', name: 'Period 6' },
+        { period: 9, time: '01:45 - 02:30', name: 'Period 7' }
+    ];
+}
+
+async function loadAdminClassTimetable() {
+    const classSelect = document.getElementById('adminTtClassSelect');
+    if (!classSelect || !classSelect.value) {
+        populateAdminTtClassDropdown();
+    }
+    const cls = classSelect ? classSelect.value : '';
+    currentAdminTtClass = cls;
+
+    const classObj = (adminState.classes || []).find(c => (c.name || c.id) === cls);
+    const teacherLabel = document.getElementById('adminTtClassTeacherLabel');
+    if (teacherLabel) {
+        if (classObj && classObj.classTeacherName) {
+            teacherLabel.textContent = `· Class Teacher: ${classObj.classTeacherName}`;
+        } else {
+            teacherLabel.textContent = '';
+        }
+    }
+
+    if (!cls) {
+        const container = document.getElementById('adminTtGridContainer');
+        if (container) container.innerHTML = '<div style="padding:24px;text-align:center;color:var(--text-secondary);">Please select or create a class first.</div>';
+        return;
+    }
+
+    try {
+        const res = await fetch(`/api/timetables?class=${encodeURIComponent(cls)}`);
+        if (res.ok) {
+            const list = await res.json();
+            if (Array.isArray(list) && list.length > 0) {
+                currentAdminTtData = list[0];
+            } else {
+                currentAdminTtData = {
+                    id: 'tt-' + cls.toLowerCase().replace(/\s+/g, '-'),
+                    class: cls,
+                    classId: classObj?.id || cls,
+                    periods: getDefaultAdminPeriods(),
+                    schedule: { Monday: [], Tuesday: [], Wednesday: [], Thursday: [], Friday: [] }
+                };
+            }
+        } else {
+            throw new Error('Server request failed');
+        }
+    } catch (e) {
+        currentAdminTtData = {
+            id: 'tt-' + cls.toLowerCase().replace(/\s+/g, '-'),
+            class: cls,
+            classId: classObj?.id || cls,
+            periods: getDefaultAdminPeriods(),
+            schedule: { Monday: [], Tuesday: [], Wednesday: [], Thursday: [], Friday: [] }
+        };
+    }
+
+    if (!currentAdminTtData.schedule) {
+        currentAdminTtData.schedule = { Monday: [], Tuesday: [], Wednesday: [], Thursday: [], Friday: [] };
+    }
+    ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'].forEach(day => {
+        if (!Array.isArray(currentAdminTtData.schedule[day])) currentAdminTtData.schedule[day] = [];
+    });
+
+    renderAdminTimetableGrid();
+}
+
+function renderAdminTimetableGrid() {
+    const container = document.getElementById('adminTtGridContainer');
+    const badge = document.getElementById('adminTtSlotCountBadge');
+    const titleEl = document.getElementById('adminTtGridTitle');
+    if (!container || !currentAdminTtData) return;
+
+    if (titleEl) titleEl.textContent = `${currentAdminTtData.class || currentAdminTtClass} · Weekly Master Schedule`;
+
+    const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+    const periods = currentAdminTtData.periods || getDefaultAdminPeriods();
+
+    let totalSlotsAssigned = 0;
+    days.forEach(d => {
+        (currentAdminTtData.schedule[d] || []).forEach(slot => {
+            if (slot.subject) totalSlotsAssigned++;
+        });
+    });
+
+    if (badge) badge.textContent = `${totalSlotsAssigned} Slots Assigned`;
+
+    let html = `
+        <table class="tt-grid-table">
+            <thead>
+                <tr>
+                    <th class="tt-time-col"><i class="fas fa-clock"></i> Time / Period</th>
+                    <th>Monday</th>
+                    <th>Tuesday</th>
+                    <th>Wednesday</th>
+                    <th>Thursday</th>
+                    <th>Friday</th>
+                </tr>
+            </thead>
+            <tbody>
+    `;
+
+    periods.forEach(p => {
+        if (p.isBreak) {
+            html += `
+                <tr class="tt-break-row">
+                    <td class="tt-time-cell"><strong>${escHtml(p.name || 'Break')}</strong><br><span style="font-size:11px;">${escHtml(p.time || '')}</span></td>
+                    <td colspan="5" class="tt-break-cell"><i class="fas fa-mug-hot" style="margin-right:6px;"></i> ${escHtml(p.name || 'Break Interval')} (${escHtml(p.time || '')})</td>
+                </tr>
+            `;
+        } else {
+            html += `
+                <tr>
+                    <td class="tt-time-cell">
+                        <strong>Period ${p.period}</strong>
+                        <div style="font-size:11px;color:var(--text-secondary);margin-top:2px;">${escHtml(p.time || '')}</div>
+                    </td>
+            `;
+
+            days.forEach(day => {
+                const daySlots = currentAdminTtData.schedule[day] || [];
+                const slot = daySlots.find(s => Number(s.period) === Number(p.period));
+
+                if (slot && slot.subject) {
+                    html += `
+                        <td>
+                            <div class="tt-slot-card" onclick="openAdminEditSlotModal('${day}', ${p.period})" title="Click to edit slot">
+                                <div>
+                                    <div class="tt-subject-badge">${escHtml(slot.subject)}</div>
+                                    <div class="tt-teacher-name"><i class="fas fa-user-circle"></i> ${escHtml(slot.teacher || 'Unassigned')}</div>
+                                </div>
+                                ${slot.room ? `<div class="tt-room-name"><i class="fas fa-map-marker-alt"></i> ${escHtml(slot.room)}</div>` : ''}
+                            </div>
+                        </td>
+                    `;
+                } else {
+                    html += `
+                        <td>
+                            <div class="tt-slot-empty" onclick="openAdminEditSlotModal('${day}', ${p.period})" title="Click to assign slot">
+                                <span><i class="fas fa-plus" style="margin-right:4px;"></i> Assign</span>
+                            </div>
+                        </td>
+                    `;
+                }
+            });
+
+            html += `</tr>`;
+        }
+    });
+
+    html += `
+            </tbody>
+        </table>
+    `;
+
+    container.innerHTML = html;
+}
+
+function openAdminEditSlotModal(day, period) {
+    if (!currentAdminTtData) return;
+    const modal = document.getElementById('adminEditSlotModal');
+    const dayInput = document.getElementById('aesm-day');
+    const periodInput = document.getElementById('aesm-period');
+    const targetInfo = document.getElementById('aesm-targetInfo');
+    const subjectSelect = document.getElementById('aesm-subject');
+    const teacherSelect = document.getElementById('aesm-teacher');
+    const roomInput = document.getElementById('aesm-room');
+
+    if (!modal) return;
+
+    dayInput.value = day;
+    periodInput.value = period;
+
+    const pObj = (currentAdminTtData.periods || []).find(p => Number(p.period) === Number(period));
+    const timeLabel = pObj?.time ? ` (${pObj.time})` : '';
+    if (targetInfo) targetInfo.textContent = `${day} · Period ${period}${timeLabel}`;
+
+    // Fill subjects dropdown
+    const subjects = (adminState.subjects || []).filter(s => !s.isDeleted && s.status !== 'inactive');
+    if (subjectSelect) {
+        subjectSelect.innerHTML = '<option value="">-- Select Subject --</option>' +
+            subjects.map(s => `<option value="${escHtml(s.name || s.id)}">${escHtml(s.name || s.id)}</option>`).join('');
+    }
+
+    // Fill teachers dropdown
+    const teachers = (adminState.teachers || []).filter(t => !t.isDeleted && t.status !== 'inactive');
+    if (teacherSelect) {
+        teacherSelect.innerHTML = '<option value="">-- Select Teacher --</option>' +
+            teachers.map(t => `<option value="${escHtml(t.name)}">${escHtml(t.name)} (${escHtml(t.role || 'Teacher')})</option>`).join('');
+    }
+
+    // Find current values
+    const daySlots = currentAdminTtData.schedule[day] || [];
+    const currentSlot = daySlots.find(s => Number(s.period) === Number(period));
+
+    if (currentSlot) {
+        if (subjectSelect) subjectSelect.value = currentSlot.subject || '';
+        if (teacherSelect) teacherSelect.value = currentSlot.teacher || '';
+        if (roomInput) roomInput.value = currentSlot.room || '';
+    } else {
+        if (subjectSelect) subjectSelect.value = '';
+        if (teacherSelect) teacherSelect.value = '';
+        if (roomInput) roomInput.value = '';
+    }
+
+    modal.style.display = 'flex';
+}
+
+function saveAdminTimetableSlot() {
+    if (!currentAdminTtData) return;
+    const day = document.getElementById('aesm-day')?.value;
+    const period = parseInt(document.getElementById('aesm-period')?.value);
+    const subject = document.getElementById('aesm-subject')?.value || '';
+    const teacher = document.getElementById('aesm-teacher')?.value || '';
+    const room = document.getElementById('aesm-room')?.value || '';
+
+    if (!subject) {
+        showToast('Please select a subject for this period.', 'warning');
+        return;
+    }
+
+    if (!currentAdminTtData.schedule[day]) currentAdminTtData.schedule[day] = [];
+    const idx = currentAdminTtData.schedule[day].findIndex(s => Number(s.period) === Number(period));
+
+    const newSlot = { period, subject, teacher, room };
+    if (idx >= 0) {
+        currentAdminTtData.schedule[day][idx] = newSlot;
+    } else {
+        currentAdminTtData.schedule[day].push(newSlot);
+    }
+
+    closeModal('adminEditSlotModal');
+    renderAdminTimetableGrid();
+    showToast(`Assigned ${subject} for ${day} Period ${period}. Click 'Save Timetable' when done.`, 'info');
+}
+
+function clearAdminTimetableSlot() {
+    if (!currentAdminTtData) return;
+    const day = document.getElementById('aesm-day')?.value;
+    const period = parseInt(document.getElementById('aesm-period')?.value);
+
+    if (currentAdminTtData.schedule[day]) {
+        currentAdminTtData.schedule[day] = currentAdminTtData.schedule[day].filter(s => Number(s.period) !== Number(period));
+    }
+
+    closeModal('adminEditSlotModal');
+    renderAdminTimetableGrid();
+    showToast(`Cleared ${day} Period ${period} slot.`, 'info');
+}
+
+async function saveAdminClassTimetable() {
+    if (!currentAdminTtData) return showToast('No timetable to save.', 'warning');
+    const cls = document.getElementById('adminTtClassSelect')?.value || currentAdminTtData.class;
+    if (!cls) return showToast('Please select a class.', 'warning');
+
+    currentAdminTtData.class = cls;
+    currentAdminTtData.updatedAt = new Date().toISOString();
+
+    try {
+        showToast('Saving class timetable to server...', 'info');
+        const res = await fetch('/api/timetables', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(currentAdminTtData)
+        });
+
+        if (!res.ok) {
+            const err = await res.json();
+            throw new Error(err.error || 'Failed to save timetable');
+        }
+
+        const saved = await res.json();
+        currentAdminTtData = saved;
+        showToast(`Official timetable for ${cls} saved & published! Teachers can now view & download it.`, 'success');
+        if (typeof logActivity === 'function') {
+            await logActivity('Timetable Published', `Admin published weekly timetable for ${cls}`, currentAdminTtData.id);
+        }
+    } catch (e) {
+        showToast(`Save error: ${e.message}`, 'error');
+    }
+}
+
+function openConfigurePeriodsModal() {
+    if (!currentAdminTtData) return;
+    currentAdminConfigPeriods = JSON.parse(JSON.stringify(currentAdminTtData.periods || getDefaultAdminPeriods()));
+    renderAdminConfigurePeriodsModal();
+    const modal = document.getElementById('adminConfigurePeriodsModal');
+    if (modal) modal.style.display = 'flex';
+}
+
+function renderAdminConfigurePeriodsModal() {
+    const listEl = document.getElementById('acpm-periodsList');
+    if (!listEl) return;
+
+    listEl.innerHTML = currentAdminConfigPeriods.map((p, idx) => `
+        <div style="display:flex; align-items:center; gap:8px; background:var(--surface-2); padding:8px 10px; border-radius:6px; border:1px solid var(--border);">
+            <div style="width:28px; font-weight:700; font-size:12px; color:var(--text-secondary); text-align:center;">#${idx+1}</div>
+            <input type="text" class="admin-input" style="flex:1; padding:6px 10px; font-size:12.5px;" value="${escHtml(p.name || '')}" placeholder="e.g. Period 1, Lunch Break" oninput="currentAdminConfigPeriods[${idx}].name = this.value">
+            <input type="text" class="admin-input" style="width:130px; padding:6px 10px; font-size:12.5px;" value="${escHtml(p.time || '')}" placeholder="08:00 - 08:45" oninput="currentAdminConfigPeriods[${idx}].time = this.value">
+            <label style="display:flex; align-items:center; gap:4px; font-size:12px; cursor:pointer; margin:0 4px;">
+                <input type="checkbox" ${p.isBreak ? 'checked' : ''} onchange="currentAdminConfigPeriods[${idx}].isBreak = this.checked"> Break?
+            </label>
+            <button type="button" class="btn-admin btn-ghost btn-sm" style="color:#ef4444; padding:4px 8px;" onclick="currentAdminConfigPeriods.splice(${idx}, 1); renderAdminConfigurePeriodsModal();">
+                <i class="fas fa-trash"></i>
+            </button>
+        </div>
+    `).join('');
+}
+
+function addAdminConfigPeriodRow() {
+    const nextNum = currentAdminConfigPeriods.filter(p => !p.isBreak).length + 1;
+    currentAdminConfigPeriods.push({
+        period: nextNum,
+        name: `Period ${nextNum}`,
+        time: '08:00 - 08:45',
+        isBreak: false
+    });
+    renderAdminConfigurePeriodsModal();
+}
+
+function saveAdminConfiguredPeriods() {
+    if (!currentAdminTtData) return;
+    let pNum = 1;
+    currentAdminConfigPeriods.forEach(p => {
+        if (!p.isBreak) {
+            p.period = pNum++;
+        }
+    });
+
+    currentAdminTtData.periods = currentAdminConfigPeriods;
+    closeModal('adminConfigurePeriodsModal');
+    renderAdminTimetableGrid();
+    showToast('Updated period timeline. Click "Save Timetable" to persist changes.', 'info');
+}
+
+function downloadAdminTimetablePDF() {
+    const cls = currentAdminTtClass || 'Class';
+    const gridEl = document.getElementById('adminTtGridContainer');
+    if (!gridEl || !gridEl.querySelector('table')) return showToast('No timetable to print/export.', 'warning');
+
+    const win = window.open('', '_blank', 'width=950,height=800');
+    win.document.write(`<!DOCTYPE html><html><head><title>${cls} Timetable</title>
+        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+        <style>
+            body { margin: 24px; font-family: 'Inter', sans-serif; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+            .header { text-align: center; margin-bottom: 20px; border-bottom: 2px solid #0f172a; padding-bottom: 12px; }
+            .header h1 { margin: 0 0 6px; font-size: 20px; color: #1e1b4b; text-transform: uppercase; }
+            .header p { margin: 0; font-size: 13px; color: #475569; font-weight: 600; }
+            table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+            th, td { border: 1px solid #cbd5e1; padding: 10px 8px; text-align: center; font-size: 12px; }
+            th { background: #4f46e5; color: #ffffff; }
+            .tt-break-cell { background: #fef3c7; color: #92400e; font-weight: bold; }
+            @media print { body { margin: 0; } }
+        </style>
+    </head><body>
+        <div class="header">
+            <h1>Official Weekly Master Timetable</h1>
+            <p>Class: ${cls} &nbsp;|&nbsp; Published by School Administration</p>
+        </div>
+        ${gridEl.innerHTML}
+        <div style="margin-top: 24px; display: flex; justify-content: space-between; font-size: 11px; color: #64748b; border-top: 1px dashed #cbd5e1; padding-top: 8px;">
+            <span>Official Record — School Administration</span>
+            <span>Printed: ${new Date().toLocaleDateString()}</span>
+        </div>
+        <script>window.onload=function(){ window.print(); };<\/script>
+    </body></html>`);
+    win.document.close();
+}
+
+function exportAdminTimetableExcel() {
+    window.location.href = `/api/export/timetable.xlsx?class=${encodeURIComponent(currentAdminTtClass || '')}`;
+}
+
+function printAdminTimetable() {
+    downloadAdminTimetablePDF();
+}
+
+// ── EXAMINATION SCHEDULES & INVIGILATION ────────────────────────────────────
+async function renderAdminExamsTable() {
+    const tbody = document.getElementById('adminExamsTableBody');
+    const countEl = document.getElementById('adminExamsCount');
+    const search = (document.getElementById('adminExamSearch')?.value || '').toLowerCase();
+    const classFilter = document.getElementById('adminExamClassFilter')?.value || '';
+
+    if (!tbody) return;
+
+    try {
+        const res = await fetch('/api/timetables/exams');
+        if (!res.ok) throw new Error('Failed to load exams');
+        adminExamsList = await res.json();
+    } catch (e) {
+        adminExamsList = [];
+    }
+
+    let filtered = adminExamsList;
+    if (classFilter) filtered = filtered.filter(e => e.class === classFilter);
+    if (search) {
+        filtered = filtered.filter(e =>
+            (e.subject || '').toLowerCase().includes(search) ||
+            (e.title || '').toLowerCase().includes(search) ||
+            (e.hall || '').toLowerCase().includes(search) ||
+            (e.chiefInvigilator || '').toLowerCase().includes(search)
+        );
+    }
+
+    if (countEl) countEl.textContent = `${filtered.length} examination${filtered.length === 1 ? '' : 's'} scheduled`;
+
+    if (!filtered || filtered.length === 0) {
+        tbody.innerHTML = `
+            <tr>
+                <td colspan="8" style="text-align:center; padding:36px 20px; color:var(--text-secondary);">
+                    <i class="fas fa-clipboard-list" style="font-size:32px; color:var(--border); margin-bottom:10px; display:block;"></i>
+                    <div style="font-size:14.5px; font-weight:600; color:var(--text-primary); margin-bottom:4px;">No examinations scheduled yet</div>
+                    <div style="font-size:13px; margin-bottom:14px;">Create your first official examination schedule paper for any class.</div>
+                    <button type="button" class="btn-admin btn-primary btn-sm" onclick="openAdminAddExamModal()">
+                        <i class="fas fa-plus"></i> Schedule New Exam
+                    </button>
+                </td>
+            </tr>
+        `;
+        return;
+    }
+
+    tbody.innerHTML = filtered.map(exam => `
+        <tr>
+            <td style="font-weight:600; color:var(--primary);">${escHtml(exam.subject || '—')}</td>
+            <td><strong style="color:var(--text-primary); font-size:13px;">${escHtml(exam.title || 'Official Exam Paper')}</strong></td>
+            <td><span class="badge badge-verified">${escHtml(exam.class || 'All Classes')}</span></td>
+            <td>
+                <div style="font-size:13px; font-weight:600; color:var(--text-primary);">${exam.examDate ? new Date(exam.examDate).toLocaleDateString(undefined, { weekday:'short', month:'short', day:'numeric', year:'numeric' }) : '—'}</div>
+                <div style="font-size:11.5px; color:var(--text-secondary);">${escHtml(exam.startTime || '')} - ${escHtml(exam.endTime || '')}</div>
+            </td>
+            <td><i class="fas fa-map-marker-alt" style="color:#059669; margin-right:4px;"></i> ${escHtml(exam.hall || 'Main Hall')}</td>
+            <td>
+                <div style="font-size:12.5px; font-weight:600;">Chief: ${escHtml(exam.chiefInvigilator || 'TBD')}</div>
+                ${exam.assistantInvigilator ? `<div style="font-size:11.5px; color:var(--text-secondary);">Asst: ${escHtml(exam.assistantInvigilator)}</div>` : ''}
+            </td>
+            <td>
+                <span class="badge ${exam.status === 'Completed' ? 'badge-verified' : exam.status === 'In Progress' ? 'badge-pending' : 'badge-verified'}">
+                    ${escHtml(exam.status || 'Scheduled')}
+                </span>
+            </td>
+            <td style="text-align:right;">
+                <div style="display:flex; justify-content:flex-end; gap:6px;">
+                    <button type="button" class="btn-admin btn-ghost btn-sm" onclick="openAdminAddExamModal('${exam.id}')" title="Edit Exam Paper">
+                        <i class="fas fa-edit"></i>
+                    </button>
+                    <button type="button" class="btn-admin btn-ghost btn-sm" style="color:#ef4444;" onclick="deleteAdminExam('${exam.id}')" title="Delete Exam Paper">
+                        <i class="fas fa-trash"></i>
+                    </button>
+                </div>
+            </td>
+        </tr>
+    `).join('');
+}
+
+function openAdminAddExamModal(examId) {
+    const modal = document.getElementById('adminExamModal');
+    const titleEl = document.getElementById('adminExamModalTitle');
+    const idInput = document.getElementById('aem-id');
+    const classSelect = document.getElementById('aem-class');
+    const subjectSelect = document.getElementById('aem-subject');
+    const titleInput = document.getElementById('aem-title');
+    const dateInput = document.getElementById('aem-date');
+    const termSelect = document.getElementById('aem-term');
+    const startTimeInput = document.getElementById('aem-startTime');
+    const endTimeInput = document.getElementById('aem-endTime');
+    const hallInput = document.getElementById('aem-hall');
+    const chiefSelect = document.getElementById('aem-chiefInvigilator');
+    const asstSelect = document.getElementById('aem-assistantInvigilator');
+    const statusSelect = document.getElementById('aem-status');
+
+    if (!modal) return;
+
+    // Populate dropdowns
+    populateAdminTtClassDropdown();
+
+    const subjects = (adminState.subjects || []).filter(s => !s.isDeleted && s.status !== 'inactive');
+    if (subjectSelect) {
+        subjectSelect.innerHTML = '<option value="">-- Select Subject --</option>' +
+            subjects.map(s => `<option value="${escHtml(s.name || s.id)}">${escHtml(s.name || s.id)}</option>`).join('');
+    }
+
+    const teachers = (adminState.teachers || []).filter(t => !t.isDeleted && t.status !== 'inactive');
+    const teacherOpts = '<option value="">-- Select Staff --</option>' +
+        teachers.map(t => `<option value="${escHtml(t.name)}">${escHtml(t.name)}</option>`).join('');
+
+    if (chiefSelect) chiefSelect.innerHTML = teacherOpts;
+    if (asstSelect) asstSelect.innerHTML = teacherOpts;
+
+    if (examId) {
+        const exam = adminExamsList.find(e => e.id === examId);
+        if (!exam) return;
+        if (titleEl) titleEl.innerHTML = '<i class="fas fa-edit"></i> Edit Examination Paper';
+        idInput.value = exam.id;
+        if (classSelect) classSelect.value = exam.class || '';
+        if (subjectSelect) subjectSelect.value = exam.subject || '';
+        if (titleInput) titleInput.value = exam.title || '';
+        if (dateInput) dateInput.value = exam.examDate || '';
+        if (termSelect) termSelect.value = exam.term || '1';
+        if (startTimeInput) startTimeInput.value = exam.startTime || '09:00';
+        if (endTimeInput) endTimeInput.value = exam.endTime || '11:00';
+        if (hallInput) hallInput.value = exam.hall || '';
+        if (chiefSelect) chiefSelect.value = exam.chiefInvigilator || '';
+        if (asstSelect) asstSelect.value = exam.assistantInvigilator || '';
+        if (statusSelect) statusSelect.value = exam.status || 'Scheduled';
+    } else {
+        if (titleEl) titleEl.innerHTML = '<i class="fas fa-clipboard-check"></i> Schedule Examination Paper';
+        idInput.value = '';
+        if (classSelect) classSelect.value = document.getElementById('adminTtClassSelect')?.value || '';
+        if (subjectSelect) subjectSelect.value = '';
+        if (titleInput) titleInput.value = '';
+        if (dateInput) dateInput.value = new Date().toISOString().split('T')[0];
+        if (termSelect) termSelect.value = '1';
+        if (startTimeInput) startTimeInput.value = '09:00';
+        if (endTimeInput) endTimeInput.value = '11:00';
+        if (hallInput) hallInput.value = 'Main Assembly Hall';
+        if (chiefSelect) chiefSelect.value = '';
+        if (asstSelect) asstSelect.value = '';
+        if (statusSelect) statusSelect.value = 'Scheduled';
+    }
+
+    modal.style.display = 'flex';
+}
+
+async function submitAdminExamForm() {
+    const id = document.getElementById('aem-id')?.value;
+    const cls = document.getElementById('aem-class')?.value;
+    const subject = document.getElementById('aem-subject')?.value;
+    const title = document.getElementById('aem-title')?.value;
+    const examDate = document.getElementById('aem-date')?.value;
+    const term = document.getElementById('aem-term')?.value;
+    const startTime = document.getElementById('aem-startTime')?.value;
+    const endTime = document.getElementById('aem-endTime')?.value;
+    const hall = document.getElementById('aem-hall')?.value;
+    const chiefInvigilator = document.getElementById('aem-chiefInvigilator')?.value;
+    const assistantInvigilator = document.getElementById('aem-assistantInvigilator')?.value;
+    const status = document.getElementById('aem-status')?.value || 'Scheduled';
+
+    if (!cls || !subject || !title || !examDate || !startTime || !endTime || !hall) {
+        showToast('Please complete all required examination fields (*).', 'warning');
+        return;
+    }
+
+    const payload = {
+        class: cls,
+        subject,
+        title,
+        examDate,
+        term,
+        startTime,
+        endTime,
+        hall,
+        chiefInvigilator,
+        assistantInvigilator,
+        status
+    };
+
+    try {
+        let res;
+        if (id) {
+            res = await fetch(`/api/timetables/exams/${encodeURIComponent(id)}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+        } else {
+            res = await fetch('/api/timetables/exams', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+        }
+
+        if (!res.ok) {
+            const err = await res.json();
+            throw new Error(err.error || 'Failed to save examination schedule');
+        }
+
+        closeModal('adminExamModal');
+        showToast(`Examination schedule for ${subject} (${cls}) saved!`, 'success');
+        await renderAdminExamsTable();
+    } catch (e) {
+        showToast(`Error: ${e.message}`, 'error');
+    }
+}
+
+async function deleteAdminExam(id) {
+    if (!confirm('Are you sure you want to delete this scheduled examination paper?')) return;
+    try {
+        const res = await fetch(`/api/timetables/exams/${encodeURIComponent(id)}`, {
+            method: 'DELETE'
+        });
+        if (!res.ok) throw new Error('Failed to delete examination paper');
+        showToast('Examination schedule deleted.', 'info');
+        await renderAdminExamsTable();
+    } catch (e) {
+        showToast(`Error: ${e.message}`, 'error');
+    }
+}
+
+function downloadAdminExamsPDF() {
+    const tableEl = document.getElementById('adminExamsTable');
+    if (!tableEl || !adminExamsList.length) return showToast('No examination schedule found to export.', 'warning');
+
+    const clone = tableEl.cloneNode(true);
+    clone.querySelectorAll('th:last-child, td:last-child').forEach(el => el.remove());
+
+    const win = window.open('', '_blank', 'width=950,height=800');
+    win.document.write(`<!DOCTYPE html><html><head><title>Master Examination Schedule</title>
+        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+        <style>
+            body { margin: 24px; font-family: 'Inter', sans-serif; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+            .header { text-align: center; margin-bottom: 20px; border-bottom: 2px solid #0f172a; padding-bottom: 12px; }
+            .header h1 { margin: 0 0 6px; font-size: 20px; color: #1e1b4b; text-transform: uppercase; }
+            .header p { margin: 0; font-size: 13px; color: #475569; font-weight: 600; }
+            table { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 12px; }
+            th, td { border: 1px solid #cbd5e1; padding: 8px 10px; text-align: left; }
+            th { background: #1e1b4b; color: #ffffff; }
+            @media print { body { margin: 0; } }
+        </style>
+    </head><body>
+        <div class="header">
+            <h1>Master Examination Timetable</h1>
+            <p>Official Schedules &amp; Invigilation Notices — School Administration</p>
+        </div>
+        ${clone.outerHTML}
+        <div style="margin-top: 24px; display: flex; justify-content: space-between; font-size: 11px; color: #64748b; border-top: 1px dashed #cbd5e1; padding-top: 8px;">
+            <span>Official Document — School Administration</span>
+            <span>Printed: ${new Date().toLocaleDateString()}</span>
+        </div>
+        <script>window.onload=function(){ window.print(); };<\/script>
+    </body></html>`);
+    win.document.close();
+}
+
+function exportAdminExamsExcel() {
+    window.location.href = '/api/export/exams.xlsx';
+}
+
+function printAdminExams() {
+    downloadAdminExamsPDF();
+}
+
+// ── TEACHER SCHEDULES & CLASH DETECTOR ──────────────────────────────────────
+async function renderAdminTeacherSchedule() {
+    const teacherSelect = document.getElementById('adminTtTeacherSelect');
+    const teacherName = teacherSelect ? teacherSelect.value : '';
+    const statsRow = document.getElementById('adminTeacherStatsRow');
+    const content = document.getElementById('adminTeacherScheduleContent');
+    const badge = document.getElementById('adminTtClashBadge');
+
+    if (!content || !teacherName) {
+        if (content) content.innerHTML = '<div style="padding:20px; text-align:center; color:var(--text-secondary);">Select a teacher to inspect their weekly workload.</div>';
+        return;
+    }
+
+    try {
+        const res = await fetch(`/api/timetables/teacher/${encodeURIComponent(teacherName)}`);
+        if (!res.ok) throw new Error('Failed to load teacher schedule');
+        const data = await res.json();
+
+        const weekly = data.weeklySchedule || { Monday: [], Tuesday: [], Wednesday: [], Thursday: [], Friday: [] };
+        const clashes = data.clashes || [];
+        const invigilation = data.invigilationDuties || [];
+
+        let totalPeriods = 0;
+        const classesCovered = new Set();
+        ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'].forEach(d => {
+            (weekly[d] || []).forEach(slot => {
+                totalPeriods++;
+                if (slot.class) classesCovered.add(slot.class);
+            });
+        });
+
+        // Update badge
+        if (badge) {
+            if (clashes.length > 0) {
+                badge.innerHTML = `<span class="badge badge-danger" style="font-size:12.5px; padding:4px 10px;"><i class="fas fa-exclamation-triangle"></i> ${clashes.length} Schedule Clash Detected!</span>`;
+            } else {
+                badge.innerHTML = `<span class="badge badge-verified" style="font-size:12.5px; padding:4px 10px;"><i class="fas fa-check-circle"></i> No Schedule Clashes Detected</span>`;
+            }
+        }
+
+        // Stats row
+        if (statsRow) {
+            statsRow.innerHTML = `
+                <div style="background:var(--surface-2); border:1px solid var(--border); padding:12px 14px; border-radius:8px;">
+                    <div style="font-size:11px; color:var(--text-secondary); text-transform:uppercase; font-weight:700;">Weekly Teaching Load</div>
+                    <div style="font-size:20px; font-weight:700; color:var(--primary); margin-top:2px;">${totalPeriods} <span style="font-size:12px; font-weight:500; color:var(--text-secondary);">Periods / Week</span></div>
+                </div>
+                <div style="background:var(--surface-2); border:1px solid var(--border); padding:12px 14px; border-radius:8px;">
+                    <div style="font-size:11px; color:var(--text-secondary); text-transform:uppercase; font-weight:700;">Classes Covered</div>
+                    <div style="font-size:20px; font-weight:700; color:var(--text-primary); margin-top:2px;">${classesCovered.size} <span style="font-size:12px; font-weight:500; color:var(--text-secondary);">Classes</span></div>
+                </div>
+                <div style="background:var(--surface-2); border:1px solid var(--border); padding:12px 14px; border-radius:8px;">
+                    <div style="font-size:11px; color:var(--text-secondary); text-transform:uppercase; font-weight:700;">Invigilations</div>
+                    <div style="font-size:20px; font-weight:700; color:#059669; margin-top:2px;">${invigilation.length} <span style="font-size:12px; font-weight:500; color:var(--text-secondary);">Exam Slots</span></div>
+                </div>
+            `;
+        }
+
+        // Clash alerts
+        let clashBanner = '';
+        if (clashes.length > 0) {
+            clashBanner = `
+                <div style="background:rgba(220,38,38,0.08); border:1.5px solid rgba(220,38,38,0.3); border-radius:8px; padding:12px 16px; margin-bottom:16px;">
+                    <div style="font-weight:700; color:#dc2626; font-size:13.5px; margin-bottom:4px;"><i class="fas fa-exclamation-triangle"></i> Timing Conflict Alert:</div>
+                    <ul style="margin:0; padding-left:20px; font-size:13px; color:#b91c1c;">
+                        ${clashes.map(c => `<li><strong>${c.day} Period ${c.period}:</strong> Double-assigned to <u>${escHtml(c.classA)} (${escHtml(c.subjectA)})</u> AND <u>${escHtml(c.classB)} (${escHtml(c.subjectB)})</u></li>`).join('')}
+                    </ul>
+                </div>
+            `;
+        }
+
+        // Weekly breakdown
+        let breakdownHtml = `
+            ${clashBanner}
+            <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:12px;">
+        `;
+
+        ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'].forEach(day => {
+            const slots = weekly[day] || [];
+            slots.sort((a, b) => a.period - b.period);
+            breakdownHtml += `
+                <div style="background:var(--surface-2); border:1px solid var(--border); border-radius:8px; padding:12px;">
+                    <div style="font-weight:700; font-size:13px; color:var(--text-primary); margin-bottom:8px; border-bottom:1px solid var(--border); padding-bottom:4px;">
+                        ${day} (${slots.length} period${slots.length === 1 ? '' : 's'})
+                    </div>
+                    ${slots.length === 0 ? '<div style="font-size:12px; color:var(--text-secondary); font-style:italic;">No teaching periods</div>' : ''}
+                    <div style="display:flex; flex-direction:column; gap:6px;">
+                        ${slots.map(s => `
+                            <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:6px 8px; font-size:12px;">
+                                <div style="font-weight:700; color:var(--primary);">Period ${s.period} · ${escHtml(s.subject)}</div>
+                                <div style="font-size:11px; color:var(--text-secondary); display:flex; justify-content:space-between; margin-top:2px;">
+                                    <span>${escHtml(s.class)}</span>
+                                    <span>${escHtml(s.room || '')}</span>
+                                </div>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+            `;
+        });
+
+        breakdownHtml += `</div>`;
+
+        // Invigilation list
+        if (invigilation.length > 0) {
+            breakdownHtml += `
+                <div style="margin-top:18px;">
+                    <h4 style="font-size:14px; margin-bottom:8px; color:var(--text-primary);"><i class="fas fa-user-shield" style="color:#059669;"></i> Assigned Invigilation Duties</h4>
+                    <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(280px, 1fr)); gap:10px;">
+                        ${invigilation.map(e => `
+                            <div style="background:var(--surface-2); border:1px solid var(--border); border-radius:8px; padding:10px 12px; font-size:12px;">
+                                <div style="font-weight:700; color:var(--text-primary); font-size:13px;">${escHtml(e.subject)} · ${escHtml(e.title || 'Exam')}</div>
+                                <div style="color:var(--text-secondary); margin-top:2px;">Class: <strong>${escHtml(e.class)}</strong> | Date: <strong>${e.examDate || '—'}</strong> (${escHtml(e.startTime || '')} - ${escHtml(e.endTime || '')})</div>
+                                <div style="color:#059669; font-size:11.5px; margin-top:4px;"><i class="fas fa-map-marker-alt"></i> Hall: ${escHtml(e.hall || 'Main Hall')}</div>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+            `;
+        }
+
+        content.innerHTML = breakdownHtml;
+
+    } catch (e) {
+        content.innerHTML = `<div style="padding:20px; color:#ef4444;">Error loading teacher schedule: ${e.message}</div>`;
+    }
+}
+
+

@@ -603,11 +603,284 @@ function buildUnifiedStudentReportHTML(student) {
             </div>
         </div>
 
-        <div style="display:flex;justify-content:space-between;padding-top:14px;border-top:1px dashed #cbd5e1;font-size:12px;color:#475569;">
-            <div><strong>Class Teacher:</strong> ____________________</div>
-            <div><strong>Headteacher:</strong> ${settings.headTeacher || '____________________'}</div>
-        </div>
+        ${(() => {
+            const allTeachers = JSON.parse(localStorage.getItem('teachers') || '[]');
+            const tMatch = allTeachers.find(t => t.class === student.class || (Array.isArray(t.classes) && t.classes.includes(student.class)));
+            const teacherName = tMatch ? (tMatch.name || tMatch.fullName) : (d.classTeacher || '—');
+            const teacherSig = localStorage.getItem('teacherSignature_' + student.class) || (tMatch && tMatch.signature) || null;
+            const headName = settings.headTeacher || schoolInfo.headTeacher || '—';
+            const headSig = settings.headTeacherSignature || schoolInfo.headTeacherSignature || localStorage.getItem('headTeacherSignature') || null;
+
+            return `
+            <div style="display:flex;justify-content:space-between;padding-top:14px;border-top:1px dashed #cbd5e1;font-size:12px;color:#475569;gap:20px;">
+                <div style="flex:1;">
+                    <div><strong>Class Teacher:</strong> ${teacherName}</div>
+                    ${teacherSig ? `<div style="height:28px;margin-top:2px;display:flex;align-items:flex-end;"><img src="${teacherSig}" style="max-height:26px;max-width:140px;object-fit:contain;" alt="Class Teacher Signature"></div>` : '<div style="height:24px;margin-top:4px;"></div>'}
+                    <div style="border-top:1px solid #94a3b8;padding-top:3px;font-size:10.5px;color:#94a3b8;">Signature</div>
+                </div>
+                <div style="flex:1;text-align:right;">
+                    <div><strong>Headteacher:</strong> ${headName}</div>
+                    ${headSig ? `<div style="height:28px;margin-top:2px;display:flex;justify-content:flex-end;align-items:flex-end;"><img src="${headSig}" style="max-height:26px;max-width:140px;object-fit:contain;" alt="Headteacher Signature"></div>` : '<div style="height:24px;margin-top:4px;"></div>'}
+                    <div style="border-top:1px solid #94a3b8;padding-top:3px;font-size:10.5px;color:#94a3b8;">Signature</div>
+                </div>
+            </div>`;
+        })()}
     </div>`;
+}
+
+function handleStudentLogout() {
+    sessionStorage.removeItem('studentAuthId');
+    sessionStorage.removeItem('studentClass');
+    activeStudentData = null;
+    document.getElementById('studentMainContent').style.display = 'none';
+    document.getElementById('studentAuthOverlay').style.display = 'flex';
+}
+
+let activeStudentTab = 'report';
+
+function switchStudentTab(tab) {
+    activeStudentTab = tab;
+    
+    // Update button states
+    ['report', 'timetable', 'exams'].forEach(t => {
+        const btn = document.getElementById(`studentTab${t.charAt(0).toUpperCase() + t.slice(1)}Btn`);
+        const sec = document.getElementById(`studentSection${t.charAt(0).toUpperCase() + t.slice(1)}`);
+        if (btn) {
+            if (t === tab) btn.classList.add('active');
+            else btn.classList.remove('active');
+        }
+        if (sec) {
+            sec.style.display = (t === tab) ? 'block' : 'none';
+        }
+    });
+
+    if (tab === 'timetable' && activeStudentData) {
+        renderStudentTimetable(activeStudentData);
+    } else if (tab === 'exams' && activeStudentData) {
+        renderStudentExams(activeStudentData);
+    }
+}
+
+async function renderStudentTimetable(student) {
+    const container = document.getElementById('studentTimetableContainer');
+    if (!container || !student) return;
+
+    container.innerHTML = '<div style="text-align:center;padding:30px;color:#64748b;"><i class="fas fa-spinner fa-spin fa-2x"></i><p style="margin-top:10px;">Loading class timetable…</p></div>';
+
+    try {
+        const [ttRes, cfgRes] = await Promise.all([
+            fetch('/api/timetables'),
+            fetch('/api/timetables/config')
+        ]);
+
+        const timetables = ttRes.ok ? await ttRes.json() : [];
+        const config = cfgRes.ok ? await cfgRes.json() : {
+            days: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'],
+            periods: [
+                { period: 1, time: '08:00 - 08:45' },
+                { period: 2, time: '08:45 - 09:30' },
+                { period: 3, time: '09:30 - 10:15' },
+                { period: 4, time: '10:45 - 11:30' },
+                { period: 5, time: '11:30 - 12:15' },
+                { period: 6, time: '12:15 - 13:00' },
+                { period: 7, time: '13:30 - 14:15' },
+                { period: 8, time: '14:15 - 15:00' }
+            ]
+        };
+
+        const studentClass = student.class || '';
+        const classSlots = timetables.filter(t => (t.class || '').toLowerCase() === studentClass.toLowerCase());
+
+        document.getElementById('studentTimetableSubtitle').textContent = `Official Weekly Schedule for ${studentClass} (Managed by Administration)`;
+
+        if (!classSlots.length) {
+            container.innerHTML = `
+                <div style="text-align:center;padding:40px 20px;color:#64748b;">
+                    <div style="width:60px;height:60px;background:#f1f5f9;border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 16px;font-size:24px;color:#94a3b8;">
+                        <i class="fas fa-calendar-times"></i>
+                    </div>
+                    <h4 style="font-size:16px;color:#1e293b;margin:0 0 6px;font-weight:700;">No Timetable Published Yet</h4>
+                    <p style="font-size:13px;max-width:420px;margin:0 auto;line-height:1.5;">The school administration has not published a timetable for <strong>${studentClass}</strong> yet. When it is ready, your weekly schedule will appear here automatically.</p>
+                </div>
+            `;
+            return;
+        }
+
+        const days = config.days || ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+        const periods = config.periods || [];
+
+        let tableHtml = `
+            <div style="margin-bottom:14px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;">
+                <div>
+                    <span style="font-size:16px;font-weight:800;color:#0f172a;">${studentClass} Timetable</span>
+                    <span style="font-size:12px;background:#e0e7ff;color:#4338ca;padding:3px 10px;border-radius:12px;font-weight:700;margin-left:8px;">${classSlots.length} Slots Scheduled</span>
+                </div>
+                <div style="font-size:12px;color:#64748b;">
+                    <i class="fas fa-lock"></i> Read-only portal view
+                </div>
+            </div>
+            <table style="width:100%;border-collapse:collapse;min-width:650px;text-align:center;font-size:12px;">
+                <thead>
+                    <tr style="background:#0f172a;color:#ffffff;">
+                        <th style="padding:10px;border:1px solid #1e293b;width:110px;text-align:center;">Period / Time</th>
+                        ${days.map(d => `<th style="padding:10px;border:1px solid #1e293b;">${d}</th>`).join('')}
+                    </tr>
+                </thead>
+                <tbody>
+        `;
+
+        periods.forEach(p => {
+            tableHtml += `<tr>`;
+            tableHtml += `
+                <td style="padding:10px 8px;border:1px solid #e2e8f0;background:#f8fafc;font-weight:700;color:#334155;">
+                    <div>Period ${p.period}</div>
+                    <div style="font-size:10.5px;color:#64748b;font-weight:normal;margin-top:2px;">${p.time}</div>
+                </td>
+            `;
+
+            days.forEach(day => {
+                const slot = classSlots.find(s => String(s.period) === String(p.period) && (s.day || '').toLowerCase() === day.toLowerCase());
+                if (slot && slot.subject) {
+                    tableHtml += `
+                        <td style="padding:8px;border:1px solid #e2e8f0;background:#eef2ff;vertical-align:top;">
+                            <div style="font-weight:700;color:#3730a3;font-size:13px;">${slot.subject}</div>
+                            ${slot.teacher ? `<div style="font-size:11px;color:#4f46e5;margin-top:3px;"><i class="fas fa-user-tie"></i> ${slot.teacher}</div>` : ''}
+                            ${slot.room ? `<div style="font-size:10.5px;color:#64748b;margin-top:2px;"><i class="fas fa-door-open"></i> ${slot.room}</div>` : ''}
+                        </td>
+                    `;
+                } else {
+                    tableHtml += `
+                        <td style="padding:8px;border:1px solid #e2e8f0;background:#ffffff;color:#cbd5e1;">
+                            —
+                        </td>
+                    `;
+                }
+            });
+
+            tableHtml += `</tr>`;
+        });
+
+        tableHtml += `
+                </tbody>
+            </table>
+        `;
+
+        container.innerHTML = tableHtml;
+
+    } catch (err) {
+        container.innerHTML = `<div style="color:#ef4444;text-align:center;padding:20px;">Failed to load timetable: ${err.message}</div>`;
+    }
+}
+
+async function renderStudentExams(student) {
+    const container = document.getElementById('studentExamsContainer');
+    if (!container || !student) return;
+
+    container.innerHTML = '<div style="text-align:center;padding:30px;color:#64748b;"><i class="fas fa-spinner fa-spin fa-2x"></i><p style="margin-top:10px;">Loading examination schedule…</p></div>';
+
+    try {
+        const res = await fetch('/api/timetables/exams');
+        const allExams = res.ok ? await res.json() : [];
+
+        const studentClass = student.class || '';
+        const classExams = allExams.filter(e => (e.class || '').toLowerCase() === studentClass.toLowerCase());
+
+        document.getElementById('studentExamsSubtitle').textContent = `Official Examinations Schedule for ${studentClass}`;
+
+        if (!classExams.length) {
+            container.innerHTML = `
+                <div style="text-align:center;padding:40px 20px;color:#64748b;">
+                    <div style="width:60px;height:60px;background:#fdf4ff;border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 16px;font-size:24px;color:#c084fc;">
+                        <i class="fas fa-clipboard-check"></i>
+                    </div>
+                    <h4 style="font-size:16px;color:#1e293b;margin:0 0 6px;font-weight:700;">No Examinations Scheduled</h4>
+                    <p style="font-size:13px;max-width:420px;margin:0 auto;line-height:1.5;">There are currently no examinations scheduled for <strong>${studentClass}</strong>. Exam timetables set by administration will be shown here.</p>
+                </div>
+            `;
+            return;
+        }
+
+        // Sort exams chronologically
+        classExams.sort((a, b) => (a.examDate || '').localeCompare(b.examDate || ''));
+
+        let tableHtml = `
+            <div style="margin-bottom:14px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;">
+                <div>
+                    <span style="font-size:16px;font-weight:800;color:#0f172a;">${studentClass} Examination Timetable</span>
+                    <span style="font-size:12px;background:#f3e8ff;color:#7e22ce;padding:3px 10px;border-radius:12px;font-weight:700;margin-left:8px;">${classExams.length} Paper(s)</span>
+                </div>
+                <div style="font-size:12px;color:#64748b;">
+                    <i class="fas fa-info-circle"></i> Please arrive 15 minutes before start time
+                </div>
+            </div>
+            <table style="width:100%;border-collapse:collapse;min-width:600px;text-align:left;font-size:12.5px;">
+                <thead>
+                    <tr style="background:#1e1b4b;color:#ffffff;">
+                        <th style="padding:10px 12px;border:1px solid #312e81;">Subject</th>
+                        <th style="padding:10px 12px;border:1px solid #312e81;">Exam Title</th>
+                        <th style="padding:10px 12px;border:1px solid #312e81;">Date & Time</th>
+                        <th style="padding:10px 12px;border:1px solid #312e81;">Hall / Room</th>
+                        <th style="padding:10px 12px;border:1px solid #312e81;">Invigilator</th>
+                    </tr>
+                </thead>
+                <tbody>
+        `;
+
+        classExams.forEach(ex => {
+            tableHtml += `
+                <tr style="border-bottom:1px solid #e2e8f0;">
+                    <td style="padding:12px;font-weight:700;color:#0f172a;">
+                        <i class="fas fa-book" style="color:#7c3aed;margin-right:6px;"></i> ${ex.subject}
+                    </td>
+                    <td style="padding:12px;color:#334155;">${ex.examTitle || 'Term Exam'}</td>
+                    <td style="padding:12px;">
+                        <div style="font-weight:600;color:#0f172a;"><i class="fas fa-calendar-day" style="color:#6366f1;"></i> ${ex.examDate}</div>
+                        <div style="font-size:11.5px;color:#64748b;">${ex.startTime || '09:00'} - ${ex.endTime || '11:00'}</div>
+                    </td>
+                    <td style="padding:12px;">
+                        <span style="display:inline-block;padding:3px 8px;border-radius:6px;background:#f1f5f9;font-weight:700;color:#334155;border:1px solid #e2e8f0;">
+                            ${ex.hall || 'Main Hall'}
+                        </span>
+                    </td>
+                    <td style="padding:12px;color:#475569;font-size:12px;">
+                        ${ex.chiefInvigilator ? `<div><i class="fas fa-user-check" style="color:#059669;"></i> ${ex.chiefInvigilator}</div>` : '<span style="color:#94a3b8;">Assigned by Admin</span>'}
+                    </td>
+                </tr>
+            `;
+        });
+
+        tableHtml += `
+                </tbody>
+            </table>
+        `;
+
+        container.innerHTML = tableHtml;
+
+    } catch (err) {
+        container.innerHTML = `<div style="color:#ef4444;text-align:center;padding:20px;">Failed to load examination schedule: ${err.message}</div>`;
+    }
+}
+
+function printStudentTimetable() {
+    const el = document.getElementById('studentTimetableContainer');
+    if (!el) return;
+    const win = window.open('', '_blank', 'width=900,height=750');
+    win.document.write(`<!DOCTYPE html><html><head><title>Class Timetable — ${activeStudentData ? activeStudentData.class : ''}</title>
+        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+        <style>body{margin:24px;font-family:'Inter',sans-serif;-webkit-print-color-adjust:exact;print-color-adjust:exact;}table{width:100%;border-collapse:collapse;}th,td{border:1px solid #cbd5e1;padding:8px;}</style>
+    </head><body><h2>Weekly Class Timetable — ${activeStudentData ? activeStudentData.class : ''}</h2>${el.innerHTML}<script>window.onload=function(){window.print();};<\/script></body></html>`);
+    win.document.close();
+}
+
+function printStudentExams() {
+    const el = document.getElementById('studentExamsContainer');
+    if (!el) return;
+    const win = window.open('', '_blank', 'width=900,height=750');
+    win.document.write(`<!DOCTYPE html><html><head><title>Examination Timetable — ${activeStudentData ? activeStudentData.class : ''}</title>
+        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+        <style>body{margin:24px;font-family:'Inter',sans-serif;-webkit-print-color-adjust:exact;print-color-adjust:exact;}table{width:100%;border-collapse:collapse;}th,td{border:1px solid #cbd5e1;padding:8px;}</style>
+    </head><body><h2>Examination Timetable — ${activeStudentData ? activeStudentData.class : ''}</h2>${el.innerHTML}<script>window.onload=function(){window.print();};<\/script></body></html>`);
+    win.document.close();
 }
 
 function printStudentReportSheet() {

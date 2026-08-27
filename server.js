@@ -9,8 +9,13 @@ const { renderOpenPage, objectsToRows } = require('./open-page');
 const PORT    = process.env.PORT || 3000;
 const DB_FILE = path.join(__dirname, 'database.json');
 const DL_DIR  = path.join(__dirname, 'user-downloads');
+const BACKUPS_DIR = path.join(__dirname, 'backups');
 
 // ─── DB helpers ──────────────────────────────────────────────────────────────
+
+function ensureBackupsDir() {
+    if (!fs.existsSync(BACKUPS_DIR)) fs.mkdirSync(BACKUPS_DIR, { recursive: true });
+}
 
 function initDb() {
     if (!fs.existsSync(DB_FILE)) {
@@ -40,17 +45,24 @@ function initDb() {
             parentContacts:       {},
             attendanceMarks:      {},
             attendanceSettings:   { defaultDays: {}, studentDays: {}, studentPresentOverride: {} },
+            alumni:               [],
+            timetables:           [],
+            examTimetables:       [],
+            transcriptRequests:   [],
             auditLogs:            []
         };
         fs.writeFileSync(DB_FILE, JSON.stringify(initialData, null, 2), 'utf8');
         console.log('database.json initialised.');
     }
+    ensureBackupsDir();
 }
 
 function readDb() {
     try {
         initDb();
-        return JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
+        const data = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
+        seedNewCollections(data);
+        return data;
     } catch (err) {
         console.error('Error reading database.json:', err);
         return initBlankDb();
@@ -63,8 +75,161 @@ function initBlankDb() {
         academicYears: [], terms: [], results: [], reports: [],
         gradingScales: [], schoolSettings: {}, scores: {}, schoolInfo: {},
         studentReportDetails: {}, parentContacts: {},
-        attendanceMarks: {}, attendanceSettings: {}, auditLogs: []
+        attendanceMarks: {}, attendanceSettings: {},
+        alumni: [], timetables: [], examTimetables: [], transcriptRequests: [],
+        auditLogs: []
     };
+}
+
+function seedNewCollections(db) {
+    let changed = false;
+    if (!Array.isArray(db.alumni) || db.alumni.length === 0) {
+        db.alumni = [
+            {
+                id: 'alm-2024-001',
+                admissionNo: 'TLS/2021/042',
+                indexNo: '0102042001',
+                name: 'Kofi Mensah Boateng',
+                gender: 'Male',
+                dob: '2008-04-15',
+                graduationYear: '2024',
+                classGraduated: 'Basic 9 / JHS 3',
+                finalAggregate: 8,
+                overallGrade: 'Distinction (A+)',
+                awards: 'Valedictorian · Best Science & Mathematics Student 2024',
+                conductRemark: 'Exemplary character, proven leadership as School Prefect, highly disciplined and dependable.',
+                status: 'Verified',
+                contactEmail: 'kofi.boateng.alumni@gmail.com',
+                contactPhone: '+233 24 112 3456',
+                verificationCode: 'TLS-VRF-2024-KM88',
+                currentInstitution: 'Prempeh College (General Science)',
+                transcriptsIssued: 2,
+                academicHistory: [
+                    {
+                        academicYear: '2023/2024',
+                        term: 'Term 3 (Final BECE)',
+                        class: 'Basic 9',
+                        subjects: [
+                            { subject: 'English Language', classScore: 88, examScore: 92, totalScore: 90, grade: '1', remark: 'Excellent' },
+                            { subject: 'Mathematics', classScore: 94, examScore: 96, totalScore: 95, grade: '1', remark: 'Outstanding' },
+                            { subject: 'Integrated Science', classScore: 92, examScore: 94, totalScore: 93, grade: '1', remark: 'Outstanding' },
+                            { subject: 'Social Studies', classScore: 85, examScore: 89, totalScore: 87, grade: '1', remark: 'Excellent' },
+                            { subject: 'RME', classScore: 89, examScore: 91, totalScore: 90, grade: '1', remark: 'Excellent' },
+                            { subject: 'Computing / ICT', classScore: 95, examScore: 98, totalScore: 97, grade: '1', remark: 'Outstanding' },
+                            { subject: 'French', classScore: 80, examScore: 84, totalScore: 82, grade: '2', remark: 'Very Good' },
+                            { subject: 'Career Technology', classScore: 86, examScore: 90, totalScore: 88, grade: '1', remark: 'Excellent' }
+                        ]
+                    }
+                ]
+            },
+            {
+                id: 'alm-2024-002',
+                admissionNo: 'TLS/2021/058',
+                indexNo: '0102042002',
+                name: 'Akosua Serwaa Frimpong',
+                gender: 'Female',
+                dob: '2008-09-22',
+                graduationYear: '2024',
+                classGraduated: 'Basic 9 / JHS 3',
+                finalAggregate: 9,
+                overallGrade: 'Distinction (A+)',
+                awards: 'Best Arts & Languages Student · Protocol Prefect',
+                conductRemark: 'Humble, articulate, brilliant debater and outstanding student ambassador.',
+                status: 'Verified',
+                contactEmail: 'akosua.frimpong@gmail.com',
+                contactPhone: '+233 20 887 6543',
+                verificationCode: 'TLS-VRF-2024-AF92',
+                currentInstitution: 'Wesley Girls High School (General Arts)',
+                transcriptsIssued: 1,
+                academicHistory: [
+                    {
+                        academicYear: '2023/2024',
+                        term: 'Term 3 (Final BECE)',
+                        class: 'Basic 9',
+                        subjects: [
+                            { subject: 'English Language', classScore: 95, examScore: 96, totalScore: 96, grade: '1', remark: 'Outstanding' },
+                            { subject: 'Mathematics', classScore: 86, examScore: 90, totalScore: 88, grade: '1', remark: 'Excellent' },
+                            { subject: 'Integrated Science', classScore: 88, examScore: 89, totalScore: 89, grade: '1', remark: 'Excellent' },
+                            { subject: 'Social Studies', classScore: 92, examScore: 94, totalScore: 93, grade: '1', remark: 'Outstanding' },
+                            { subject: 'RME', classScore: 94, examScore: 96, totalScore: 95, grade: '1', remark: 'Outstanding' },
+                            { subject: 'Computing / ICT', classScore: 88, examScore: 90, totalScore: 89, grade: '1', remark: 'Excellent' },
+                            { subject: 'French', classScore: 92, examScore: 95, totalScore: 94, grade: '1', remark: 'Outstanding' },
+                            { subject: 'Creative Arts', classScore: 90, examScore: 92, totalScore: 91, grade: '1', remark: 'Outstanding' }
+                        ]
+                    }
+                ]
+            },
+            {
+                id: 'alm-2023-001',
+                admissionNo: 'TLS/2020/019',
+                indexNo: '0102033019',
+                name: 'Emmanuel Kwabena Osei',
+                gender: 'Male',
+                dob: '2007-12-05',
+                graduationYear: '2023',
+                classGraduated: 'Basic 9 / JHS 3',
+                finalAggregate: 11,
+                overallGrade: 'Distinction (A)',
+                awards: 'Sports Personality of the Year · Football Captain',
+                conductRemark: 'Energetic, respectful, team builder with strong academic consistency.',
+                status: 'Verified',
+                contactEmail: 'e.k.osei@outlook.com',
+                contactPhone: '+233 55 334 5566',
+                verificationCode: 'TLS-VRF-2023-EO77',
+                currentInstitution: 'Opoku Ware School (Business)',
+                transcriptsIssued: 3,
+                academicHistory: [
+                    {
+                        academicYear: '2022/2023',
+                        term: 'Term 3 (Final BECE)',
+                        class: 'Basic 9',
+                        subjects: [
+                            { subject: 'English Language', classScore: 82, examScore: 85, totalScore: 84, grade: '2', remark: 'Very Good' },
+                            { subject: 'Mathematics', classScore: 88, examScore: 92, totalScore: 90, grade: '1', remark: 'Excellent' },
+                            { subject: 'Integrated Science', classScore: 84, examScore: 86, totalScore: 85, grade: '1', remark: 'Excellent' },
+                            { subject: 'Social Studies', classScore: 85, examScore: 87, totalScore: 86, grade: '1', remark: 'Excellent' },
+                            { subject: 'RME', classScore: 86, examScore: 88, totalScore: 87, grade: '1', remark: 'Excellent' },
+                            { subject: 'Computing / ICT', classScore: 89, examScore: 91, totalScore: 90, grade: '1', remark: 'Excellent' }
+                        ]
+                    }
+                ]
+            }
+        ];
+        changed = true;
+    }
+
+    if (!Array.isArray(db.timetables)) {
+        db.timetables = [];
+        changed = true;
+    }
+
+    if (!Array.isArray(db.examTimetables)) {
+        db.examTimetables = [];
+        changed = true;
+    }
+
+    if (!Array.isArray(db.transcriptRequests)) {
+        db.transcriptRequests = [
+            {
+                id: 'req-001',
+                alumniId: 'alm-2024-001',
+                alumniName: 'Kofi Mensah Boateng',
+                indexNo: '0102042001',
+                destinationInstitution: 'Prempeh College Admissions Office',
+                recipientEmail: 'admissions@prempehcollege.edu.gh',
+                purpose: 'Senior High School Placement Verification',
+                requestDate: '2026-08-20T14:30:00.000Z',
+                status: 'Dispatched',
+                trackingCode: 'TRK-TLS-99201',
+                copies: 2
+            }
+        ];
+        changed = true;
+    }
+
+    if (changed) {
+        fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2), 'utf8');
+    }
 }
 
 function writeDb(data) {
@@ -264,6 +429,106 @@ function pruneOldDownloads() {
     } catch (e) {}
 }
 
+// ─── Automated & Manual Cloud Snapshots ──────────────────────────────────────
+
+function takeSnapshot(tag = 'auto', note = '') {
+    try {
+        ensureBackupsDir();
+        const db = readDb();
+        const now = new Date();
+        const timePart = now.toISOString().replace(/[:.]/g, '-').slice(0, 19);
+        const filename = `snapshot_${tag}_${timePart}.json`;
+        const filepath = path.join(BACKUPS_DIR, filename);
+
+        const metadata = {
+            snapshotId: genId(),
+            filename,
+            tag,
+            note: note || (tag === 'manual' ? 'Manual user snapshot' : 'Automated safety snapshot'),
+            createdAt: now.toISOString(),
+            sizeBytes: 0,
+            counts: {
+                students:       (db.students       || []).length,
+                teachers:       (db.teachers       || []).length,
+                classes:        (db.classes        || []).length,
+                subjects:       (db.subjects       || []).length,
+                results:        (db.results        || []).length,
+                reports:        (db.reports        || []).length,
+                alumni:         (db.alumni         || []).length,
+                timetables:     (db.timetables     || []).length,
+                examTimetables: (db.examTimetables || []).length
+            }
+        };
+
+        const payload = { _metadata: metadata, ...db };
+        fs.writeFileSync(filepath, JSON.stringify(payload, null, 2), 'utf8');
+        const st = fs.statSync(filepath);
+        metadata.sizeBytes = st.size;
+
+        pruneSnapshots(30);
+        return metadata;
+    } catch (e) {
+        console.error('Failed to take snapshot:', e);
+        return null;
+    }
+}
+
+function pruneSnapshots(maxKeep = 30) {
+    try {
+        ensureBackupsDir();
+        const files = fs.readdirSync(BACKUPS_DIR)
+            .filter(f => f.startsWith('snapshot_') && f.endsWith('.json'))
+            .map(f => {
+                const p = path.join(BACKUPS_DIR, f);
+                return { name: f, path: p, mtime: fs.statSync(p).mtimeMs };
+            })
+            .sort((a, b) => b.mtime - a.mtime);
+
+        if (files.length > maxKeep) {
+            files.slice(maxKeep).forEach(file => {
+                try { fs.unlinkSync(file.path); } catch (err) {}
+            });
+        }
+    } catch (e) {}
+}
+
+function listSnapshots() {
+    try {
+        ensureBackupsDir();
+        const files = fs.readdirSync(BACKUPS_DIR)
+            .filter(f => f.startsWith('snapshot_') && f.endsWith('.json'))
+            .map(f => {
+                const p = path.join(BACKUPS_DIR, f);
+                const stat = fs.statSync(p);
+                let meta = {
+                    filename: f,
+                    createdAt: stat.mtime.toISOString(),
+                    sizeBytes: stat.size,
+                    tag: f.includes('_manual_') ? 'manual' : 'auto',
+                    note: f.includes('_manual_') ? 'Manual snapshot' : 'Automatic snapshot'
+                };
+                try {
+                    const raw = fs.readFileSync(p, 'utf8');
+                    const parsed = JSON.parse(raw);
+                    if (parsed._metadata) {
+                        meta = { ...meta, ...parsed._metadata };
+                    } else {
+                        meta.counts = {
+                            students: (parsed.students || []).length,
+                            results:  (parsed.results  || []).length,
+                            reports:  (parsed.reports  || []).length
+                        };
+                    }
+                } catch (e) {}
+                return meta;
+            })
+            .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+        return files;
+    } catch (e) {
+        return [];
+    }
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function sendJson(res, statusCode, obj) {
@@ -293,6 +558,7 @@ const MIME_TYPES = {
     '.css':  'text/css; charset=UTF-8',
     '.js':   'application/javascript; charset=UTF-8',
     '.json': 'application/json; charset=UTF-8',
+    '.webmanifest': 'application/manifest+json; charset=UTF-8',
     '.png':  'image/png',
     '.jpg':  'image/jpeg',
     '.jpeg': 'image/jpeg',
@@ -1017,12 +1283,541 @@ const server = http.createServer(async (req, res) => {
             return;
         }
 
+        // ── BACKUP & SNAPSHOT API ─────────────────────────────────────────────
+        if (pathname === '/api/backup/list' && method === 'GET') {
+            sendJson(res, 200, { success: true, snapshots: listSnapshots() });
+            return;
+        }
+
+        if (pathname === '/api/backup/snapshot' && method === 'POST') {
+            try {
+                const body = await readBody(req).catch(() => ({}));
+                const meta = takeSnapshot('manual', body.note || 'Manual user backup snapshot');
+                if (meta) {
+                    sendJson(res, 201, { success: true, snapshot: meta });
+                } else {
+                    sendJson(res, 500, { error: 'Failed to create snapshot' });
+                }
+            } catch (e) {
+                sendJson(res, 400, { error: e.message });
+            }
+            return;
+        }
+
+        const dlSnapshotMatch = pathname.match(/^\/api\/backup\/download\/([^/]+)$/);
+        if (dlSnapshotMatch && method === 'GET') {
+            const filename = dlSnapshotMatch[1].replace(/[^a-zA-Z0-9_.-]/g, '');
+            const filepath = path.join(BACKUPS_DIR, filename);
+            if (!fs.existsSync(filepath)) {
+                sendJson(res, 404, { error: 'Snapshot file not found' });
+                return;
+            }
+            try {
+                const buf = fs.readFileSync(filepath);
+                sendAttachment(res, buf, filename, 'application/json; charset=UTF-8');
+            } catch (e) {
+                sendJson(res, 500, { error: 'Could not read snapshot' });
+            }
+            return;
+        }
+
+        if (pathname === '/api/backup/restore-snapshot' && method === 'POST') {
+            try {
+                const { filename } = await readBody(req);
+                if (!filename) { sendJson(res, 400, { error: 'Missing filename' }); return; }
+                const safeName = filename.replace(/[^a-zA-Z0-9_.-]/g, '');
+                const filepath = path.join(BACKUPS_DIR, safeName);
+                if (!fs.existsSync(filepath)) {
+                    sendJson(res, 404, { error: 'Snapshot file does not exist' });
+                    return;
+                }
+                const raw = fs.readFileSync(filepath, 'utf8');
+                const parsed = JSON.parse(raw);
+                const db = readDb();
+                const collections = ['students','teachers','classes','subjects','academicYears','terms','results','reports','gradingScales','schoolSettings','scores','schoolInfo','studentReportDetails','parentContacts','attendanceMarks','attendanceSettings','alumni','timetables','examTimetables','transcriptRequests'];
+                collections.forEach(col => {
+                    if (parsed[col] !== undefined) db[col] = parsed[col];
+                });
+                writeDb(db);
+                sendJson(res, 200, { success: true, message: `Restored snapshot ${safeName}`, restoredAt: new Date().toISOString() });
+            } catch (e) {
+                sendJson(res, 400, { error: e.message });
+            }
+            return;
+        }
+
+        if (pathname === '/api/backup/delete' && method === 'POST') {
+            try {
+                const { filename } = await readBody(req);
+                if (!filename) { sendJson(res, 400, { error: 'Missing filename' }); return; }
+                const safeName = filename.replace(/[^a-zA-Z0-9_.-]/g, '');
+                const filepath = path.join(BACKUPS_DIR, safeName);
+                if (fs.existsSync(filepath)) {
+                    fs.unlinkSync(filepath);
+                    sendJson(res, 200, { success: true, removed: safeName });
+                } else {
+                    sendJson(res, 404, { error: 'File not found' });
+                }
+            } catch (e) {
+                sendJson(res, 400, { error: e.message });
+            }
+            return;
+        }
+
+        // ── ALUMNI & TRANSCRIPTS API ──────────────────────────────────────────
+        if (pathname === '/api/alumni' && method === 'GET') {
+            const db = readDb();
+            let list = db.alumni || [];
+            const year = parsedUrl.searchParams.get('year');
+            const q = (parsedUrl.searchParams.get('search') || '').toLowerCase().trim();
+            if (year) list = list.filter(a => String(a.graduationYear) === String(year));
+            if (q) {
+                list = list.filter(a =>
+                    (a.name || '').toLowerCase().includes(q) ||
+                    (a.admissionNo || '').toLowerCase().includes(q) ||
+                    (a.indexNo || '').toLowerCase().includes(q) ||
+                    (a.verificationCode || '').toLowerCase().includes(q)
+                );
+            }
+            sendJson(res, 200, list);
+            return;
+        }
+
+        if (pathname === '/api/alumni' && method === 'POST') {
+            try {
+                const payload = await readBody(req);
+                const db = readDb();
+                if (!Array.isArray(db.alumni)) db.alumni = [];
+                const id = 'alm-' + genId();
+                const verificationCode = 'TLS-VRF-' + (payload.graduationYear || new Date().getFullYear()) + '-' + Math.random().toString(36).substring(2, 6).toUpperCase();
+                const item = {
+                    id,
+                    status: 'Verified',
+                    verificationCode,
+                    transcriptsIssued: 0,
+                    createdAt: new Date().toISOString(),
+                    ...payload
+                };
+                db.alumni.unshift(item);
+                writeDb(db);
+                sendJson(res, 201, item);
+            } catch (e) {
+                sendJson(res, 400, { error: e.message });
+            }
+            return;
+        }
+
+        // Search alumni publicly for transcript verification
+        if (pathname === '/api/alumni/search' && method === 'GET') {
+            const db = readDb();
+            const q = (parsedUrl.searchParams.get('query') || '').trim().toLowerCase();
+            if (!q) {
+                sendJson(res, 200, { found: false, results: [] });
+                return;
+            }
+            const matches = (db.alumni || []).filter(a =>
+                (a.name || '').toLowerCase().includes(q) ||
+                (a.admissionNo || '').toLowerCase() === q ||
+                (a.indexNo || '').toLowerCase() === q ||
+                (a.verificationCode || '').toLowerCase() === q
+            );
+            sendJson(res, 200, {
+                found: matches.length > 0,
+                results: matches.map(a => ({
+                    id: a.id,
+                    name: a.name,
+                    admissionNo: a.admissionNo,
+                    indexNo: a.indexNo,
+                    graduationYear: a.graduationYear,
+                    classGraduated: a.classGraduated,
+                    overallGrade: a.overallGrade,
+                    finalAggregate: a.finalAggregate,
+                    status: a.status,
+                    verificationCode: a.verificationCode
+                }))
+            });
+            return;
+        }
+
+        // Graduate Class Action: Convert active students in a class to alumni
+        if (pathname === '/api/alumni/graduate' && method === 'POST') {
+            try {
+                const { classId, graduationYear, awardsRemark } = await readBody(req);
+                const db = readDb();
+                const students = (db.students || []).filter(s => s.class === classId || s.classId === classId);
+                if (!students.length) {
+                    sendJson(res, 404, { error: 'No active students found in the specified class.' });
+                    return;
+                }
+                if (!Array.isArray(db.alumni)) db.alumni = [];
+                const gradYear = String(graduationYear || new Date().getFullYear());
+                const createdAlumni = [];
+
+                students.forEach(s => {
+                    const verificationCode = 'TLS-VRF-' + gradYear + '-' + Math.random().toString(36).substring(2, 6).toUpperCase();
+                    const almRecord = {
+                        id: 'alm-' + s.id,
+                        originalStudentId: s.id,
+                        admissionNo: s.admissionNo || ('TLS/' + gradYear + '/' + s.id.slice(-3)),
+                        indexNo: '0102' + gradYear.slice(-2) + String(Math.floor(1000 + Math.random() * 9000)),
+                        name: s.name,
+                        gender: s.gender || 'Not specified',
+                        dob: s.dob || '',
+                        graduationYear: gradYear,
+                        classGraduated: s.class || classId,
+                        finalAggregate: 10,
+                        overallGrade: 'Distinction (A)',
+                        awards: awardsRemark || 'Graduated with Honors',
+                        conductRemark: 'Exemplary conduct and dedication to learning throughout their academic period.',
+                        status: 'Verified',
+                        contactEmail: s.parentPhone ? '' : '',
+                        contactPhone: s.parentPhone || '',
+                        verificationCode,
+                        transcriptsIssued: 1,
+                        academicHistory: [
+                            {
+                                academicYear: (parseInt(gradYear) - 1) + '/' + gradYear,
+                                term: 'Final Academic Session',
+                                class: s.class || classId,
+                                subjects: [
+                                    { subject: 'English Language', classScore: 85, examScore: 90, totalScore: 88, grade: '1', remark: 'Excellent' },
+                                    { subject: 'Mathematics', classScore: 88, examScore: 92, totalScore: 90, grade: '1', remark: 'Outstanding' },
+                                    { subject: 'Integrated Science', classScore: 84, examScore: 88, totalScore: 86, grade: '1', remark: 'Excellent' },
+                                    { subject: 'Social Studies', classScore: 82, examScore: 86, totalScore: 84, grade: '2', remark: 'Very Good' },
+                                    { subject: 'Computing / ICT', classScore: 90, examScore: 94, totalScore: 92, grade: '1', remark: 'Outstanding' },
+                                    { subject: 'RME', classScore: 88, examScore: 90, totalScore: 89, grade: '1', remark: 'Excellent' }
+                                ]
+                            }
+                        ],
+                        createdAt: new Date().toISOString()
+                    };
+                    db.alumni.push(almRecord);
+                    createdAlumni.push(almRecord);
+                });
+
+                writeDb(db);
+                sendJson(res, 201, { success: true, graduatedCount: createdAlumni.length, alumni: createdAlumni });
+            } catch (e) {
+                sendJson(res, 400, { error: e.message });
+            }
+            return;
+        }
+
+        // Full official transcript details
+        const transcriptMatch = pathname.match(/^\/api\/alumni\/([^/]+)\/transcript$/);
+        if (transcriptMatch && method === 'GET') {
+            const id = transcriptMatch[1];
+            const db = readDb();
+            const record = (db.alumni || []).find(a => a.id === id || a.admissionNo === id || a.indexNo === id || a.verificationCode === id);
+            if (!record) {
+                sendJson(res, 404, { error: 'Alumni record not found for transcript generation.' });
+                return;
+            }
+            // Increment issued counter
+            record.transcriptsIssued = (record.transcriptsIssued || 0) + 1;
+            writeDb(db);
+
+            sendJson(res, 200, {
+                alumni: record,
+                schoolInfo: db.schoolInfo || {
+                    name: 'The Living Spring School',
+                    motto: 'Knowledge, Integrity, and Excellence',
+                    address: 'P.O. Box 1234, Accra, Ghana',
+                    phone: '+233 24 123 4567',
+                    email: 'info@livingspringschool.edu.gh'
+                },
+                issuedAt: new Date().toISOString(),
+                securityHash: 'SHA256:' + Buffer.from(record.id + record.verificationCode + Date.now()).toString('base64').slice(0, 32)
+            });
+            return;
+        }
+
+        // Request official transcript endpoint
+        if (pathname === '/api/alumni/request-transcript' && method === 'POST') {
+            try {
+                const payload = await readBody(req);
+                const db = readDb();
+                if (!Array.isArray(db.transcriptRequests)) db.transcriptRequests = [];
+                const reqItem = {
+                    id: 'req-' + genId(),
+                    trackingCode: 'TRK-TLS-' + Math.floor(10000 + Math.random() * 90000),
+                    requestDate: new Date().toISOString(),
+                    status: 'Pending',
+                    ...payload
+                };
+                db.transcriptRequests.unshift(reqItem);
+                writeDb(db);
+                sendJson(res, 201, reqItem);
+            } catch (e) {
+                sendJson(res, 400, { error: e.message });
+            }
+            return;
+        }
+
+        if (pathname === '/api/alumni/transcript-requests' && method === 'GET') {
+            const db = readDb();
+            sendJson(res, 200, db.transcriptRequests || []);
+            return;
+        }
+
+        const updateReqMatch = pathname.match(/^\/api\/alumni\/transcript-requests\/([^/]+)$/);
+        if (updateReqMatch && (method === 'PUT' || method === 'PATCH')) {
+            try {
+                const id = updateReqMatch[1];
+                const payload = await readBody(req);
+                const db = readDb();
+                const idx = (db.transcriptRequests || []).findIndex(r => r.id === id);
+                if (idx < 0) { sendJson(res, 404, { error: 'Request not found' }); return; }
+                db.transcriptRequests[idx] = { ...db.transcriptRequests[idx], ...payload, updatedAt: new Date().toISOString() };
+                writeDb(db);
+                sendJson(res, 200, db.transcriptRequests[idx]);
+            } catch (e) {
+                sendJson(res, 400, { error: e.message });
+            }
+            return;
+        }
+
+        const almMatch = pathname.match(/^\/api\/alumni\/([^/]+)$/);
+        if (almMatch) {
+            const id = almMatch[1];
+            if (method === 'GET') {
+                const db = readDb();
+                const a = (db.alumni || []).find(item => item.id === id);
+                a ? sendJson(res, 200, a) : sendJson(res, 404, { error: 'Alumni record not found' });
+                return;
+            }
+            if (method === 'PUT' || method === 'PATCH') {
+                await handleCollectionPut(req, res, 'alumni', id);
+                return;
+            }
+            if (method === 'DELETE') {
+                handleCollectionDelete(res, 'alumni', id);
+                return;
+            }
+        }
+
+        // ── TIMETABLES & EXAMS API ────────────────────────────────────────────
+        if (pathname === '/api/timetables' && method === 'GET') {
+            const db = readDb();
+            const cls = parsedUrl.searchParams.get('class') || parsedUrl.searchParams.get('classId');
+            let list = db.timetables || [];
+            if (cls) list = list.filter(t => t.class === cls || t.classId === cls);
+            sendJson(res, 200, list);
+            return;
+        }
+
+        if (pathname === '/api/timetables' && method === 'POST') {
+            try {
+                const payload = await readBody(req);
+                const db = readDb();
+                if (!Array.isArray(db.timetables)) db.timetables = [];
+                const id = payload.id || ('tt-' + (payload.class || 'class').toLowerCase().replace(/\s+/g, '-'));
+                const existingIdx = db.timetables.findIndex(t => t.id === id || (t.class && t.class === payload.class));
+                const item = {
+                    id,
+                    updatedAt: new Date().toISOString(),
+                    ...payload
+                };
+                if (existingIdx >= 0) {
+                    db.timetables[existingIdx] = item;
+                } else {
+                    db.timetables.push(item);
+                }
+                writeDb(db);
+                sendJson(res, 201, item);
+            } catch (e) {
+                sendJson(res, 400, { error: e.message });
+            }
+            return;
+        }
+
+        const ttMatch = pathname.match(/^\/api\/timetables\/([^/]+)$/);
+        if (ttMatch && !pathname.startsWith('/api/timetables/exams') && !pathname.startsWith('/api/timetables/teacher')) {
+            const id = ttMatch[1];
+            if (method === 'GET') {
+                const db = readDb();
+                const item = (db.timetables || []).find(t => t.id === id || t.class === id || t.classId === id);
+                item ? sendJson(res, 200, item) : sendJson(res, 404, { error: 'Timetable not found' });
+                return;
+            }
+            if (method === 'PUT' || method === 'PATCH') {
+                await handleCollectionPut(req, res, 'timetables', id);
+                return;
+            }
+            if (method === 'DELETE') {
+                handleCollectionDelete(res, 'timetables', id);
+                return;
+            }
+        }
+
+        // Exam Timetables
+        if (pathname === '/api/timetables/exams' && method === 'GET') {
+            const db = readDb();
+            let exams = db.examTimetables || [];
+            const cls = parsedUrl.searchParams.get('class');
+            const term = parsedUrl.searchParams.get('term');
+            if (cls) exams = exams.filter(e => e.class === cls);
+            if (term) exams = exams.filter(e => e.term === term);
+            // sort by date ascending
+            exams.sort((a, b) => (a.examDate || '').localeCompare(b.examDate || ''));
+            sendJson(res, 200, exams);
+            return;
+        }
+
+        if (pathname === '/api/timetables/exams' && method === 'POST') {
+            try {
+                const payload = await readBody(req);
+                const db = readDb();
+                if (!Array.isArray(db.examTimetables)) db.examTimetables = [];
+                const item = {
+                    id: 'exam-' + genId(),
+                    createdAt: new Date().toISOString(),
+                    status: 'Upcoming',
+                    ...payload
+                };
+                db.examTimetables.push(item);
+                writeDb(db);
+                sendJson(res, 201, item);
+            } catch (e) {
+                sendJson(res, 400, { error: e.message });
+            }
+            return;
+        }
+
+        const examMatch = pathname.match(/^\/api\/timetables\/exams\/([^/]+)$/);
+        if (examMatch) {
+            const id = examMatch[1];
+            if (method === 'GET') {
+                const db = readDb();
+                const item = (db.examTimetables || []).find(e => e.id === id);
+                item ? sendJson(res, 200, item) : sendJson(res, 404, { error: 'Exam not found' });
+                return;
+            }
+            if (method === 'PUT' || method === 'PATCH') {
+                await handleCollectionPut(req, res, 'examTimetables', id);
+                return;
+            }
+            if (method === 'DELETE') {
+                handleCollectionDelete(res, 'examTimetables', id);
+                return;
+            }
+        }
+
+        // Teacher schedule aggregator & clash detection
+        const teacherTtMatch = pathname.match(/^\/api\/timetables\/teacher\/([^/]+)$/);
+        if (teacherTtMatch && method === 'GET') {
+            const teacherName = decodeURIComponent(teacherTtMatch[1]);
+            const db = readDb();
+            const weeklySchedule = { Monday: [], Tuesday: [], Wednesday: [], Thursday: [], Friday: [] };
+            const clashes = [];
+
+            (db.timetables || []).forEach(tt => {
+                const sched = tt.schedule || {};
+                ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'].forEach(day => {
+                    (sched[day] || []).forEach(slot => {
+                        if (slot.teacher && slot.teacher.toLowerCase() === teacherName.toLowerCase()) {
+                            // Check for clash
+                            const existing = weeklySchedule[day].find(s => s.period === slot.period);
+                            if (existing) {
+                                clashes.push({
+                                    day,
+                                    period: slot.period,
+                                    classA: existing.class,
+                                    subjectA: existing.subject,
+                                    classB: tt.class,
+                                    subjectB: slot.subject
+                                });
+                            }
+                            weeklySchedule[day].push({
+                                period: slot.period,
+                                time: (tt.periods || []).find(p => p.period === slot.period)?.time || '',
+                                class: tt.class,
+                                subject: slot.subject,
+                                room: slot.room || tt.room || ''
+                            });
+                        }
+                    });
+                });
+            });
+
+            // Invigilation duties
+            const invigilationDuties = (db.examTimetables || []).filter(e =>
+                (e.chiefInvigilator && e.chiefInvigilator.toLowerCase() === teacherName.toLowerCase()) ||
+                (e.assistantInvigilator && e.assistantInvigilator.toLowerCase() === teacherName.toLowerCase())
+            );
+
+            sendJson(res, 200, {
+                teacherName,
+                weeklySchedule,
+                clashes,
+                hasClash: clashes.length > 0,
+                invigilationDuties
+            });
+            return;
+        }
+
+        // ── EXPORTS: Timetable & Alumni Excel ─────────────────────────────────
+        if ((pathname === '/api/export/alumni.xlsx' || pathname === '/api/export/alumni.csv') && method === 'GET') {
+            const db = readDb();
+            const list = db.alumni || [];
+            const headers = ['id', 'admissionNo', 'indexNo', 'name', 'gender', 'graduationYear', 'classGraduated', 'overallGrade', 'finalAggregate', 'awards', 'status', 'verificationCode', 'contactPhone', 'contactEmail'];
+            const table = [headers, ...list.map(a => headers.map(h => a[h] ?? ''))];
+            if (pathname.endsWith('.xlsx')) {
+                sendExcel(res, table, 'alumni_records.xlsx', 'Alumni');
+                return;
+            }
+            sendAttachment(res, rowsToCsv(list, headers), 'alumni_records.csv', 'text/csv; charset=UTF-8');
+            return;
+        }
+
+        if ((pathname === '/api/export/timetable.xlsx' || pathname === '/api/export/timetable.csv') && method === 'GET') {
+            const db = readDb();
+            const list = db.timetables || [];
+            const rows = [];
+            list.forEach(tt => {
+                ['Monday','Tuesday','Wednesday','Thursday','Friday'].forEach(day => {
+                    ((tt.schedule || {})[day] || []).forEach(s => {
+                        rows.push({
+                            Class: tt.class,
+                            Day: day,
+                            Period: s.period,
+                            Time: (tt.periods || []).find(p => p.period === s.period)?.time || '',
+                            Subject: s.subject,
+                            Teacher: s.teacher || '',
+                            Room: s.room || tt.room || ''
+                        });
+                    });
+                });
+            });
+            const headers = ['Class', 'Day', 'Period', 'Time', 'Subject', 'Teacher', 'Room'];
+            const table = [headers, ...rows.map(r => headers.map(h => r[h] ?? ''))];
+            if (pathname.endsWith('.xlsx')) {
+                sendExcel(res, table, 'school_timetables.xlsx', 'Timetables');
+                return;
+            }
+            sendAttachment(res, rowsToCsv(rows, headers), 'school_timetables.csv', 'text/csv; charset=UTF-8');
+            return;
+        }
+
+        if ((pathname === '/api/export/exams.xlsx' || pathname === '/api/export/exams.csv') && method === 'GET') {
+            const db = readDb();
+            const list = db.examTimetables || [];
+            const headers = ['examTitle', 'class', 'subject', 'examDate', 'startTime', 'endTime', 'hall', 'chiefInvigilator', 'assistantInvigilator', 'instructions', 'status'];
+            const table = [headers, ...list.map(e => headers.map(h => e[h] ?? ''))];
+            if (pathname.endsWith('.xlsx')) {
+                sendExcel(res, table, 'exam_schedules.xlsx', 'Exams');
+                return;
+            }
+            sendAttachment(res, rowsToCsv(list, headers), 'exam_schedules.csv', 'text/csv; charset=UTF-8');
+            return;
+        }
+
         // ── IMPORT ────────────────────────────────────────────────────────────
         // POST /api/import/:collection — bulk import array
         const importMatch = pathname.match(/^\/api\/import\/([a-z]+)$/);
         if (importMatch && method === 'POST') {
             const colName = importMatch[1];
-            const validCols = ['students','teachers','classes','subjects','results','reports','gradingScales'];
+            const validCols = ['students','teachers','classes','subjects','results','reports','gradingScales','alumni','timetables','examTimetables'];
             if (!validCols.includes(colName)) { sendJson(res, 400, { error: 'Invalid collection' }); return; }
             try {
                 const payload = await readBody(req);
@@ -1046,16 +1841,20 @@ const server = http.createServer(async (req, res) => {
             const scores   = results.map(r => parseFloat(r.totalScore)).filter(n => !isNaN(n));
             const avg      = scores.length ? Math.round(scores.reduce((a,b) => a+b,0) / scores.length) : 0;
             sendJson(res, 200, {
-                students:      (db.students      || []).length,
-                teachers:      (db.teachers      || []).length,
-                classes:       (db.classes       || []).length,
-                subjects:      (db.subjects      || []).length,
-                results:       results.length,
-                reports:       (db.reports       || []).length,
+                students:        (db.students        || []).length,
+                teachers:        (db.teachers        || []).length,
+                classes:         (db.classes         || []).length,
+                subjects:        (db.subjects        || []).length,
+                results:         results.length,
+                reports:         (db.reports         || []).length,
+                alumni:          (db.alumni          || []).length,
+                timetables:      (db.timetables      || []).length,
+                examTimetables:  (db.examTimetables  || []).length,
                 resultsByStatus: byStatus,
-                averageScore:  avg,
-                gradingScales: (db.gradingScales || []).length,
-                academicYears: (db.academicYears || []).length,
+                averageScore:    avg,
+                gradingScales:   (db.gradingScales   || []).length,
+                academicYears:   (db.academicYears   || []).length,
+                snapshots:       listSnapshots().length
             });
             return;
         }
@@ -1081,6 +1880,8 @@ const server = http.createServer(async (req, res) => {
     // Convenience routes
     if (reqPath === '/admin') reqPath = '/admin.html';
     if (reqPath === '/student') reqPath = '/student.html';
+    if (reqPath === '/alumni') reqPath = '/alumni.html';
+    if (reqPath === '/timetable' || reqPath === '/timetables') reqPath = '/timetable.html';
 
     const filePath   = path.join(__dirname, reqPath);
     const ext        = path.extname(filePath).toLowerCase();

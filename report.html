@@ -4,6 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>Teacher Portal — OneReal Report Generator</title>
+    <link rel="manifest" href="/manifest.json">
+    <meta name="theme-color" content="#2563eb">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="font-awesome.css">
     <link rel="stylesheet" href="report.css?v=hub10">
@@ -61,6 +63,7 @@
                 <button class="side-link" data-tab="reports" onclick="openTab('reports')"><i class="fas fa-file-alt"></i><span>Reports</span></button>
                 <button class="side-link" data-tab="performance" onclick="openTab('performance')"><i class="fas fa-chart-bar"></i><span>Performance</span></button>
                 <button class="side-link" data-tab="attendance" onclick="openTab('attendance')"><i class="fas fa-user-check"></i><span>Attendance</span></button>
+                <button class="side-link" data-tab="timetable" onclick="openTab('timetable')"><i class="fas fa-calendar-alt"></i><span>Timetables &amp; Exams</span></button>
                 <button class="side-link" data-tab="whatsapp" onclick="openTab('whatsapp')"><i class="fab fa-whatsapp"></i><span>WhatsApp</span></button>
                 <button class="side-link" data-tab="info" onclick="openTab('info')"><i class="fas fa-cog"></i><span>Class info</span></button>
                 <button class="side-link" id="navTeacherSignature" onclick="openTeacherSignatureModal()"><i class="fas fa-signature"></i><span>My Signature</span></button>
@@ -101,6 +104,7 @@
             <div id="tab-reports" class="tab-panel"></div>
             <div id="tab-performance" class="tab-panel"></div>
             <div id="tab-attendance" class="tab-panel"></div>
+            <div id="tab-timetable" class="tab-panel"></div>
             <div id="tab-whatsapp" class="tab-panel"></div>
             <div id="tab-info" class="tab-panel"></div>
         </section>
@@ -222,6 +226,7 @@
 <script src="firebase-config.js?v=fb13"></script>
 <script src="files.js?v=dl9"></script>
 <script src="attendance.js?v=hub4"></script>
+<script src="pwa-sync.js?v=pwa1"></script>
 <script src="jspdf.umd.min.js"></script>
 <script src="jszip.min.js"></script>
 <script src="teacher-app.js?v=hub29"></script>

@@ -5,6 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>Admin Dashboard — OneReal School Management</title>
     <meta name="description" content="Professional School Administration Dashboard for OneReal Report Generator">
+    <link rel="manifest" href="/manifest.json">
+    <meta name="theme-color" content="#4f46e5">
     <link rel="stylesheet" href="font-awesome.css">
     <link rel="stylesheet" href="admin.css?v=dash13">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
@@ -101,8 +103,17 @@
             <a class="nav-item" data-section="reports" onclick="switchSection('reports')">
                 <i class="fas fa-file-alt"></i><span>Reports</span>
             </a>
+            <a class="nav-item" data-section="timetables" onclick="switchSection('timetables')">
+                <i class="fas fa-calendar-week" style="color:#38bdf8;"></i><span>Timetables & Exams</span>
+            </a>
+            <a class="nav-item" href="/alumni.html">
+                <i class="fas fa-award" style="color:#fbbf24;"></i><span>Alumni & Transcripts</span>
+            </a>
 
             <div class="nav-section-label">ADMINISTRATION</div>
+            <a class="nav-item" data-section="backup-sync" onclick="switchSection('backup-sync')">
+                <i class="fas fa-cloud-upload-alt" style="color:#34d399;"></i><span>One-Click Cloud Backup</span>
+            </a>
             <a class="nav-item" data-section="settings" onclick="switchSection('settings')">
                 <i class="fas fa-cog"></i><span>School Settings</span>
             </a>
@@ -676,6 +687,127 @@
                 </div>
                 <div class="table-footer">
                     <span id="reportsCount">0 reports</span>
+                </div>
+            </div>
+        </section>
+
+        <!-- TIMETABLES & EXAMS MANAGEMENT SECTION -->
+        <section class="content-section" id="section-timetables">
+            <div class="section-header">
+                <div>
+                    <h2><i class="fas fa-calendar-week" style="color:var(--primary);"></i> Timetables &amp; Examination Management</h2>
+                    <p style="color:var(--text-secondary); font-size:13.5px; margin-top:4px;">
+                        Configure official master timetables, schedule exam papers, allocate invigilation duties, and inspect teacher schedules for timing clashes.
+                    </p>
+                </div>
+            </div>
+
+            <!-- Sub-tab Navigation -->
+            <div style="display:flex; gap:10px; margin-bottom:20px; border-bottom:1px solid var(--border); padding-bottom:12px; flex-wrap:wrap;">
+                <button type="button" class="btn-admin btn-primary btn-sm" id="adminTtSubTabClass" onclick="switchAdminTimetableSubTab('class')">
+                    <i class="fas fa-chalkboard"></i> Class Timetable Builder
+                </button>
+                <button type="button" class="btn-admin btn-ghost btn-sm" id="adminTtSubTabExams" onclick="switchAdminTimetableSubTab('exams')">
+                    <i class="fas fa-clipboard-check"></i> Examination Schedules &amp; Invigilation
+                </button>
+                <button type="button" class="btn-admin btn-ghost btn-sm" id="adminTtSubTabTeachers" onclick="switchAdminTimetableSubTab('teachers')">
+                    <i class="fas fa-user-tie"></i> Teacher Schedules &amp; Clash Detector
+                </button>
+            </div>
+
+            <!-- 1. CLASS TIMETABLE BUILDER -->
+            <div id="adminTtViewClass">
+                <div class="filter-bar" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:16px;">
+                    <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+                        <label style="font-weight:600; font-size:13px; color:var(--text-primary);">Select Class:</label>
+                        <select id="adminTtClassSelect" class="admin-select" onchange="loadAdminClassTimetable()" style="min-width:180px;"></select>
+                        <span id="adminTtClassTeacherLabel" style="font-size:12.5px; color:var(--text-secondary); margin-left:4px;"></span>
+                    </div>
+                    <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                        <button type="button" class="btn-admin btn-primary btn-sm" onclick="saveAdminClassTimetable()"><i class="fas fa-save"></i> Save Timetable</button>
+                        <button type="button" class="btn-admin btn-secondary btn-sm" onclick="openConfigurePeriodsModal()"><i class="fas fa-clock"></i> Configure Periods</button>
+                        <button type="button" class="btn-admin btn-secondary btn-sm" onclick="downloadAdminTimetablePDF()"><i class="fas fa-file-pdf"></i> Download PDF</button>
+                        <button type="button" class="btn-admin btn-secondary btn-sm" onclick="exportAdminTimetableExcel()"><i class="fas fa-file-excel" style="color:#16a34a;"></i> Export Excel</button>
+                        <button type="button" class="btn-admin btn-ghost btn-sm" onclick="printAdminTimetable()"><i class="fas fa-print"></i> Print</button>
+                    </div>
+                </div>
+
+                <div class="card-admin" style="padding:18px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; flex-wrap:wrap; gap:8px;">
+                        <div>
+                            <strong id="adminTtGridTitle" style="font-size:15px; color:var(--text-primary);">Weekly Master Schedule</strong>
+                            <span class="badge badge-verified" id="adminTtSlotCountBadge" style="margin-left:8px;">0 Periods Configured</span>
+                        </div>
+                        <div style="font-size:12px; color:var(--text-secondary);">
+                            <i class="fas fa-info-circle" style="color:var(--primary);"></i> Click on any slot below to assign or edit subject, teacher, and room.
+                        </div>
+                    </div>
+                    
+                    <div class="table-responsive" id="adminTtGridContainer" style="overflow-x:auto;">
+                        <!-- Timetable Grid injected dynamically -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- 2. EXAMINATION SCHEDULES & INVIGILATION -->
+            <div id="adminTtViewExams" style="display:none;">
+                <div class="filter-bar" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:16px;">
+                    <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+                        <div class="search-filter" style="margin:0;">
+                            <i class="fas fa-search"></i>
+                            <input type="text" id="adminExamSearch" placeholder="Search exam papers…" oninput="renderAdminExamsTable()" autocomplete="off">
+                        </div>
+                        <select id="adminExamClassFilter" class="admin-select" onchange="renderAdminExamsTable()">
+                            <option value="">All Classes</option>
+                        </select>
+                    </div>
+                    <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                        <button type="button" class="btn-admin btn-primary btn-sm" onclick="openAdminAddExamModal()"><i class="fas fa-plus"></i> Schedule New Exam</button>
+                        <button type="button" class="btn-admin btn-secondary btn-sm" onclick="downloadAdminExamsPDF()"><i class="fas fa-file-pdf"></i> Download PDF</button>
+                        <button type="button" class="btn-admin btn-secondary btn-sm" onclick="exportAdminExamsExcel()"><i class="fas fa-file-excel" style="color:#16a34a;"></i> Export Excel</button>
+                        <button type="button" class="btn-admin btn-ghost btn-sm" onclick="printAdminExams()"><i class="fas fa-print"></i> Print</button>
+                    </div>
+                </div>
+
+                <div class="card-admin">
+                    <div class="table-responsive">
+                        <table class="admin-table" id="adminExamsTable">
+                            <thead>
+                                <tr>
+                                    <th>Subject</th>
+                                    <th>Exam Title</th>
+                                    <th>Class</th>
+                                    <th>Date &amp; Time</th>
+                                    <th>Hall / Venue</th>
+                                    <th>Invigilator(s)</th>
+                                    <th>Status</th>
+                                    <th style="text-align:right;">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="adminExamsTableBody">
+                                <!-- Scheduled exams rendered here -->
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="table-footer">
+                        <span id="adminExamsCount">0 examinations scheduled</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 3. TEACHER SCHEDULES & CLASH DETECTOR -->
+            <div id="adminTtViewTeachers" style="display:none;">
+                <div class="filter-bar" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:16px;">
+                    <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+                        <label style="font-weight:600; font-size:13px; color:var(--text-primary);">Select Teacher:</label>
+                        <select id="adminTtTeacherSelect" class="admin-select" onchange="renderAdminTeacherSchedule()" style="min-width:200px;"></select>
+                    </div>
+                    <div id="adminTtClashBadge"></div>
+                </div>
+
+                <div class="card-admin" style="padding:18px;">
+                    <div id="adminTeacherStatsRow" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:12px; margin-bottom:16px;"></div>
+                    <div id="adminTeacherScheduleContent"></div>
                 </div>
             </div>
         </section>
@@ -1278,6 +1410,90 @@
                             <i class="fas fa-file-csv"></i> Download CSV
                         </button>
                     </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ════════════════════════════════════════════════════════════════════ -->
+        <!-- SECTION: ONE-CLICK CLOUD BACKUP & OFFLINE SYNC -->
+        <!-- ════════════════════════════════════════════════════════════════════ -->
+        <section class="content-section" id="section-backup-sync">
+            <div class="section-header">
+                <div>
+                    <h2><i class="fas fa-cloud-upload-alt" style="color:#10b981;"></i> One-Click Cloud Backup & Offline Sync</h2>
+                    <p class="section-subtitle">Automated snapshot safety exports, point-in-time recovery, and Progressive Web App offline synchronization.</p>
+                </div>
+                <div class="section-actions" style="display:flex; gap:10px; flex-wrap:wrap;">
+                    <button class="btn-admin btn-secondary" onclick="exportBrowserSnapshot()"><i class="fas fa-download"></i> Download Local JSON</button>
+                    <button class="btn-admin btn-primary" onclick="triggerManualCloudSnapshot()"><i class="fas fa-cloud-upload-alt"></i> Create Instant Cloud Snapshot</button>
+                </div>
+            </div>
+
+            <!-- Top Status Cards -->
+            <div class="stats-grid" style="grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); margin-bottom: 24px;">
+                <div class="stat-card">
+                    <div class="stat-icon" style="background:#ecfdf5; color:#10b981;"><i class="fas fa-shield-alt"></i></div>
+                    <div class="stat-info">
+                        <span class="stat-label">Cloud Backup Engine</span>
+                        <span class="stat-value" style="font-size:20px; color:#10b981;">Active & Protected</span>
+                        <span class="stat-hint">Automated Rolling 30-Day Snapshots</span>
+                    </div>
+                </div>
+
+                <div class="stat-card">
+                    <div class="stat-icon" style="background:#eff6ff; color:#3b82f6;"><i class="fas fa-database"></i></div>
+                    <div class="stat-info">
+                        <span class="stat-label">Available Snapshots</span>
+                        <span class="stat-value" id="backup-snapshot-count" style="font-size:20px;">0</span>
+                        <span class="stat-hint">Stored on Secure Server Disk</span>
+                    </div>
+                </div>
+
+                <div class="stat-card">
+                    <div class="stat-icon" style="background:#fef3c7; color:#d97706;"><i class="fas fa-wifi"></i></div>
+                    <div class="stat-info">
+                        <span class="stat-label">PWA Offline Engine</span>
+                        <span class="stat-value" id="pwa-sync-status" style="font-size:20px; color:#2563eb;">Ready (Online)</span>
+                        <span class="stat-hint" id="pwa-pending-hint">0 Offline Actions Pending</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Offline Sync Manager Banner -->
+            <div class="admin-card" style="margin-bottom: 24px; border-left: 4px solid #3b82f6; background:#f8fafc;">
+                <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
+                    <div>
+                        <h4 style="margin:0 0 4px; font-size:15px; font-weight:700;"><i class="fas fa-mobile-alt" style="color:#3b82f6;"></i> Progressive Web App (PWA) Offline Working Mode</h4>
+                        <p style="margin:0; font-size:13px; color:#64748b;">
+                            Teachers and administrators in locations with intermittent internet can continue recording terminal scores, viewing student files, and generating reports offline. Changes will automatically queue and synchronize to the cloud once a connection is detected.
+                        </p>
+                    </div>
+                    <button class="btn-admin btn-ghost btn-sm" onclick="forceSyncOfflineQueue()"><i class="fas fa-sync-alt"></i> Force Offline Sync Now</button>
+                </div>
+            </div>
+
+            <!-- Snapshot Recovery Table -->
+            <div class="admin-card">
+                <div class="card-header" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+                    <h3 style="margin:0; font-size:16px;"><i class="fas fa-history"></i> Cloud Snapshot Archive & Point-in-Time Restore</h3>
+                    <button class="btn-admin btn-ghost btn-sm" onclick="loadBackupSnapshots()"><i class="fas fa-redo"></i> Refresh Snapshots</button>
+                </div>
+                <div class="table-responsive">
+                    <table class="admin-table">
+                        <thead>
+                            <tr>
+                                <th>Snapshot File</th>
+                                <th>Created Timestamp</th>
+                                <th>Type / Tag</th>
+                                <th>Records Included</th>
+                                <th>File Size</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="backupSnapshotsTbody">
+                            <tr><td colspan="6" style="text-align:center; padding:20px; color:#94a3b8;">Loading snapshots...</td></tr>
+                        </tbody>
+                    </table>
                 </div>
             </div>
         </section>
@@ -1977,6 +2193,150 @@
     </div>
 </div>
 
+<!-- Admin Edit Timetable Slot Modal -->
+<div class="modal-overlay" id="adminEditSlotModal" style="display:none;" onclick="closeModal('adminEditSlotModal', event)">
+    <div class="modal-box small">
+        <div class="modal-header">
+            <h3><i class="fas fa-calendar-alt"></i> Assign Timetable Period Slot</h3>
+            <button class="modal-close" onclick="closeModal('adminEditSlotModal')"><i class="fas fa-times"></i></button>
+        </div>
+        <div class="modal-body">
+            <input type="hidden" id="aesm-day">
+            <input type="hidden" id="aesm-period">
+            <div style="background:var(--surface-2); border:1px solid var(--border); padding:10px 14px; border-radius:8px; margin-bottom:14px;">
+                <div style="font-size:12px; color:var(--text-secondary); text-transform:uppercase; font-weight:700;">Slot Position</div>
+                <div id="aesm-targetInfo" style="font-size:14px; font-weight:600; color:var(--text-primary); margin-top:2px;">Monday · Period 1</div>
+            </div>
+            <div class="form-group-admin">
+                <label>Subject *</label>
+                <select id="aesm-subject" class="admin-select">
+                    <option value="">-- Select Subject --</option>
+                </select>
+            </div>
+            <div class="form-group-admin">
+                <label>Assigned Teacher</label>
+                <select id="aesm-teacher" class="admin-select">
+                    <option value="">-- Select Teacher --</option>
+                </select>
+            </div>
+            <div class="form-group-admin">
+                <label>Room / Venue</label>
+                <input type="text" id="aesm-room" class="admin-input" placeholder="e.g. Room 6B, ICT Lab, Science Lab">
+            </div>
+        </div>
+        <div class="modal-footer" style="display:flex; justify-content:space-between; align-items:center;">
+            <button type="button" class="btn-admin btn-danger btn-sm" onclick="clearAdminTimetableSlot()"><i class="fas fa-eraser"></i> Clear Slot</button>
+            <div style="display:flex; gap:8px;">
+                <button type="button" class="btn-admin btn-ghost btn-sm" onclick="closeModal('adminEditSlotModal')">Cancel</button>
+                <button type="button" class="btn-admin btn-primary btn-sm" onclick="saveAdminTimetableSlot()"><i class="fas fa-check"></i> Apply Slot</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Admin Schedule / Edit Examination Modal -->
+<div class="modal-overlay" id="adminExamModal" style="display:none;" onclick="closeModal('adminExamModal', event)">
+    <div class="modal-box">
+        <div class="modal-header">
+            <h3 id="adminExamModalTitle"><i class="fas fa-clipboard-check"></i> Schedule Examination Paper</h3>
+            <button class="modal-close" onclick="closeModal('adminExamModal')"><i class="fas fa-times"></i></button>
+        </div>
+        <div class="modal-body">
+            <input type="hidden" id="aem-id">
+            <div class="form-row">
+                <div class="form-group-admin">
+                    <label>Class *</label>
+                    <select id="aem-class" class="admin-select"></select>
+                </div>
+                <div class="form-group-admin">
+                    <label>Subject *</label>
+                    <select id="aem-subject" class="admin-select"></select>
+                </div>
+            </div>
+            <div class="form-group-admin">
+                <label>Examination Title / Paper *</label>
+                <input type="text" id="aem-title" class="admin-input" placeholder="e.g. End of Term Examination · Paper 1 & 2">
+            </div>
+            <div class="form-row">
+                <div class="form-group-admin">
+                    <label>Exam Date *</label>
+                    <input type="date" id="aem-date" class="admin-input">
+                </div>
+                <div class="form-group-admin">
+                    <label>Academic Term</label>
+                    <select id="aem-term" class="admin-select">
+                        <option value="1">Term 1</option>
+                        <option value="2">Term 2</option>
+                        <option value="3">Term 3</option>
+                    </select>
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group-admin">
+                    <label>Start Time *</label>
+                    <input type="time" id="aem-startTime" class="admin-input" value="09:00">
+                </div>
+                <div class="form-group-admin">
+                    <label>End Time *</label>
+                    <input type="time" id="aem-endTime" class="admin-input" value="11:00">
+                </div>
+            </div>
+            <div class="form-group-admin">
+                <label>Examination Hall / Venue *</label>
+                <input type="text" id="aem-hall" class="admin-input" placeholder="e.g. Main Assembly Hall, Upper Primary Block">
+            </div>
+            <div class="form-row">
+                <div class="form-group-admin">
+                    <label>Chief Invigilator</label>
+                    <select id="aem-chiefInvigilator" class="admin-select"></select>
+                </div>
+                <div class="form-group-admin">
+                    <label>Assistant Invigilator</label>
+                    <select id="aem-assistantInvigilator" class="admin-select"></select>
+                </div>
+            </div>
+            <div class="form-group-admin">
+                <label>Status</label>
+                <select id="aem-status" class="admin-select">
+                    <option value="Scheduled">Scheduled</option>
+                    <option value="In Progress">In Progress</option>
+                    <option value="Completed">Completed</option>
+                    <option value="Postponed">Postponed</option>
+                </select>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn-admin btn-ghost" onclick="closeModal('adminExamModal')">Cancel</button>
+            <button type="button" class="btn-admin btn-primary" onclick="submitAdminExamForm()"><i class="fas fa-save"></i> Save Examination Paper</button>
+        </div>
+    </div>
+</div>
+
+<!-- Admin Configure Periods Modal -->
+<div class="modal-overlay" id="adminConfigurePeriodsModal" style="display:none;" onclick="closeModal('adminConfigurePeriodsModal', event)">
+    <div class="modal-box">
+        <div class="modal-header">
+            <h3><i class="fas fa-clock"></i> Configure Daily Periods &amp; Breaks</h3>
+            <button class="modal-close" onclick="closeModal('adminConfigurePeriodsModal')"><i class="fas fa-times"></i></button>
+        </div>
+        <div class="modal-body">
+            <p style="font-size:13px; color:var(--text-secondary); margin-bottom:14px;">
+                Define the schedule timeline and breaks for the selected class.
+            </p>
+            <div id="acpm-periodsList" style="display:flex; flex-direction:column; gap:8px; max-height:360px; overflow-y:auto; padding-right:4px;">
+                <!-- Dynamically configured period rows -->
+            </div>
+            <div style="margin-top:12px;">
+                <button type="button" class="btn-admin btn-secondary btn-sm" onclick="addAdminConfigPeriodRow()"><i class="fas fa-plus"></i> Add Period Row</button>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn-admin btn-ghost" onclick="closeModal('adminConfigurePeriodsModal')">Cancel</button>
+            <button type="button" class="btn-admin btn-primary" onclick="saveAdminConfiguredPeriods()"><i class="fas fa-check"></i> Apply Period Structure</button>
+        </div>
+    </div>
+</div>
+
 <!-- Firebase & Libraries -->
 <script src="vendor/firebase-compat.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
@@ -1987,6 +2347,7 @@
 <script src="firebase-config.js?v=fb13"></script>
 <script src="files.js?v=dl9"></script>
 <script src="attendance.js?v=hub4"></script>
+<script src="pwa-sync.js?v=pwa1"></script>
 <script src="admin.js?v=dash38"></script>
 </body>
 </html>
