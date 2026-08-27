@@ -6,7 +6,7 @@
     <title>Teacher Portal — OneReal Report Generator</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="font-awesome.css">
-    <link rel="stylesheet" href="report.css?v=hub8">
+    <link rel="stylesheet" href="report.css?v=hub10">
 </head>
 <body>
 <div id="toastArea"></div>
@@ -38,10 +38,13 @@
         <aside class="sidebar" id="sidebar">
             <div class="sidebar-head">
                 <div class="brand-mark"><i class="fas fa-school"></i></div>
-                <div class="sidebar-head-text">
+                <div class="sidebar-head-text" style="flex:1;min-width:0;">
                     <strong id="schoolNameLabel">OneReal Teacher</strong>
                     <span id="termLabel">2025/2026 · Term 1</span>
                 </div>
+                <button type="button" class="sidebar-close-btn" onclick="closeSidebar()" aria-label="Hide sidebar" title="Hide sidebar">
+                    <i class="fas fa-times"></i>
+                </button>
             </div>
             <div class="sidebar-teacher">
                 <div class="sidebar-avatar"><i class="fas fa-chalkboard-teacher"></i></div>
@@ -221,6 +224,6 @@
 <script src="attendance.js?v=hub4"></script>
 <script src="jspdf.umd.min.js"></script>
 <script src="jszip.min.js"></script>
-<script src="teacher-app.js?v=hub27"></script>
+<script src="teacher-app.js?v=hub29"></script>
 </body>
 </html>

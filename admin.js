@@ -330,6 +330,16 @@ function togglePasswordVisibility(inputId, btn) {
 
 // ─── Init Admin App ──────────────────────────────────────────────────────────
 async function initAdminApp() {
+    // Restore sidebar state for desktop
+    if (window.innerWidth > 768) {
+        const isCollapsed = localStorage.getItem('adminSidebarCollapsed') === 'true';
+        const sidebar = document.getElementById('sidebar');
+        if (sidebar && isCollapsed) {
+            sidebar.classList.add('collapsed');
+        }
+    }
+    updateSidebarToggleState();
+
     updateSidebarUser();
     if (typeof Attendance !== 'undefined' && Attendance.hydrateFromServer) {
         try { await Attendance.hydrateFromServer(); } catch (e) {}
@@ -541,6 +551,18 @@ function switchSection(sectionId) {
         if (el) el.value = '';
     });
 
+    // Auto-close sidebar on mobile after selecting a section
+    if (window.innerWidth <= 768) {
+        const sidebar = document.getElementById('sidebar');
+        const backdrop = document.getElementById('sidebarBackdrop');
+        if (sidebar && sidebar.classList.contains('mobile-open')) {
+            sidebar.classList.remove('mobile-open');
+            if (backdrop) backdrop.classList.remove('show');
+            document.body.classList.remove('nav-open');
+            updateSidebarToggleState();
+        }
+    }
+
     // Lazy-render sections
     switch(sectionId) {
         case 'dashboard':      loadDashboard(); break;
@@ -560,10 +582,6 @@ function switchSection(sectionId) {
         case 'attendance':     renderAttendanceSection(); break;
         case 'settings':       loadSettingsForm(); break;
     }
-
-    document.getElementById('sidebar')?.classList.remove('mobile-open');
-    document.getElementById('sidebarBackdrop')?.classList.remove('show');
-    document.body.classList.remove('nav-open');
 }
 
 function toggleSidebar() {
@@ -576,9 +594,77 @@ function toggleSidebar() {
         if (backdrop) backdrop.classList.toggle('show', open);
         document.body.classList.toggle('nav-open', open);
     } else {
-        sidebar.classList.toggle('collapsed');
+        const isCollapsed = sidebar.classList.toggle('collapsed');
+        try {
+            localStorage.setItem('adminSidebarCollapsed', isCollapsed ? 'true' : 'false');
+        } catch (e) {}
+    }
+    updateSidebarToggleState();
+}
+
+function updateSidebarToggleState() {
+    const sidebar = document.getElementById('sidebar');
+    const collapseIcon = document.getElementById('sidebarCollapseIcon');
+    const collapseBtn = document.getElementById('sidebarCollapseBtn');
+    const topbarIcon = document.getElementById('topbarToggleIcon');
+    const topbarBtn = document.getElementById('topbarSidebarToggle');
+    if (!sidebar) return;
+
+    const isMobile = window.innerWidth <= 768;
+    const isMobileOpen = sidebar.classList.contains('mobile-open');
+    const isCollapsed = sidebar.classList.contains('collapsed');
+
+    if (isMobile) {
+        if (collapseIcon) {
+            collapseIcon.className = isMobileOpen ? 'fas fa-times' : 'fas fa-bars';
+        }
+        if (collapseBtn) {
+            collapseBtn.title = isMobileOpen ? 'Close Navigation' : 'Open Navigation';
+            collapseBtn.setAttribute('aria-label', isMobileOpen ? 'Close Navigation' : 'Open Navigation');
+        }
+        if (topbarIcon) {
+            topbarIcon.className = isMobileOpen ? 'fas fa-times' : 'fas fa-bars';
+        }
+        if (topbarBtn) {
+            topbarBtn.title = isMobileOpen ? 'Close Menu' : 'Open Menu';
+            topbarBtn.setAttribute('aria-label', isMobileOpen ? 'Close Menu' : 'Open Menu');
+        }
+    } else {
+        if (collapseIcon) {
+            collapseIcon.className = isCollapsed ? 'fas fa-chevron-right' : 'fas fa-bars';
+        }
+        if (collapseBtn) {
+            collapseBtn.title = isCollapsed ? 'Expand Sidebar' : 'Collapse Sidebar';
+            collapseBtn.setAttribute('aria-label', isCollapsed ? 'Expand Sidebar' : 'Collapse Sidebar');
+        }
+        if (topbarIcon) {
+            topbarIcon.className = isCollapsed ? 'fas fa-indent' : 'fas fa-bars';
+        }
+        if (topbarBtn) {
+            topbarBtn.title = isCollapsed ? 'Expand Sidebar' : 'Collapse Sidebar';
+            topbarBtn.setAttribute('aria-label', isCollapsed ? 'Expand Sidebar' : 'Collapse Sidebar');
+        }
     }
 }
+
+// Window resize handler to maintain consistent sidebar state
+window.addEventListener('resize', () => {
+    const sidebar = document.getElementById('sidebar');
+    const backdrop = document.getElementById('sidebarBackdrop');
+    if (!sidebar) return;
+    if (window.innerWidth > 768) {
+        sidebar.classList.remove('mobile-open');
+        if (backdrop) backdrop.classList.remove('show');
+        document.body.classList.remove('nav-open');
+        const isCollapsed = localStorage.getItem('adminSidebarCollapsed') === 'true';
+        if (isCollapsed) {
+            sidebar.classList.add('collapsed');
+        } else {
+            sidebar.classList.remove('collapsed');
+        }
+    }
+    updateSidebarToggleState();
+});
 
 function updateNavBadges() {
     const activeStudents = adminState.students.filter(s => s.status !== 'deleted' && !s.isDeleted);
@@ -1152,16 +1238,6 @@ function renderTeachersTable() {
     if (navBadge) navBadge.textContent = activeTeachers.length;
 }
 
-function openTeacherModal(id = null) {
-    adminState.editingTeacher = id;
-    const modal = document.getElementById('teacherModal');
-    const title = document.getElementById('teacherModalTitle');
-    if (!modal) return;
-
-    ['tm-name','tm-email','tm-phone','tm-password'].forEach(fId => {
-        const el = document.getElementById(fId);
-        if (el) el.value = '';
-    });
 let currentEditingTeacherSignature = null;
 
 function renderAdminTeacherSignaturePreview(sig) {
@@ -3285,12 +3361,61 @@ async function bulkDeleteSelectedReports() {
     });
 }
 
+function formatOrdinal(n) {
+    if (!n || isNaN(n)) return '';
+    const s = ["th", "st", "nd", "rd"];
+    const v = n % 100;
+    return n + (s[(v - 20) % 10] || s[v] || s[0]);
+}
+
+function getAdminStudentClassRank(studentId, classIdOrName) {
+    if (!studentId) return null;
+    const targetClass = classIdOrName ? resolveClass(classIdOrName) : '';
+    const classMates = (adminState.students || []).filter(s => {
+        if (s.isDeleted || s.status === 'deleted' || s.status === 'inactive') return false;
+        const sClass = resolveClass(s.classId || s.class);
+        return targetClass ? (sClass === targetClass || s.classId === classIdOrName) : true;
+    });
+    if (!classMates.length) return null;
+
+    const ranked = classMates.map(cm => {
+        let total = 0, count = 0;
+        (adminState.subjects || []).forEach(sub => {
+            const se = getStudentSubjectScore(cm.id, sub.name || sub, sub.id);
+            if (se && se.classScore !== '' && se.examScore !== '') {
+                const cs = Number(se.classScore) || 0;
+                const es = Number(se.examScore) || 0;
+                const cs50 = Math.round((cs / 100) * 50 * 10) / 10;
+                const es50 = Math.round((es / 100) * 50 * 10) / 10;
+                const tot = se.totalScore !== undefined && se.totalScore !== '' ? Number(se.totalScore) : (cs50 + es50);
+                total += tot;
+                count++;
+            }
+        });
+        return {
+            id: String(cm.id),
+            avg: count > 0 ? (total / count) : -1
+        };
+    }).sort((a, b) => b.avg - a.avg);
+
+    const index = ranked.findIndex(r => r.id === String(studentId));
+    if (index === -1) return null;
+    const target = ranked[index];
+    if (target.avg < 0) return { rank: null, total: classMates.length, formatted: '—' };
+    const rank = index + 1;
+    return {
+        rank: rank,
+        total: classMates.length,
+        formatted: `${formatOrdinal(rank)} / ${classMates.length}`
+    };
+}
+
 // ── Helper: build a PDF blob for a report data object using jsPDF text API ────
 // Works without html2canvas. Returns a Uint8Array suitable for zip.file()
 function buildReportPDFBlob(data) {
     // data: { studentName, className, yr, tm, schoolName, schoolAddress, headTeacher,
     //         classTeacherName, subjects: [{name, cs50, es50, tot, grade, remark}],
-    //         avg, overallGrade, teacherRemark, headRemark, isJHS, jhsAggregate }
+    //         avg, overallGrade, teacherRemark, headRemark, isJHS, jhsAggregate, showPosition, position }
     if (typeof window.jspdf === 'undefined' && typeof jsPDF === 'undefined') return null;
     const JsPDF = (window.jspdf && window.jspdf.jsPDF) || jsPDF;
     if (!JsPDF) return null;
@@ -3322,7 +3447,11 @@ function buildReportPDFBlob(data) {
     doc.text(`Student: ${data.studentName}`, margin, y);
     doc.text(`Class: ${data.className}`, W / 2, y); y += 6;
     doc.text(`Academic Year: ${data.yr}`, margin, y);
-    doc.text(`Term: ${data.tm}`, W / 2, y); y += 8;
+    doc.text(`Term: ${data.tm}`, W / 2, y); y += 6;
+    if (data.showPosition && data.position) {
+        doc.text(`Class Position: ${data.position}`, margin, y); y += 6;
+    }
+    y += 2;
 
     // JHS Aggregate box
     if (data.isJHS && data.jhsAggregate !== undefined) {
@@ -3359,7 +3488,7 @@ function buildReportPDFBlob(data) {
     doc.setFillColor(238, 242, 255);
     doc.rect(margin, y - 4, W - margin * 2, 7, 'F');
     doc.setFontSize(9); doc.setFont('helvetica', 'bold');
-    doc.text(`AVERAGE: ${data.avg != null ? Number(data.avg).toFixed(1) + '%' : '—'}   OVERALL GRADE: ${data.overallGrade || '—'}`, margin + 2, y);
+    doc.text(`AVERAGE: ${data.avg != null ? Number(data.avg).toFixed(1) + '%' : '—'}   OVERALL AVERAGE GRADE: ${data.overallGrade || '—'}${data.showPosition && data.position ? '   CLASS POSITION: ' + data.position : ''}`, margin + 2, y);
     y += 10;
 
     // Remarks / footer
@@ -3459,6 +3588,14 @@ async function bulkDownloadSelectedReports() {
                 return { name: subName, cs50: '—', es50: '—', tot: '—', grade: '—', remark: 'No scores' };
             });
 
+            const fieldToggles = settings.fieldToggles || {};
+            const showPosition = fieldToggles.showPosition !== false;
+            let posText = '—';
+            if (showPosition) {
+                const rankInfo = getAdminStudentClassRank(student.id, r.classId || student.classId || student.class);
+                if (rankInfo && rankInfo.formatted) posText = rankInfo.formatted;
+            }
+
             const pdfData = {
                 studentName: student.name, className, yr, tm,
                 schoolName: settings.schoolName || schoolInf.schoolName || 'School',
@@ -3468,7 +3605,8 @@ async function bulkDownloadSelectedReports() {
                 avg, overallGrade: `${overallGrade.grade} (${overallGrade.remark})`,
                 teacherRemark: d.teacherRemark || d.teacherRemarks || '',
                 headRemark: d.headRemark || '',
-                isJHS, jhsAggregate: jhsAggValue
+                isJHS, jhsAggregate: jhsAggValue,
+                showPosition, position: posText
             };
 
             const pdfBuffer = buildReportPDFBlob(pdfData);
@@ -3789,6 +3927,14 @@ function viewReport(id) {
     const htName = htTeacher?.name || settings.headTeacher || schoolInf.headTeacher || '';
     const htSignature = settings.signature || schoolInf.signature || null;
 
+    const fieldToggles = settings.fieldToggles || {};
+    const showPosition = fieldToggles.showPosition !== false;
+    let posText = '—';
+    if (showPosition) {
+        const rankInfo = getAdminStudentClassRank(student.id, r.classId || student.classId || student.class);
+        if (rankInfo && rankInfo.formatted) posText = rankInfo.formatted;
+    }
+
     const modalBody = document.getElementById('adminPreviewReportBody');
     if (!modalBody) return;
 
@@ -3807,9 +3953,10 @@ function viewReport(id) {
                 ${logoSrc ? `<img src="${logoSrc}" style="width:70px;height:70px;object-fit:contain;border-radius:8px;" alt="Logo">` : '<div style="width:70px;height:70px;border:2px dashed #cbd5e1;border-radius:8px;display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:11px;text-align:center;">No Logo</div>'}
             </div>
 
-            <div style="display:grid;grid-template-columns:repeat(3, 1fr);gap:10px;background:#f8fafc;padding:12px 16px;border-radius:8px;margin-bottom:16px;font-size:12.5px;border:1px solid #e2e8f0;">
+            <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(130px, 1fr));gap:10px;background:#f8fafc;padding:12px 16px;border-radius:8px;margin-bottom:16px;font-size:12.5px;border:1px solid #e2e8f0;">
                 <div><span style="color:#64748b;font-size:11px;display:block;font-weight:600;">NAME OF LEARNER</span><strong>${escHtml(student.name)}</strong></div>
                 <div><span style="color:#64748b;font-size:11px;display:block;font-weight:600;">CLASS</span><strong>${escHtml(className)}</strong></div>
+                ${showPosition ? `<div><span style="color:#64748b;font-size:11px;display:block;font-weight:600;">CLASS POSITION</span><strong style="color:#4338ca;">${escHtml(posText)}</strong></div>` : ''}
                 <div><span style="color:#64748b;font-size:11px;display:block;font-weight:600;">ACADEMIC YEAR</span><strong>${escHtml(yr)}</strong></div>
                 <div><span style="color:#64748b;font-size:11px;display:block;font-weight:600;">TERM</span><strong>${escHtml(tm)}</strong></div>
                 <div><span style="color:#64748b;font-size:11px;display:block;font-weight:600;">DATE OF VACATION</span><strong>${escHtml(settings.closingDate || schoolInf.closingDate || '—')}</strong></div>
@@ -3834,9 +3981,10 @@ function viewReport(id) {
 
             ${jhsAggregateHTML}
 
-            <div style="display:grid;grid-template-columns:repeat(3, 1fr);gap:10px;background:#eef2ff;padding:12px 16px;border-radius:8px;margin-bottom:16px;font-size:12.5px;border:1px solid #c7d2fe;">
+            <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(130px, 1fr));gap:10px;background:#eef2ff;padding:12px 16px;border-radius:8px;margin-bottom:16px;font-size:12.5px;border:1px solid #c7d2fe;">
                 <div><span style="color:#4338ca;font-size:11px;display:block;font-weight:600;">AVERAGE SCORE</span><strong style="font-size:15px;color:#1e1b4b;">${scoredCount ? avg.toFixed(1) + '%' : '—'}</strong></div>
-                <div><span style="color:#4338ca;font-size:11px;display:block;font-weight:600;">OVERALL GRADE</span><strong style="font-size:15px;color:#1e1b4b;">${scoredCount ? overallGrade.grade + ' (' + overallGrade.remark + ')' : '—'}</strong></div>
+                <div><span style="color:#4338ca;font-size:11px;display:block;font-weight:600;">OVERALL AVERAGE GRADE</span><strong style="font-size:15px;color:#1e1b4b;">${scoredCount ? overallGrade.grade + ' (' + overallGrade.remark + ')' : '—'}</strong></div>
+                ${showPosition ? `<div><span style="color:#4338ca;font-size:11px;display:block;font-weight:600;">CLASS POSITION</span><strong style="font-size:15px;color:#1e1b4b;">${escHtml(posText)}</strong></div>` : ''}
                 <div><span style="color:#4338ca;font-size:11px;display:block;font-weight:600;">RECORDED SUBJECTS</span><strong style="font-size:15px;color:#1e1b4b;">${scoredCount} / ${classSubs.length}</strong></div>
             </div>
 
@@ -4085,6 +4233,14 @@ async function executeAdminBulkDownload() {
                 }
                 return { name: subName, cs50: '—', es50: '—', tot: '—', grade: '—', remark: 'No scores' };
             });
+            const fieldToggles = settings.fieldToggles || {};
+            const showPosition = fieldToggles.showPosition !== false;
+            let posText = '—';
+            if (showPosition) {
+                const rankInfo = getAdminStudentClassRank(student.id, r.classId || student.classId || student.class);
+                if (rankInfo && rankInfo.formatted) posText = rankInfo.formatted;
+            }
+
             const pdfData = {
                 studentName: student.name, className, yr, tm,
                 schoolName: settings.schoolName || schoolInf.schoolName || 'School',
@@ -4094,7 +4250,8 @@ async function executeAdminBulkDownload() {
                 avg, overallGrade: `${overallGrade.grade} (${overallGrade.remark})`,
                 teacherRemark: d.teacherRemark || d.teacherRemarks || '',
                 headRemark: d.headRemark || '',
-                isJHS, jhsAggregate: jhsAggValue
+                isJHS, jhsAggregate: jhsAggValue,
+                showPosition, position: posText
             };
             const pdfBuffer = buildReportPDFBlob(pdfData);
             const safeName = (student.name || 'student').replace(/[^a-z0-9]/gi, '_');

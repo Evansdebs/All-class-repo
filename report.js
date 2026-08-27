@@ -1927,7 +1927,7 @@ function generateIndividualReport(studentId) {
                 </div>
                 <div class="performance-item">
                     <div class="performance-value">${performance.overallGrade}</div>
-                    <div class="performance-label">OVERALL GRADE</div>
+                    <div class="performance-label">OVERALL AVERAGE GRADE</div>
                 </div>
                 <div class="performance-item">
                     <div class="performance-value">${performance.overallRemark}</div>
@@ -1956,7 +1956,7 @@ function generateIndividualReport(studentId) {
                 </div>
                 <div class="performance-item">
                     <div class="performance-value">-</div>
-                    <div class="performance-label">OVERALL GRADE</div>
+                    <div class="performance-label">OVERALL AVERAGE GRADE</div>
                 </div>
             </div>
         `;
@@ -2057,7 +2057,7 @@ function buildReportPdfDocument(studentId) {
                 .attendance-section { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin: 12px 0; font-size: 11px; }
                 .conduct-section, .interest-section, .teacher-remarks-section { margin: 8px 0; padding: 8px; background: #f8f9fa; border-radius: 5px; font-size: 11px; }
                 .signature-section { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 15px; font-size: 11px; }
-                .footer-message { text-align: center; margin-top: 15px; padding: 10px; background: linear-gradient(135deg, #4361ee, #3a0ca3); color: white; border-radius: 5px; font-weight: bold; }
+                .footer-message { text-align: center; margin-top: 15px; padding: 10px; background: #1e3a8a; color: white; border-radius: 5px; font-weight: bold; }
                 .performance-summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin: 15px 0; padding: 15px; background: #f8f9fa; border-radius: 5px; font-size: 11px; }
                 .performance-item { text-align: center; padding: 8px; background: white; border-radius: 5px; border: 1px solid #ddd; }
                 .performance-value { font-size: 1.2rem; font-weight: bold; color: #4361ee; }
@@ -2433,7 +2433,7 @@ function downloadIndividualReportAsPDF(studentName, reportHTML) {
                 .attendance-section { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin: 12px 0; font-size: 11px; }
                 .conduct-section, .interest-section, .teacher-remarks-section { margin: 8px 0; padding: 8px; background: #f8f9fa; border-radius: 5px; font-size: 11px; }
                 .signature-section { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 15px; font-size: 11px; }
-                .footer-message { text-align: center; margin-top: 15px; padding: 10px; background: linear-gradient(135deg, #4361ee, #3a0ca3); color: white; border-radius: 5px; font-weight: bold; }
+                .footer-message { text-align: center; margin-top: 15px; padding: 10px; background: #1e3a8a; color: white; border-radius: 5px; font-weight: bold; }
                 .performance-summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin: 15px 0; padding: 15px; background: #f8f9fa; border-radius: 5px; font-size: 11px; }
                 .performance-item { text-align: center; padding: 8px; background: white; border-radius: 5px; border: 1px solid #ddd; }
                 .performance-value { font-size: 1.2rem; font-weight: bold; color: #4361ee; }
@@ -2551,7 +2551,7 @@ function generatePDFReportForWhatsApp(studentId) {
                 .attendance-section { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin: 12px 0; font-size: 11px; }
                 .conduct-section, .interest-section, .teacher-remarks-section { margin: 8px 0; padding: 8px; background: #f8f9fa; border-radius: 5px; font-size: 11px; }
                 .signature-section { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 15px; font-size: 11px; }
-                .footer-message { text-align: center; margin-top: 15px; padding: 10px; background: linear-gradient(135deg, #4361ee, #3a0ca3); color: white; border-radius: 5px; font-weight: bold; }
+                .footer-message { text-align: center; margin-top: 15px; padding: 10px; background: #1e3a8a; color: white; border-radius: 5px; font-weight: bold; }
                 .performance-summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin: 15px 0; padding: 15px; background: #f8f9fa; border-radius: 5px; font-size: 11px; }
                 .performance-item { text-align: center; padding: 8px; background: white; border-radius: 5px; border: 1px solid #ddd; }
                 .performance-value { font-size: 1.2rem; font-weight: bold; color: #4361ee; }
@@ -2696,7 +2696,7 @@ function generatePDFReportForWhatsApp(studentId) {
                 </div>
                 <div class="performance-item">
                     <div class="performance-value">${performance.overallGrade}</div>
-                    <div class="performance-label">OVERALL GRADE</div>
+                    <div class="performance-label">OVERALL AVERAGE GRADE</div>
                 </div>
                 <div class="performance-item">
                     <div class="performance-value">${performance.overallRemark}</div>
@@ -2815,7 +2815,7 @@ function buildWhatsAppTextMessage(studentId) {
     lines.push('');
     if (performance) {
         lines.push(`Average Score: ${performance.average.toFixed(1)}%`);
-        lines.push(`Overall Grade: ${performance.overallGrade}`);
+        lines.push(`Overall Average Grade: ${performance.overallGrade}`);
         lines.push(`Performance Level: ${performance.overallRemark}`);
     }
     lines.push('');
@@ -3732,9 +3732,9 @@ function downloadExcelTemplate() {
 }
 
 // --- SMART NARRATIVE REMARKS ENGINE ---
-function generateSmartRemarks(studentId) {
+function generateSmartRemarks(studentId, options = {}) {
     const student = students.find(s => s.id === studentId);
-    if (!student) return { teacher: "Good performance.", conduct: "Very well behaved.", interest: "Enthusiastic learner" };
+    if (!student) return { teacher: "Good performance.", conduct: "Very well behaved.", interest: "Class activities" };
 
     let totalSum = 0;
     let count = 0;
@@ -3761,226 +3761,34 @@ function generateSmartRemarks(studentId) {
     });
 
     const avg = count > 0 ? (totalSum / count) : 0;
-    let teacherRemark = "";
+    const conductTone = options.conductTone || (avg >= 68 ? 'positive' : (avg >= 50 ? 'middle' : 'negative'));
+    const teacherTone = options.teacherTone || (avg >= 68 ? 'positive' : (avg >= 50 ? 'middle' : 'negative'));
+
     let conductRemark = "";
-    let interestRemark = "";
-
-    if (avg >= 80) {
-        teacherRemark = `An outstanding student who excels across all subjects. Demonstrates exceptional understanding, particularly in ${highestSubject || 'academics'}.`;
-        conductRemark = "Exemplary behavior, always respectful";
-        interestRemark = "Enjoys challenging tasks";
-    } else if (avg >= 70) {
-        teacherRemark = `Very good academic performance. Shows high aptitude in ${highestSubject || 'class'} and steady progress overall.`;
-        conductRemark = "Disciplined and focused in class";
-        interestRemark = "Mathematics and puzzles";
-    } else if (avg >= 55) {
-        teacherRemark = `Good effort this term. Performs well in ${highestSubject || 'lessons'}, but should put extra focus on ${lowestSubject || 'weaker subjects'}.`;
-        conductRemark = "Generally well-behaved";
-        interestRemark = "Hands-on activities";
-    } else if (avg >= 40) {
-        teacherRemark = `Fair performance. Capable of achieving better results with continuous study and focus, especially in ${lowestSubject || 'core subjects'}.`;
-        conductRemark = "Needs to improve self-discipline";
-        interestRemark = "Group activities";
+    if (conductTone === 'positive') {
+        conductRemark = avg >= 80 ? "Exemplary behavior; very respectful, obedient, and highly disciplined at all times." : "Very well-behaved, courteous, and exhibits excellent cooperation with peers.";
+    } else if (conductTone === 'negative') {
+        conductRemark = avg < 45 ? "Conduct requires significant improvement. Easily distracted and requires supervision." : "Needs to improve self-discipline and pay closer attention to instructions.";
     } else {
-        teacherRemark = `Requires additional academic support and intensive guidance to build basic concepts in ${lowestSubject || 'all subjects'}.`;
-        conductRemark = "Requires constant supervision";
-        interestRemark = "Practical work";
+        conductRemark = "Generally well-behaved and cooperative, though occasionally needs gentle guidance.";
     }
 
-    return { teacher: teacherRemark, conduct: conductRemark, interest: interestRemark };
-}
-
-function applySmartRemarksToModal() {
-    if (!currentEditingStudentId) return;
-    const smart = generateSmartRemarks(currentEditingStudentId);
-    tableHtml += `
-            <tr style="background: rgba(67, 97, 238, 0.1); font-weight: bold;">
-                <td colspan="2" style="text-align: right;">Class Subject Avg:</td>
-                ${subjects.map(sub => `<td>${subjectClassAverages[sub]}</td>`).join('')}
-                <td colspan="2">-</td>
-            </tr>
-        </tbody>
-        </table>
-    `;
-
-    container.innerHTML = tableHtml;
-}
-
-// Broadsheet Export CSV
-function exportBroadsheetCsv() {
-    const broadsheetClass = document.getElementById('broadsheetClass').value;
-    if (!broadsheetClass) return showNotification('Select a class to export.', 'error');
-    
-    const table = document.querySelector('.broadsheet-table');
-    if (!table) return showNotification('Generate broadsheet first.', 'error');
-
-    let csvContent = "data:text/csv;charset=utf-8,";
-    const rows = table.querySelectorAll('tr');
-    rows.forEach(row => {
-        const cols = row.querySelectorAll('th, td');
-        const rowData = Array.from(cols).map(c => `"${c.innerText.trim()}"`).join(',');
-        csvContent += rowData + "\r\n";
-    });
-
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
-    link.setAttribute("download", `${broadsheetClass}_Broadsheet_Master_Sheet.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-}
-
-// Broadsheet Export Excel
-function exportBroadsheetExcel() {
-    const broadsheetClass = document.getElementById('broadsheetClass').value;
-    if (!broadsheetClass) return showNotification('Select a class to export.', 'error');
-
-    const table = document.querySelector('.broadsheet-table');
-    if (!table || typeof XLSX === 'undefined') return showNotification('SheetJS Excel library not available.', 'error');
-
-    const wb = XLSX.utils.table_to_book(table, { sheet: "Master Broadsheet" });
-    XLSX.writeFile(wb, `${broadsheetClass}_Master_Broadsheet.xlsx`);
-}
-
-// --- EXCEL / CSV MARKS BULK UPLOAD ---
-function handleExcelMarksUpload(event) {
-    const file = event.target.files[0];
-    if (!file || typeof XLSX === 'undefined') {
-        return showNotification('Spreadsheet parser not ready.', 'error');
-    }
-
-    const reader = new FileReader();
-    reader.onload = function(e) {
-        try {
-            const data = new Uint8Array(e.target.result);
-            const workbook = XLSX.read(data, { type: 'array' });
-            const sheetName = workbook.SheetNames[0];
-            const worksheet = workbook.Sheets[sheetName];
-            const jsonRows = XLSX.utils.sheet_to_json(worksheet);
-
-            if (!jsonRows.length) {
-                return showNotification('Excel sheet is empty.', 'error');
-            }
-
-            let importedCount = 0;
-            jsonRows.forEach(row => {
-                const name = row['Student Name'] || row['StudentName'] || row['Name'];
-                const targetClass = row['Class'] || row['Student Class'] || scoreClassSelect.value || 'Class 6';
-                const subject = row['Subject'];
-                const classScore = row['Class Score'] || row['ClassScore'] || row['30%'] || 0;
-                const examScore = row['Exam Score'] || row['ExamScore'] || row['70%'] || 0;
-
-                if (name && subject) {
-                    // Check if student exists or create
-                    let student = students.find(s => s.name.toLowerCase() === String(name).toLowerCase() && s.class === targetClass);
-                    if (!student) {
-                        student = { id: Date.now() + Math.floor(Math.random() * 1000), name: name, class: targetClass };
-                        students.push(student);
-                    }
-
-                    if (!scores[subject]) scores[subject] = {};
-
-                    const total = (Number(classScore) || 0) + (Number(examScore) || 0);
-                    const gradeInfo = typeof getGradeAndRemark === 'function' ? getGradeAndRemark(total) : { grade: 'A', remark: 'Good' };
-
-                    scores[subject][student.id] = {
-                        classScore: String(classScore),
-                        examScore: String(examScore),
-                        totalScore: String(total),
-                        grade: gradeInfo.grade,
-                        remark: gradeInfo.remark
-                    };
-                    importedCount++;
-                }
-            });
-
-            saveStudents();
-            saveScoresToStorage();
-            renderStudentsList();
-            renderSubjectsGrid();
-            renderSummaryDashboard();
-
-            showNotification(`Successfully imported marks for ${importedCount} student record(s)!`, 'success');
-        } catch (err) {
-            console.error("Excel import error:", err);
-            showNotification('Error parsing Excel file. Please check column headers.', 'error');
-        }
-    };
-    reader.readAsArrayBuffer(file);
-    event.target.value = '';
-}
-
-function downloadExcelTemplate() {
-    if (typeof XLSX === 'undefined') return;
-
-    const sampleData = [
-        { "Student Name": "Debrah Evans", "Class": "Class 6", "Subject": "Mathematics", "Class Score": 25, "Exam Score": 65 },
-        { "Student Name": "Debrah Evans", "Class": "Class 6", "Subject": "Science", "Class Score": 28, "Exam Score": 60 },
-        { "Student Name": "Ama Serwaa", "Class": "Class 6", "Subject": "English Language", "Class Score": 22, "Exam Score": 58 }
-    ];
-
-    const worksheet = XLSX.utils.json_to_sheet(sampleData);
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, "MarksTemplate");
-    XLSX.writeFile(workbook, "School_Marks_Import_Template.xlsx");
-}
-
-// --- SMART NARRATIVE REMARKS ENGINE ---
-function generateSmartRemarks(studentId) {
-    const student = students.find(s => s.id === studentId);
-    if (!student) return { teacher: "Good performance.", conduct: "Very well behaved.", interest: "Enthusiastic learner" };
-
-    let totalSum = 0;
-    let count = 0;
-    let highestSubject = null;
-    let highestScore = -1;
-    let lowestSubject = null;
-    let lowestScore = 101;
-
-    subjects.forEach(sub => {
-        const entry = scores[sub] && scores[sub][studentId];
-        if (entry && entry.totalScore !== '') {
-            const scoreNum = Number(entry.totalScore);
-            totalSum += scoreNum;
-            count++;
-            if (scoreNum > highestScore) {
-                highestScore = scoreNum;
-                highestSubject = sub;
-            }
-            if (scoreNum < lowestScore) {
-                lowestScore = scoreNum;
-                lowestSubject = sub;
-            }
-        }
-    });
-
-    const avg = count > 0 ? (totalSum / count) : 0;
     let teacherRemark = "";
-    let conductRemark = "";
-    let interestRemark = "";
-
-    if (avg >= 80) {
-        teacherRemark = `An outstanding student who excels across all subjects. Demonstrates exceptional understanding, particularly in ${highestSubject || 'academics'}.`;
-        conductRemark = "Exemplary behavior, always respectful";
-        interestRemark = "Enjoys challenging tasks";
-    } else if (avg >= 70) {
-        teacherRemark = `Very good academic performance. Shows high aptitude in ${highestSubject || 'class'} and steady progress overall.`;
-        conductRemark = "Disciplined and focused in class";
-        interestRemark = "Mathematics and puzzles";
-    } else if (avg >= 55) {
-        teacherRemark = `Good effort this term. Performs well in ${highestSubject || 'lessons'}, but should put extra focus on ${lowestSubject || 'weaker subjects'}.`;
-        conductRemark = "Generally well-behaved";
-        interestRemark = "Hands-on activities";
-    } else if (avg >= 40) {
-        teacherRemark = `Fair performance. Capable of achieving better results with continuous study and focus, especially in ${lowestSubject || 'core subjects'}.`;
-        conductRemark = "Needs to improve self-discipline";
-        interestRemark = "Group activities";
+    if (teacherTone === 'positive') {
+        teacherRemark = avg >= 80 
+            ? `An outstanding student who excels across all subjects, particularly in ${highestSubject || 'academics'}. Keep up the brilliant performance!` 
+            : `Commendable academic effort and steady progress with notable strength in ${highestSubject || 'class work'}. Continue to work diligently!`;
+    } else if (teacherTone === 'negative') {
+        teacherRemark = lowestSubject 
+            ? `Academic performance is below expectations, particularly in ${lowestSubject}. Urgent remedial support and regular study habits are required.` 
+            : `Needs significant academic improvement. Dedicated home study and active parental monitoring are strongly advised.`;
     } else {
-        teacherRemark = `Requires additional academic support and intensive guidance to build basic concepts in ${lowestSubject || 'all subjects'}.`;
-        conductRemark = "Requires constant supervision";
-        interestRemark = "Practical work";
+        teacherRemark = (highestSubject && lowestSubject && highestSubject !== lowestSubject) 
+            ? `A satisfactory performance overall. Shows good understanding in ${highestSubject}, but needs to devote extra study time to ${lowestSubject} for higher grades.` 
+            : `A fair performance with promising aptitude in ${highestSubject || 'core subjects'}. Regular revision and practice recommended.`;
     }
+
+    const interestRemark = highestSubject || "Class activities";
 
     return { teacher: teacherRemark, conduct: conductRemark, interest: interestRemark };
 }
@@ -3989,9 +3797,9 @@ function applySmartRemarksToModal() {
     if (!currentEditingStudentId) return;
     const smart = generateSmartRemarks(currentEditingStudentId);
     
-    if (editTeacherRemarksInput) editTeacherRemarksInput.value = smart.teacher;
-    if (editConductInput) editConductInput.value = smart.conduct;
-    if (editInterestInput) editInterestInput.value = smart.interest;
+    if (typeof editTeacherRemarksInput !== 'undefined' && editTeacherRemarksInput) editTeacherRemarksInput.value = smart.teacher;
+    if (typeof editConductInput !== 'undefined' && editConductInput) editConductInput.value = smart.conduct;
+    if (typeof editInterestInput !== 'undefined' && editInterestInput) editInterestInput.value = smart.interest;
 
     showNotification('Generated smart narrative remarks based on student scores!', 'success');
 }

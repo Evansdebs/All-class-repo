@@ -21,7 +21,7 @@
         </div>
         <h1>OneReal School Admin</h1>
         <p class="auth-subtitle">Sign in with an admin account created for your school. First time here? Your first sign-in creates the school's Super Admin account.</p>
-        <form id="adminLoginForm" autocomplete="on" onsubmit="return false;">
+        <form id="adminLoginForm" autocomplete="on" onsubmit="handleAdminLogin(); return false;">
             <div class="auth-field">
                 <label for="adminEmail"><i class="fas fa-envelope"></i> Email Address</label>
                 <input type="email" id="adminEmail" placeholder="admin@school.com" autocomplete="email" required>
@@ -32,7 +32,7 @@
                 <span class="password-toggle" onclick="togglePasswordVisibility('adminPassword', this)"><i class="fas fa-eye"></i></span>
             </div>
             <div id="adminAuthError" class="auth-error" style="display:none;"></div>
-            <button class="auth-btn" id="adminLoginBtn" type="button" onclick="handleAdminLogin()">
+            <button class="auth-btn" id="adminLoginBtn" type="submit">
                 <span class="btn-text"><i class="fas fa-sign-in-alt"></i> Sign In</span>
                 <span class="btn-loader" style="display:none;"><i class="fas fa-spinner fa-spin"></i> Signing in…</span>
             </button>
@@ -52,15 +52,15 @@
     <!-- SIDEBAR -->
     <aside class="sidebar" id="sidebar">
         <div class="sidebar-header">
-            <div class="sidebar-logo">
+            <div class="sidebar-logo" onclick="toggleSidebar()" style="cursor:pointer;" title="Toggle Navigation Sidebar">
                 <i class="fas fa-graduation-cap"></i>
             </div>
-            <div class="sidebar-brand">
+            <div class="sidebar-brand" onclick="switchSection('dashboard')" style="cursor:pointer;" title="OneReal School Admin">
                 <span class="brand-name">OneReal</span>
                 <span class="brand-sub">School Admin</span>
             </div>
-            <button class="sidebar-collapse-btn" id="sidebarCollapseBtn" onclick="toggleSidebar()">
-                <i class="fas fa-bars"></i>
+            <button class="sidebar-collapse-btn" id="sidebarCollapseBtn" onclick="toggleSidebar()" title="Toggle Sidebar" aria-label="Toggle Sidebar">
+                <i class="fas fa-bars" id="sidebarCollapseIcon"></i>
             </button>
         </div>
 
@@ -142,7 +142,9 @@
         <!-- TOP BAR -->
         <div class="topbar">
             <div class="topbar-left">
-                <button class="mobile-menu-btn" onclick="toggleSidebar()"><i class="fas fa-bars"></i></button>
+                <button class="sidebar-toggle-btn" id="topbarSidebarToggle" onclick="toggleSidebar()" aria-label="Toggle Sidebar" title="Toggle Navigation Sidebar">
+                    <i class="fas fa-bars" id="topbarToggleIcon"></i>
+                </button>
                 <div class="breadcrumb" id="breadcrumb">
                     <span>Dashboard</span>
                 </div>
@@ -152,7 +154,7 @@
                     <i class="fas fa-search"></i>
                     <input type="text" id="globalSearch" placeholder="Search students, teachers, classes…" oninput="handleGlobalSearch(this.value)" autocomplete="off" value="">
                 </div>
-                <div class="topbar-avatar" id="topbarAvatar">A</div>
+                <div class="topbar-avatar" id="topbarAvatar" onclick="switchSection('settings')" title="Admin Profile & Settings">A</div>
             </div>
         </div>
 

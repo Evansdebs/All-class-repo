@@ -246,7 +246,7 @@ async function renderStudentResults(student) {
                 <div style="font-size:11px;color:#94a3b8;">Terminal Average</div>
             </div>
             <div style="background:#1e293b;color:#fff;padding:16px;border-radius:12px;border:1px solid rgba(255,255,255,0.08);">
-                <div style="font-size:11px;color:#94a3b8;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;"><i class="fas fa-medal"></i> Overall Grade</div>
+                <div style="font-size:11px;color:#94a3b8;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;"><i class="fas fa-medal"></i> Overall Average Grade</div>
                 <div style="font-size:24px;font-weight:800;margin:6px 0 2px 0;color:#34d399;">${scoredCount ? overallGrade.grade : '—'}</div>
                 <div style="font-size:11px;color:#94a3b8;">${scoredCount ? overallGrade.remark : 'No grades yet'}</div>
             </div>
@@ -342,6 +342,65 @@ function downloadStudentResultsCsv() {
     alert('Download helper missing. Hard-refresh the page.');
 }
 
+function formatOrdinal(n) {
+    if (!n || isNaN(n)) return '';
+    const s = ["th", "st", "nd", "rd"];
+    const v = n % 100;
+    return n + (s[(v - 20) % 10] || s[v] || s[0]);
+}
+
+function getStudentClassRank(student) {
+    if (!student || !student.class) return null;
+    const allStudents = JSON.parse(localStorage.getItem('students') || '[]');
+    const classMates = allStudents.filter(s => (s.class || '') === student.class && !s.isDeleted && s.status !== 'deleted');
+    if (!classMates.length) return null;
+
+    const allScores = JSON.parse(localStorage.getItem('scores') || '{}');
+    const allResults = JSON.parse(localStorage.getItem('results') || '[]');
+
+    const ranked = classMates.map(cm => {
+        let total = 0, count = 0;
+        Object.keys(allScores).forEach(sub => {
+            const entry = allScores[sub] ? (allScores[sub][cm.id] || allScores[sub][String(cm.id)]) : null;
+            if (entry) {
+                if (entry.totalScore !== '' && entry.totalScore !== undefined && entry.totalScore !== null) {
+                    total += Number(entry.totalScore);
+                    count++;
+                } else if (entry.classScore !== '' && entry.examScore !== '' && entry.classScore != null && entry.examScore != null) {
+                    const cs50 = (Number(entry.classScore) / 100) * 50;
+                    const es50 = (Number(entry.examScore) / 100) * 50;
+                    total += (cs50 + es50);
+                    count++;
+                }
+            }
+        });
+        if (count === 0 && allResults.length) {
+            const stuResults = allResults.filter(r => (String(r.studentId) === String(cm.id) || String(r.admissionNo) === String(cm.admissionNo)) && r.totalScore !== '' && r.totalScore != null);
+            if (stuResults.length) {
+                stuResults.forEach(r => {
+                    total += Number(r.totalScore);
+                    count++;
+                });
+            }
+        }
+        return {
+            id: String(cm.id),
+            avg: count > 0 ? (total / count) : -1
+        };
+    }).sort((a, b) => b.avg - a.avg);
+
+    const index = ranked.findIndex(r => r.id === String(student.id));
+    if (index === -1) return null;
+    const target = ranked[index];
+    if (target.avg < 0) return { rank: null, total: classMates.length, formatted: '—' };
+    const rank = index + 1;
+    return {
+        rank: rank,
+        total: classMates.length,
+        formatted: `${formatOrdinal(rank)} / ${classMates.length}`
+    };
+}
+
 function buildUnifiedStudentReportHTML(student) {
     if (!student) return '';
     const settings = JSON.parse(localStorage.getItem('schoolSettings') || '{}');
@@ -349,7 +408,21 @@ function buildUnifiedStudentReportHTML(student) {
     const school = settings.schoolName || schoolInfo.schoolName || 'The Living Spring School';
     const details = JSON.parse(localStorage.getItem('studentReportDetails') || '{}');
     const d = details[student.id] || details[String(student.id)] || {};
-    const logoSrc = settings.schoolLogo || schoolInfo.schoolLogo || null;
+
+    const fieldToggles = settings.fieldToggles || {};
+    const showPosition = fieldToggles.showPosition !== false;
+    const showLogo = fieldToggles.showSchoolLogo !== false;
+    const showNextTerm = fieldToggles.showNextTerm !== false;
+
+    let positionText = '—';
+    if (showPosition) {
+        const rankInfo = getStudentClassRank(student);
+        if (rankInfo && rankInfo.formatted) {
+            positionText = rankInfo.formatted;
+        }
+    }
+
+    const logoSrc = (showLogo && (settings.schoolLogo || schoolInfo.schoolLogo)) || null;
     const yr = schoolInfo.academicYear || '';
     const tm = schoolInfo.term ? ('Term ' + schoolInfo.term) : '';
 
@@ -481,44 +554,50 @@ function buildUnifiedStudentReportHTML(student) {
             ${logoEl}
         </div>
 
-        <div style="display:grid;grid-template-columns:repeat(3, 1fr);gap:10px;background:#f8fafc;padding:12px 16px;border-radius:8px;margin-bottom:16px;font-size:12.5px;border:1px solid #e2e8f0;">
-            <div><span style="color:#64748b;font-size:11px;display:block;font-weight:600;">NAME OF LEARNER</span><strong>${student.name || ''}</strong></div>
-            <div><span style="color:#64748b;font-size:11px;display:block;font-weight:600;">CLASS</span><strong>${student.class || ''}</strong></div>
-            <div><span style="color:#64748b;font-size:11px;display:block;font-weight:600;">ACADEMIC YEAR</span><strong>${yr}</strong></div>
-            <div><span style="color:#64748b;font-size:11px;display:block;font-weight:600;">TERM</span><strong>${tm}</strong></div>
-            <div><span style="color:#64748b;font-size:11px;display:block;font-weight:600;">DATE OF VACATION</span><strong>${settings.closingDate || schoolInfo.closingDate || '—'}</strong></div>
-            <div><span style="color:#64748b;font-size:11px;display:block;font-weight:600;">RE-OPENING DATE</span><strong>${settings.reopeningDate || schoolInfo.reopeningDate || '—'}</strong></div>
+        <div class="report-meta-grid" style="display:grid;grid-template-columns:repeat(auto-fit, minmax(130px, 1fr));gap:8px;background:#f8fafc;padding:12px 14px;border-radius:8px;margin-bottom:14px;font-size:12px;border:1px solid #e2e8f0;">
+            <div><span style="color:#64748b;font-size:10.5px;display:block;font-weight:600;">NAME OF LEARNER</span><strong>${student.name || ''}</strong></div>
+            <div><span style="color:#64748b;font-size:10.5px;display:block;font-weight:600;">CLASS</span><strong>${student.class || ''}</strong></div>
+            ${showPosition ? `<div><span style="color:#64748b;font-size:10.5px;display:block;font-weight:600;">CLASS POSITION</span><strong style="color:${primaryDark};font-size:13.5px;">${positionText}</strong></div>` : ''}
+            <div><span style="color:#64748b;font-size:10.5px;display:block;font-weight:600;">ACADEMIC YEAR</span><strong>${yr}</strong></div>
+            <div><span style="color:#64748b;font-size:10.5px;display:block;font-weight:600;">TERM</span><strong>${tm}</strong></div>
+            ${showNextTerm ? `
+            <div><span style="color:#64748b;font-size:10.5px;display:block;font-weight:600;">DATE OF VACATION</span><strong>${settings.closingDate || schoolInfo.closingDate || '—'}</strong></div>
+            <div><span style="color:#64748b;font-size:10.5px;display:block;font-weight:600;">RE-OPENING DATE</span><strong>${settings.reopeningDate || schoolInfo.reopeningDate || '—'}</strong></div>
+            ` : ''}
         </div>
 
-        <table style="width:100%;border-collapse:collapse;margin-bottom:16px;font-size:12px;text-align:center;">
-            <thead>
-                <tr style="background:${primaryColor};color:${headerTextColor};">
-                    <th style="padding:8px 10px;text-align:left;border:1px solid ${primaryDark};">SUBJECT</th>
-                    <th style="padding:8px 10px;border:1px solid ${primaryDark};">CLASS 50%</th>
-                    <th style="padding:8px 10px;border:1px solid ${primaryDark};">EXAM 50%</th>
-                    <th style="padding:8px 10px;border:1px solid ${primaryDark};">TOTAL 100%</th>
-                    <th style="padding:8px 10px;border:1px solid ${primaryDark};">GRADE</th>
-                    <th style="padding:8px 10px;border:1px solid ${primaryDark};">REMARKS</th>
-                </tr>
-            </thead>
-            <tbody>${rowsHtml || '<tr><td colspan="6" style="padding:16px;color:#94a3b8;">No results recorded</td></tr>'}</tbody>
-        </table>
+        <div class="table-wrap" style="margin-bottom:14px;">
+            <table style="width:100%;min-width:440px;border-collapse:collapse;font-size:11.5px;text-align:center;">
+                <thead>
+                    <tr style="background:${primaryColor};color:${headerTextColor};">
+                        <th style="padding:7px 8px;text-align:left;border:1px solid ${primaryDark};">SUBJECT</th>
+                        <th style="padding:7px 8px;border:1px solid ${primaryDark};">CLASS 50%</th>
+                        <th style="padding:7px 8px;border:1px solid ${primaryDark};">EXAM 50%</th>
+                        <th style="padding:7px 8px;border:1px solid ${primaryDark};">TOTAL 100%</th>
+                        <th style="padding:7px 8px;border:1px solid ${primaryDark};">GRADE</th>
+                        <th style="padding:7px 8px;border:1px solid ${primaryDark};">REMARKS</th>
+                    </tr>
+                </thead>
+                <tbody>${rowsHtml || '<tr><td colspan="6" style="padding:16px;color:#94a3b8;">No results recorded</td></tr>'}</tbody>
+            </table>
+        </div>
 
         ${jhsAggregateHTML}
 
-        <div style="display:grid;grid-template-columns:repeat(3, 1fr);gap:10px;background:#eef2ff;padding:12px 16px;border-radius:8px;margin-bottom:16px;font-size:12.5px;border:1px solid #c7d2fe;">
-            <div><span style="color:${primaryDark};font-size:11px;display:block;font-weight:600;">AVERAGE SCORE</span><strong style="font-size:15px;color:#1e1b4b;">${scoredCount ? avg.toFixed(1) + '%' : '—'}</strong></div>
-            <div><span style="color:${primaryDark};font-size:11px;display:block;font-weight:600;">OVERALL GRADE</span><strong style="font-size:15px;color:#1e1b4b;">${scoredCount ? overallGrade.grade + ' (' + overallGrade.remark + ')' : '—'}</strong></div>
-            <div><span style="color:${primaryDark};font-size:11px;display:block;font-weight:600;">RECORDED SUBJECTS</span><strong style="font-size:15px;color:#1e1b4b;">${scoredCount} / ${rows.length}</strong></div>
+        <div class="report-perf-grid" style="display:grid;grid-template-columns:repeat(auto-fit, minmax(130px, 1fr));gap:8px;background:#eef2ff;padding:12px 14px;border-radius:8px;margin-bottom:14px;font-size:12px;border:1px solid #c7d2fe;">
+            <div><span style="color:${primaryDark};font-size:10.5px;display:block;font-weight:600;">AVERAGE SCORE</span><strong style="font-size:14px;color:#1e1b4b;">${scoredCount ? avg.toFixed(1) + '%' : '—'}</strong></div>
+            <div><span style="color:${primaryDark};font-size:10.5px;display:block;font-weight:600;">OVERALL AVERAGE GRADE</span><strong style="font-size:14px;color:#1e1b4b;">${scoredCount ? overallGrade.grade + ' (' + overallGrade.remark + ')' : '—'}</strong></div>
+            ${showPosition ? `<div><span style="color:${primaryDark};font-size:10.5px;display:block;font-weight:600;">CLASS POSITION</span><strong style="font-size:14px;color:#1e1b4b;">${positionText}</strong></div>` : ''}
+            <div><span style="color:${primaryDark};font-size:10.5px;display:block;font-weight:600;">RECORDED SUBJECTS</span><strong style="font-size:14px;color:#1e1b4b;">${scoredCount} / ${rows.length}</strong></div>
         </div>
 
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;font-size:12.5px;">
-            <div style="background:#f8fafc;padding:10px 14px;border-radius:8px;border:1px solid #e2e8f0;">
+        <div class="report-conduct-grid" style="display:grid;grid-template-columns:repeat(auto-fit, minmax(200px, 1fr));gap:10px;margin-bottom:14px;font-size:12px;">
+            <div style="background:#f8fafc;padding:10px 12px;border-radius:8px;border:1px solid #e2e8f0;">
                 <div style="margin-bottom:6px;"><span style="color:#64748b;font-weight:600;">Attendance:</span> ${attText}</div>
                 <div style="margin-bottom:6px;"><span style="color:#64748b;font-weight:600;">Conduct:</span> ${d.conduct || '—'}</div>
                 <div><span style="color:#64748b;font-weight:600;">Interest:</span> ${d.interest || '—'}</div>
             </div>
-            <div style="background:#f8fafc;padding:10px 14px;border-radius:8px;border:1px solid #e2e8f0;">
+            <div style="background:#f8fafc;padding:10px 12px;border-radius:8px;border:1px solid #e2e8f0;">
                 <div style="margin-bottom:6px;"><span style="color:#64748b;font-weight:600;">Promoted to / In:</span> ${d.promotionTarget || d.promotionStatus || '—'}</div>
                 <div><span style="color:#64748b;font-weight:600;">Teacher Remarks:</span> <em>${d.teacherRemarks || '—'}</em></div>
             </div>

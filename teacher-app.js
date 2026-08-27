@@ -432,6 +432,19 @@ function getScoreEntry(subject, studentId) {
     }
     return entry || { classScore: '', examScore: '', totalScore: '' };
 }
+function studentScoreObj(studentId, subject) {
+    const e = getScoreEntry(subject, studentId);
+    if (!e) return { classScore: '', examScore: '', total: '', grade: '', remark: '' };
+    const tot = (e.classScore !== '' && e.examScore !== '') ? totalScore(e.classScore, e.examScore) : (e.totalScore !== '' && e.totalScore !== undefined ? Number(e.totalScore) : '');
+    const g = (tot !== '' && !isNaN(Number(tot))) ? getGrade(tot, currentClass) : { grade: e.grade || '', remark: e.remark || '' };
+    return {
+        classScore: e.classScore !== undefined ? e.classScore : '',
+        examScore: e.examScore !== undefined ? e.examScore : '',
+        total: tot,
+        grade: g.grade || '',
+        remark: g.remark || ''
+    };
+}
 function putScoreEntry(subject, studentId, data) {
     const subKey = String(subject || '').trim();
     if (!scores[subKey]) scores[subKey] = {};
@@ -731,7 +744,6 @@ function showHub() {
     document.getElementById('view-class').classList.remove('active');
     document.getElementById('classSwitcherWrap').style.display = 'none';
     updateSidebarState();
-    closeSidebar();
     renderHub();
 }
 
@@ -814,7 +826,6 @@ function openTab(tab) {
     const panel = document.getElementById('tab-' + tab);
     if (panel) panel.classList.add('active');
     updateSidebarState();
-    closeSidebar();
     renderStats();
     if (tab === 'students') renderStudents();
     if (tab === 'scores') renderScores();
@@ -1540,34 +1551,181 @@ function renderBroadsheet() {
             map[sub] = e && e.totalScore !== '' ? Number(e.totalScore) : null;
         });
         const sum = Object.values(map).reduce((a, b) => a + (b || 0), 0);
-        return { s, map, sum, avg: p ? p.avg : 0 };
+        return { s, map, sum, avg: p ? p.avg : 0, grade: p ? p.grade : '—', remark: p ? p.remark : '—' };
     }).sort((a, b) => b.sum - a.sum);
     list.forEach((row, i) => { row.rank = i + 1; });
+
     document.getElementById('tab-broadsheet').innerHTML = `
         <div class="card">
-            <div class="actions" style="margin-bottom:10px;">
-                <a class="btn btn-ghost btn-sm" id="exportBroadsheetBtn" href="/open?src=/api/export/broadsheet.xlsx"><i class="fas fa-file-excel"></i> Export Excel</a>
+            <div class="actions" style="margin-bottom:12px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;">
+                <div>
+                    <h3 style="margin:0;font-size:15px;color:var(--ink);font-weight:700;"><i class="fas fa-table" style="color:var(--primary);margin-right:6px;"></i> Master Broadsheet — ${esc(currentClass || 'Class')}</h3>
+                    <div style="font-size:12px;color:var(--muted);margin-top:2px;">${list.length} student${list.length === 1 ? '' : 's'} registered in this class</div>
+                </div>
+                <button type="button" class="btn btn-primary btn-sm" id="exportBroadsheetBtn" onclick="exportBroadsheet()">
+                    <i class="fas fa-file-excel"></i> Export Excel Broadsheet
+                </button>
             </div>
             <div class="table-wrap"><table class="broadsheet">
-                <thead><tr><th>Pos</th><th>Student</th>${subs.map(s => `<th>${esc(s.split(' ')[0])}</th>`).join('')}<th>Total</th><th>Avg</th></tr></thead>
+                <thead><tr><th>Pos</th><th>Student</th>${subs.map(s => `<th>${esc(s.split(' ')[0])}</th>`).join('')}<th>Total</th><th>Avg</th><th>Grade</th></tr></thead>
                 <tbody>
                     ${list.map(r => `<tr>
                         <td><span class="badge ${r.rank < 4 ? 'rank' + r.rank : ''}">${r.rank}</span></td>
                         <td class="name">${esc(r.s.name)}</td>
                         ${subs.map(sub => `<td>${r.map[sub] == null ? '—' : r.map[sub]}</td>`).join('')}
                         <td><strong>${r.sum.toFixed(0)}</strong></td>
-                        <td>${r.avg ? r.avg.toFixed(1) : '—'}</td>
-                    </tr>`).join('') || '<tr><td colspan="20">No students</td></tr>'}
+                        <td>${r.avg ? r.avg.toFixed(1) + '%' : '—'}</td>
+                        <td><span class="badge ${r.grade === 'A' ? 'ok' : ''}">${r.grade}</span></td>
+                    </tr>`).join('') || '<tr><td colspan="20" style="text-align:center;padding:24px;color:var(--muted);">No students in this class yet.</td></tr>'}
                 </tbody>
             </table></div>
         </div>`;
-    const xb = document.getElementById('exportBroadsheetBtn');
-    if (xb) xb.href = '/open?src=' + encodeURIComponent('/api/export/broadsheet.xlsx?class=' + encodeURIComponent(currentClass || ''));
 }
 
 function exportBroadsheet() {
-    const url = '/api/export/broadsheet.xlsx?class=' + encodeURIComponent(currentClass || '');
-    window.location.href = '/open?src=' + encodeURIComponent(url);
+    if (!currentClass) {
+        toast('Please select a class first.', 'bad');
+        return;
+    }
+    const subs = allClassSubjects(currentClass);
+    const studentsList = classStudents();
+    if (!studentsList.length) {
+        toast('No students found in this class to export.', 'bad');
+        return;
+    }
+
+    const list = studentsList.map(s => {
+        const p = studentPerf(s.id);
+        const map = {};
+        subs.forEach(sub => {
+            const e = getScoreEntry(sub, s.id);
+            map[sub] = (e && e.totalScore !== '' && e.totalScore != null) ? Number(e.totalScore) : null;
+        });
+        const sum = Object.values(map).reduce((a, b) => a + (b || 0), 0);
+        return { 
+            s, 
+            map, 
+            sum, 
+            avg: p ? p.avg : 0, 
+            grade: p ? p.grade : '—', 
+            remark: p ? p.remark : '—' 
+        };
+    }).sort((a, b) => b.sum - a.sum);
+
+    list.forEach((row, i) => { row.rank = i + 1; });
+
+    const schoolName = (typeof schoolInfo !== 'undefined' && schoolInfo && schoolInfo.name) ? schoolInfo.name : 'OneReal School';
+    const termStr = (typeof currentTerm !== 'undefined' && currentTerm) ? currentTerm : 'Term 1';
+
+    // Build tabular worksheet array
+    const rows = [
+        [schoolName.toUpperCase()],
+        [`MASTER BROADSHEET — ${currentClass.toUpperCase()}`, `Academic Period: ${termStr}`],
+        [],
+        ['Pos', 'Student Name', ...subs, 'Total Score', 'Average (%)', 'Overall Grade', 'Remarks']
+    ];
+
+    list.forEach(r => {
+        const subScores = subs.map(sub => r.map[sub] != null ? r.map[sub] : '');
+        rows.push([
+            r.rank,
+            r.s.name,
+            ...subScores,
+            Math.round(r.sum),
+            Number(r.avg.toFixed(1)),
+            r.grade,
+            r.remark
+        ]);
+    });
+
+    // Summary statistics
+    const classAvgRow = ['—', 'Class Average'];
+    const highestRow = ['—', 'Highest Score'];
+    const lowestRow = ['—', 'Lowest Score'];
+
+    subs.forEach(sub => {
+        const validScores = list.map(r => r.map[sub]).filter(v => v !== null && !isNaN(v));
+        if (validScores.length > 0) {
+            const avg = (validScores.reduce((a, b) => a + b, 0) / validScores.length).toFixed(1);
+            const max = Math.max(...validScores);
+            const min = Math.min(...validScores);
+            classAvgRow.push(Number(avg));
+            highestRow.push(max);
+            lowestRow.push(min);
+        } else {
+            classAvgRow.push('—');
+            highestRow.push('—');
+            lowestRow.push('—');
+        }
+    });
+
+    classAvgRow.push('—', '—', '—', '—');
+    highestRow.push('—', '—', '—', '—');
+    lowestRow.push('—', '—', '—', '—');
+
+    rows.push([]);
+    rows.push(classAvgRow);
+    rows.push(highestRow);
+    rows.push(lowestRow);
+
+    const safeClassName = currentClass.replace(/[^a-zA-Z0-9_-]/g, '_');
+    const fileName = `${safeClassName}_Master_Broadsheet.xlsx`;
+
+    try {
+        if (typeof XLSX !== 'undefined') {
+            const ws = XLSX.utils.aoa_to_sheet(rows);
+            ws['!cols'] = [
+                { wch: 6 },
+                { wch: 25 },
+                ...subs.map(() => ({ wch: 14 })),
+                { wch: 12 },
+                { wch: 12 },
+                { wch: 10 },
+                { wch: 22 }
+            ];
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, "Master Broadsheet");
+            XLSX.writeFile(wb, fileName);
+            toast(`Broadsheet exported straight to Excel (${fileName})!`, 'ok');
+            return;
+        }
+    } catch (e) {
+        console.warn('XLSX direct write error, falling back to OneRealFiles', e);
+    }
+
+    try {
+        if (typeof OneRealFiles !== 'undefined' && OneRealFiles.buildXlsx) {
+            const bytes = OneRealFiles.buildXlsx(rows, 'Master Broadsheet');
+            const blob = new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+            if (OneRealFiles.saveBlob) {
+                OneRealFiles.saveBlob(blob, fileName);
+            } else {
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = fileName;
+                document.body.appendChild(a);
+                a.click();
+                setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 3000);
+            }
+            toast(`Broadsheet exported straight to Excel (${fileName})!`, 'ok');
+            return;
+        }
+    } catch (e) {
+        console.warn('OneRealFiles export error', e);
+    }
+
+    // Direct browser anchor CSV download fallback
+    let csvContent = "\uFEFF" + rows.map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\r\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = fileName.replace(/\.xlsx$/, '.csv');
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 3000);
+    toast('Broadsheet exported directly!', 'ok');
 }
 
 function renderReports() {
@@ -1612,8 +1770,9 @@ function renderReports() {
 
         <div class="card">
             <p class="hint">Preview anytime. Download buttons appear only after admin approves a report.</p>
-            <div class="actions">
-                <button class="btn btn-primary" onclick="generateClassReports()"><i class="fas fa-magic"></i> Refresh class reports</button>
+            <div class="actions" style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
+                <button class="btn btn-primary" onclick="openBatchSmartRemarksModal()"><i class="fas fa-magic"></i> Auto-Generate Smart Remarks for Class</button>
+                <button class="btn btn-ghost" onclick="generateClassReports()"><i class="fas fa-sync-alt"></i> Refresh Class Reports</button>
                 ${hasApproved ? `<button class="btn btn-ok" onclick="bulkDownload()"><i class="fas fa-file-archive"></i> Download approved ZIP (${approved})</button>` : '<button class="btn btn-ghost" disabled title="No approved reports yet"><i class="fas fa-lock"></i> Class ZIP locked</button>'}
             </div>
             <div class="report-grid" style="margin-top:14px;">
@@ -1713,13 +1872,43 @@ function openRemarks(id) {
     const d = studentReportDetails[id] || studentReportDetails[String(id)] || {};
     const attText = (typeof Attendance !== 'undefined' && Attendance.label(id)) || d.attendance || '—';
     const sid = String(id).replace(/'/g, "\\'");
+
+    // Performance context
+    const p = studentPerf(String(id));
+    const avg = p ? p.avg : null;
+    const best = (p && p.items.length) ? p.items.slice().sort((a, b) => b.total - a.total)[0] : null;
+
+    // Default tone based on academic average if available
+    const defaultTone = (avg === null) ? 'middle' : (avg >= 68 ? 'positive' : (avg >= 50 ? 'middle' : 'negative'));
+
     // Pre-fill current override values if any
     const currentPresent = (typeof Attendance !== 'undefined' && Attendance.hasPresentOverride && Attendance.hasPresentOverride(id))
         ? Attendance.presentCount(id) : '';
     const currentTotal = (typeof Attendance !== 'undefined' && Attendance.totalDays) ? Attendance.totalDays(id) : '';
-    openModal(`<h3>Remarks — ${esc(s.name)}</h3>
-        <div class="field"><label>Attendance (current)</label><div class="readonly-box">${esc(attText)}</div></div>
-        <div class="row" style="margin-bottom:4px;">
+
+    openModal(`
+        <div style="display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--line);padding-bottom:10px;margin-bottom:14px;">
+            <h3 style="margin:0;font-size:16px;font-weight:700;"><i class="fas fa-edit" style="color:var(--primary);margin-right:6px;"></i> Student Remarks &amp; Promotion — ${esc(s.name)}</h3>
+        </div>
+
+        ${p ? `
+        <div style="display:flex;align-items:center;justify-content:space-between;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px 12px;margin-bottom:14px;font-size:12px;">
+            <div>
+                <span style="color:var(--muted);">Academic Average:</span> <strong style="color:var(--ink);">${p.avg.toFixed(1)}% (${p.grade})</strong>
+                <span style="margin:0 8px;color:var(--line);">|</span>
+                <span style="color:var(--muted);">Top Subject:</span> <strong style="color:var(--primary);">${best ? esc(best.subject) + ' (' + best.total + '%)' : 'None'}</strong>
+            </div>
+            <div>
+                <button type="button" class="btn btn-secondary btn-sm" onclick="smartRemarks('${sid}')" style="font-size:11px;padding:4px 10px;">
+                    <i class="fas fa-magic"></i> Auto-Generate All
+                </button>
+            </div>
+        </div>
+        ` : ''}
+
+        <div class="field" style="margin-bottom:10px;"><label>Attendance (current)</label><div class="readonly-box">${esc(attText)}</div></div>
+
+        <div class="row" style="margin-bottom:10px;">
             <div class="field"><label>Days Present Override</label>
                 <input type="number" id="rmAttPresent" min="0" value="${currentPresent !== '' ? currentPresent : ''}" placeholder="Leave blank to use register">
                 <p class="hint" style="margin:2px 0 0;">Overrides daily register count for this student.</p>
@@ -1729,7 +1918,8 @@ function openRemarks(id) {
                 <p class="hint" style="margin:2px 0 0;">Overrides the OUT OF days for this student only.</p>
             </div>
         </div>
-        <div class="row">
+
+        <div class="row" style="margin-bottom:12px;">
             <div class="field"><label>Promotion</label>
                 <select id="rmPromo" onchange="onPromotionChange('${sid}')">
                     <option value="">—</option>
@@ -1739,14 +1929,175 @@ function openRemarks(id) {
             </div>
             <div class="field"><label>To / in</label><input id="rmTarget" value="${esc(d.promotionTarget || '')}" placeholder="e.g. Basic 7"></div>
         </div>
-        <div class="field"><label>Conduct</label><input id="rmConduct" value="${esc(d.conduct || '')}"></div>
-        <div class="field"><label>Interest</label><input id="rmInterest" value="${esc(d.interest || '')}"></div>
-        <div class="field"><label>Teacher remarks</label><textarea id="rmTeach" rows="3">${esc(d.teacherRemarks || '')}</textarea></div>
-        <div class="actions">
-            <button class="btn btn-ghost btn-sm" onclick="smartRemarks('${sid}')">Smart remarks</button>
-            <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
-            <button class="btn btn-primary" onclick="saveRemarks('${sid}')">Save</button>
-        </div>`);
+
+        <!-- Conduct Field with Positive / Middle / Negative Tone Selector -->
+        <div class="field" style="margin-bottom:14px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;">
+                <label style="margin:0;font-weight:600;">Conduct</label>
+                <div style="display:flex;align-items:center;gap:6px;">
+                    <span style="font-size:11px;color:var(--muted);">Tone:</span>
+                    <select id="rmConductTone" onchange="generateConductRemark('${sid}')" style="font-size:11.5px;padding:3px 8px;border-radius:6px;border:1px solid var(--line);background:var(--card);color:var(--ink);">
+                        <option value="positive" ${defaultTone === 'positive' ? 'selected' : ''}>Positive (Exemplary &amp; Disciplined)</option>
+                        <option value="middle" ${defaultTone === 'middle' ? 'selected' : ''}>Middle (Satisfactory &amp; Cooperative)</option>
+                        <option value="negative" ${defaultTone === 'negative' ? 'selected' : ''}>Negative (Needs Improvement)</option>
+                    </select>
+                    <button type="button" class="btn btn-ghost btn-sm" onclick="generateConductRemark('${sid}')" title="Generate conduct remark from selected tone" style="font-size:11px;padding:3px 8px;"><i class="fas fa-sync-alt"></i> Apply Tone</button>
+                </div>
+            </div>
+            <input id="rmConduct" value="${esc(d.conduct || '')}" placeholder="e.g. Very well behaved, courteous and respectful">
+        </div>
+
+        <!-- Interest Field (uses highest mark subject) -->
+        <div class="field" style="margin-bottom:14px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;">
+                <label style="margin:0;font-weight:600;">Interest</label>
+                <div style="display:flex;align-items:center;gap:6px;">
+                    ${best ? `<button type="button" class="btn btn-ghost btn-sm" onclick="applyTopSubjectInterest('${sid}')" title="Set interest to highest scoring subject (${esc(best.subject)})" style="font-size:11px;padding:3px 8px;"><i class="fas fa-star" style="color:#d97706;"></i> Use Highest Subject (${esc(best.subject)})</button>` : ''}
+                </div>
+            </div>
+            <input id="rmInterest" value="${esc(d.interest || '')}" placeholder="${best ? 'e.g. ' + esc(best.subject) : 'e.g. Mathematics, reading, sports'}">
+            <p class="hint" style="margin:3px 0 0;font-size:11px;">Smart remarks uses the student's highest scoring subject as their interest.</p>
+        </div>
+
+        <!-- Teacher's Remarks Field with Positive / Middle / Negative Tone Selector -->
+        <div class="field" style="margin-bottom:16px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;">
+                <label style="margin:0;font-weight:600;">Teacher's Remarks</label>
+                <div style="display:flex;align-items:center;gap:6px;">
+                    <span style="font-size:11px;color:var(--muted);">Tone:</span>
+                    <select id="rmTeachTone" onchange="generateTeacherRemark('${sid}')" style="font-size:11.5px;padding:3px 8px;border-radius:6px;border:1px solid var(--line);background:var(--card);color:var(--ink);">
+                        <option value="positive" ${defaultTone === 'positive' ? 'selected' : ''}>Positive (Outstanding / Commendable)</option>
+                        <option value="middle" ${defaultTone === 'middle' ? 'selected' : ''}>Middle (Satisfactory / Fair Progress)</option>
+                        <option value="negative" ${defaultTone === 'negative' ? 'selected' : ''}>Negative (Needs Support / Remedial)</option>
+                    </select>
+                    <button type="button" class="btn btn-ghost btn-sm" onclick="generateTeacherRemark('${sid}')" title="Generate teacher remarks from selected tone" style="font-size:11px;padding:3px 8px;"><i class="fas fa-sync-alt"></i> Apply Tone</button>
+                </div>
+            </div>
+            <textarea id="rmTeach" rows="3" placeholder="Teacher's overall narrative remark">${esc(d.teacherRemarks || '')}</textarea>
+        </div>
+
+        <div class="actions" style="display:flex;justify-content:space-between;align-items:center;border-top:1px solid var(--line);padding-top:12px;">
+            <button type="button" class="btn btn-ghost btn-sm" onclick="smartRemarks('${sid}')" style="font-size:12px;">
+                <i class="fas fa-magic"></i> Generate Smart Remarks
+            </button>
+            <div style="display:flex;gap:8px;">
+                <button type="button" class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="saveRemarks('${sid}')"><i class="fas fa-save"></i> Save Remarks</button>
+            </div>
+        </div>
+    `);
+}
+
+function calculateSmartRemarksData(id, opts = {}) {
+    const p = studentPerf(String(id));
+    const s = students.find(x => String(x.id) === String(id));
+    const currentCls = s?.class || currentClass || '';
+    const avg = p ? p.avg : 60;
+    const best = (p && p.items && p.items.length) ? p.items.slice().sort((a, b) => b.total - a.total)[0] : null;
+    const weak = (p && p.items && p.items.length) ? p.items.slice().sort((a, b) => a.total - b.total)[0] : null;
+    const bestSub = best ? best.subject : '';
+    const weakSub = (weak && weak.subject !== bestSub) ? weak.subject : '';
+
+    let conductTone = opts.conductTone || 'auto';
+    if (conductTone === 'auto') {
+        conductTone = avg >= 68 ? 'positive' : (avg >= 50 ? 'middle' : 'negative');
+    }
+    let teachTone = opts.teachTone || opts.teacherTone || 'auto';
+    if (teachTone === 'auto') {
+        teachTone = avg >= 68 ? 'positive' : (avg >= 50 ? 'middle' : 'negative');
+    }
+
+    let conduct = '';
+    if (conductTone === 'positive') {
+        if (avg >= 80) {
+            conduct = 'Exemplary behavior; very respectful, obedient, and highly disciplined at all times.';
+        } else {
+            conduct = 'Very well-behaved, courteous, and exhibits excellent cooperation with teachers and peers.';
+        }
+    } else if (conductTone === 'negative') {
+        if (avg < 45) {
+            conduct = 'Conduct requires significant improvement. Easily distracted and needs constant supervision in class.';
+        } else {
+            conduct = 'Needs to improve self-discipline, punctuality, and pay closer attention to class instructions.';
+        }
+    } else {
+        conduct = 'Generally well-behaved and cooperative, though occasionally needs gentle guidance and focus.';
+    }
+
+    let teacher = '';
+    if (teachTone === 'positive') {
+        if (avg >= 80) {
+            teacher = `An outstanding student who demonstrates high academic excellence${bestSub ? ', especially in ' + bestSub : ''}. Keep up the brilliant performance!`;
+        } else {
+            teacher = `Commendable academic effort and steady progress${bestSub ? ' with notable strength in ' + bestSub : ''}. Continue to work diligently!`;
+        }
+    } else if (teachTone === 'negative') {
+        if (weakSub) {
+            teacher = `Academic performance is below expectations, particularly in ${weakSub}. Urgent remedial support and regular study habits are required.`;
+        } else {
+            teacher = `Needs significant academic improvement. Dedicated home study, teacher guidance, and parental supervision strongly recommended.`;
+        }
+    } else {
+        if (bestSub && weakSub) {
+            teacher = `A satisfactory performance overall. Shows good understanding in ${bestSub}, but needs to devote extra study time to ${weakSub} for higher grades.`;
+        } else if (bestSub) {
+            teacher = `A fair performance with promising aptitude in ${bestSub}. Encouraged to maintain steady study habits for greater progress.`;
+        } else {
+            teacher = `Satisfactory work overall. Extra diligence, regular revision, and active classroom participation are recommended.`;
+        }
+    }
+
+    const interest = (opts.useTopSubject !== false && bestSub) ? bestSub : (opts.defaultInterest || 'Class activities');
+
+    let promo = '';
+    let target = '';
+    if (opts.autoPromo !== false) {
+        if (avg >= 45) {
+            promo = 'Promoted';
+            target = calculateNextClass(currentCls);
+        } else {
+            promo = 'Repeated';
+            target = currentCls;
+        }
+    }
+
+    return {
+        conduct,
+        conductTone,
+        interest,
+        teacherRemarks: teacher,
+        teachTone,
+        promotionStatus: promo,
+        promotionTarget: target,
+        avg,
+        bestSub,
+        weakSub
+    };
+}
+
+function generateConductRemark(id) {
+    const toneSelect = document.getElementById('rmConductTone');
+    const tone = toneSelect ? toneSelect.value : 'middle';
+    const res = calculateSmartRemarksData(id, { conductTone: tone });
+    const rmConduct = document.getElementById('rmConduct');
+    if (rmConduct) rmConduct.value = res.conduct;
+}
+
+function generateTeacherRemark(id) {
+    const toneSelect = document.getElementById('rmTeachTone');
+    const tone = toneSelect ? toneSelect.value : 'middle';
+    const res = calculateSmartRemarksData(id, { teachTone: tone });
+    const rmTeach = document.getElementById('rmTeach');
+    if (rmTeach) rmTeach.value = res.teacherRemarks;
+}
+
+function applyTopSubjectInterest(id) {
+    const p = studentPerf(String(id));
+    const best = (p && p.items.length) ? p.items.slice().sort((a, b) => b.total - a.total)[0] : null;
+    const rmInterest = document.getElementById('rmInterest');
+    if (rmInterest) {
+        rmInterest.value = best ? best.subject : 'Class activities';
+    }
 }
 
 function smartRemarks(id) {
@@ -1755,37 +2106,160 @@ function smartRemarks(id) {
         toast('No scores entered yet. Enter scores first to generate smart remarks.', 'bad');
         return;
     }
-    const s = students.find(x => String(x.id) === String(id));
-    const currentCls = s?.class || currentClass || '';
-    const avg = p.avg;
-    const best = p.items.slice().sort((a, b) => b.total - a.total)[0];
-    const weak = p.items.slice().sort((a, b) => a.total - b.total)[0];
-    let teacher;
-    if (avg >= 80) teacher = `An outstanding student who excels across subjects${best ? ', especially ' + best.subject : ''}. Keep up the excellent work!`;
-    else if (avg >= 68) teacher = `Very good performance${best ? ' with notable strength in ' + best.subject : ''}. Continue to work diligently.`;
-    else if (avg >= 54) teacher = `Satisfactory work overall. Extra attention and practice needed${weak ? ' in ' + weak.subject : ''} for further improvement.`;
-    else if (avg >= 40) teacher = `Requires additional support, particularly${weak ? ' in ' + weak.subject : ''}. Regular study and teacher guidance are recommended.`;
-    else teacher = `Needs significant improvement. Please seek extra tuition and parental support to build core concepts.`;
-    
-    const rmTeach = document.getElementById('rmTeach');
+    const conductToneEl = document.getElementById('rmConductTone');
+    const teachToneEl = document.getElementById('rmTeachTone');
+
+    const res = calculateSmartRemarksData(id, {
+        conductTone: conductToneEl ? conductToneEl.value : 'auto',
+        teachTone: teachToneEl ? teachToneEl.value : 'auto',
+        useTopSubject: true,
+        autoPromo: true
+    });
+
+    if (conductToneEl) conductToneEl.value = res.conductTone;
+    if (teachToneEl) teachToneEl.value = res.teachTone;
+
     const rmConduct = document.getElementById('rmConduct');
+    const rmTeach = document.getElementById('rmTeach');
     const rmInterest = document.getElementById('rmInterest');
     const rmPromo = document.getElementById('rmPromo');
     const rmTarget = document.getElementById('rmTarget');
 
-    if (rmTeach) rmTeach.value = teacher;
-    if (rmConduct) rmConduct.value = avg >= 70 ? 'Very well behaved and courteous' : avg >= 50 ? 'Generally well-behaved and cooperative' : 'Needs to improve conduct and participation';
-    if (rmInterest) rmInterest.value = best ? best.subject : 'Shows interest in class activities';
-    
-    if (rmPromo && rmTarget) {
-        if (avg >= 45) {
-            rmPromo.value = 'Promoted';
-            rmTarget.value = calculateNextClass(currentCls);
-        } else {
-            rmPromo.value = 'Repeated';
-            rmTarget.value = currentCls;
+    if (rmConduct) rmConduct.value = res.conduct;
+    if (rmTeach) rmTeach.value = res.teacherRemarks;
+    if (rmInterest) rmInterest.value = res.interest;
+    if (rmPromo) rmPromo.value = res.promotionStatus;
+    if (rmTarget) rmTarget.value = res.promotionTarget;
+
+    toast('Smart remarks generated with selected tone and top subject interest!', 'ok');
+}
+
+function openBatchSmartRemarksModal() {
+    const list = classStudents();
+    if (!list.length) return toast('No students in this class.', 'bad');
+    const withScores = list.filter(s => studentPerf(s.id));
+
+    openModal(`
+        <div class="modal-head" style="margin-bottom:12px;">
+            <h3 style="margin:0;display:flex;align-items:center;gap:8px;font-size:16px;">
+                <i class="fas fa-magic" style="color:var(--primary);"></i> Batch Smart Remarks Generator
+            </h3>
+            <p class="hint" style="margin:4px 0 0;font-size:12px;">
+                Generate customized remarks, conduct notes, top-scoring subject interests, and promotion targets for all <strong>${list.length}</strong> students in <strong>${esc(currentClass || 'Class')}</strong> with a single click.
+            </p>
+        </div>
+
+        <div style="background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin-bottom:14px;font-size:12px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+                <div><span style="color:var(--muted);">Total Students:</span> <strong>${list.length}</strong></div>
+                <div><span style="color:var(--muted);">With Recorded Scores:</span> <strong style="color:var(--primary);">${withScores.length} / ${list.length}</strong></div>
+                <div><span style="color:var(--muted);">Ready to Process:</span> <span class="badge ok" style="font-size:11px;">100% Automated</span></div>
+            </div>
+        </div>
+
+        <div class="row" style="margin-bottom:12px;">
+            <div class="field">
+                <label style="font-weight:700;">Overall Narrative Tone</label>
+                <select id="batchTeachTone" style="width:100%;">
+                    <option value="auto" selected>✨ Auto-Adaptive (Scores-driven: High/Mid/Low)</option>
+                    <option value="positive">🌟 Positive (Exemplary &amp; Commendable for All)</option>
+                    <option value="middle">⚖️ Middle (Satisfactory &amp; Fair Progress)</option>
+                    <option value="negative">⚠️ Remedial (Needs Support &amp; Extra Study)</option>
+                </select>
+                <p class="hint" style="margin:3px 0 0;font-size:11px;">Auto-Adaptive awards praise for high marks and recommends revision in weaker areas.</p>
+            </div>
+            <div class="field">
+                <label style="font-weight:700;">Conduct Note Tone</label>
+                <select id="batchConductTone" style="width:100%;">
+                    <option value="auto" selected>✨ Auto-Adaptive (Disciplined / Cooperative / Needs Focus)</option>
+                    <option value="positive">🌟 Exemplary &amp; Disciplined at all times</option>
+                    <option value="middle">⚖️ Cooperative with gentle guidance</option>
+                    <option value="negative">⚠️ Needs self-discipline &amp; closer attention</option>
+                </select>
+            </div>
+        </div>
+
+        <div style="background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px;margin-bottom:14px;font-size:12px;">
+            <div style="font-weight:700;margin-bottom:8px;color:var(--ink);">Automated Field Criteria</div>
+            <label style="display:flex;align-items:flex-start;gap:8px;margin-bottom:8px;cursor:pointer;">
+                <input type="checkbox" id="batchUseTopSubject" checked style="margin-top:2px;">
+                <div>
+                    <strong>Top-Scoring Subject Interest:</strong>
+                    <div style="color:var(--muted);font-size:11.5px;">Automatically detects each student's highest scoring subject (e.g. Mathematics, Science, English) and sets it as their interest.</div>
+                </div>
+            </label>
+            <label style="display:flex;align-items:flex-start;gap:8px;margin-bottom:8px;cursor:pointer;">
+                <input type="checkbox" id="batchAutoPromo" checked style="margin-top:2px;">
+                <div>
+                    <strong>Automatic Class Promotion:</strong>
+                    <div style="color:var(--muted);font-size:11.5px;">Recommends "Promoted to [Next Class]" (e.g. Basic 7 &rarr; Basic 8) for averages &ge;45%, and "Repeated" if below.</div>
+                </div>
+            </label>
+            <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;">
+                <input type="checkbox" id="batchOverwrite" checked style="margin-top:2px;">
+                <div>
+                    <strong>Overwrite existing remarks:</strong>
+                    <div style="color:var(--muted);font-size:11.5px;">Uncheck if you only want to fill remarks for students who currently have empty remarks.</div>
+                </div>
+            </label>
+        </div>
+
+        <div class="actions" style="display:flex;justify-content:space-between;align-items:center;border-top:1px solid var(--line);padding-top:12px;">
+            <button type="button" class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+            <button type="button" class="btn btn-primary" onclick="executeBatchSmartRemarks()">
+                <i class="fas fa-magic"></i> Generate for Entire Class (${list.length})
+            </button>
+        </div>
+    `);
+}
+
+function executeBatchSmartRemarks() {
+    const list = classStudents();
+    if (!list.length) return toast('No students in this class.', 'bad');
+
+    const teachTone = document.getElementById('batchTeachTone')?.value || 'auto';
+    const conductTone = document.getElementById('batchConductTone')?.value || 'auto';
+    const useTopSubject = document.getElementById('batchUseTopSubject')?.checked !== false;
+    const autoPromo = document.getElementById('batchAutoPromo')?.checked !== false;
+    const overwrite = document.getElementById('batchOverwrite')?.checked !== false;
+
+    let processedCount = 0;
+
+    list.forEach(s => {
+        const sid = String(s.id);
+        const existing = studentReportDetails[sid] || studentReportDetails[s.id] || {};
+        const hasExisting = Boolean(existing.teacherRemarks || existing.conduct || existing.interest);
+
+        if (!overwrite && hasExisting) {
+            return;
         }
-    }
+
+        const data = calculateSmartRemarksData(sid, {
+            teachTone,
+            conductTone,
+            useTopSubject,
+            autoPromo
+        });
+
+        studentReportDetails[sid] = {
+            attendance: (typeof Attendance !== 'undefined' && Attendance.label(s.id)) || existing.attendance || '',
+            promotionStatus: data.promotionStatus || existing.promotionStatus || '',
+            promotionTarget: data.promotionTarget || existing.promotionTarget || '',
+            conduct: data.conduct || existing.conduct || '',
+            interest: data.interest || existing.interest || '',
+            teacherRemarks: data.teacherRemarks || existing.teacherRemarks || ''
+        };
+
+        if (!isNaN(Number(s.id))) {
+            studentReportDetails[Number(s.id)] = studentReportDetails[sid];
+        }
+        processedCount++;
+    });
+
+    persistDetails();
+    closeModal();
+    toast(`✨ Smart remarks generated and applied for ${processedCount} student${processedCount === 1 ? '' : 's'}!`, 'ok');
+    renderReports();
 }
 
 function saveRemarks(id) {
@@ -1818,6 +2292,38 @@ function saveRemarks(id) {
     toast('Remarks saved.', 'ok');
 }
 
+function formatOrdinal(n) {
+    if (!n || isNaN(n)) return '';
+    const s = ["th", "st", "nd", "rd"];
+    const v = n % 100;
+    return n + (s[(v - 20) % 10] || s[v] || s[0]);
+}
+
+function getStudentClassRank(studentId, className) {
+    const targetClass = className || currentClass || '';
+    const classMates = (students || []).filter(s => (s.class || '') === targetClass && !s.isDeleted && s.status !== 'deleted');
+    if (!classMates.length) return null;
+
+    const ranked = classMates.map(s => {
+        const p = studentPerf(String(s.id));
+        return {
+            id: String(s.id),
+            avg: (p && p.items && p.items.length > 0) ? p.avg : -1
+        };
+    }).sort((a, b) => b.avg - a.avg);
+
+    const index = ranked.findIndex(r => r.id === String(studentId));
+    if (index === -1) return null;
+    const target = ranked[index];
+    if (target.avg < 0) return { rank: null, total: classMates.length, formatted: '—' };
+    const rank = index + 1;
+    return {
+        rank: rank,
+        total: classMates.length,
+        formatted: `${formatOrdinal(rank)} / ${classMates.length}`
+    };
+}
+
 // ── Unified report HTML generator (same layout across Admin / Teacher / Student) ──
 function buildUnifiedReportHTML(id) {
     const s = students.find(x => String(x.id) === String(id));
@@ -1827,14 +2333,33 @@ function buildUnifiedReportHTML(id) {
     const subs = allClassSubjects(className);
     const logo = schoolLogoSrc();
     const settings = schoolSettings || {};
+    const fieldToggles = settings.fieldToggles || {};
+    const showPosition = fieldToggles.showPosition !== false;
+    const showLogo = fieldToggles.showSchoolLogo !== false;
+    const showMotto = fieldToggles.showSchoolMotto !== false;
+    const showNextTerm = fieldToggles.showNextTerm !== false;
+    const showAttendance = fieldToggles.showAttendance !== false;
+    const showConduct = fieldToggles.showConduct !== false;
+    const showPromotion = fieldToggles.showPromotionStatus !== false;
+    const showTeacherRemark = fieldToggles.showClassTeacherRemark !== false;
+    const showSignature = fieldToggles.showSignature !== false;
+
+    let positionText = '—';
+    if (showPosition) {
+        const rankInfo = getStudentClassRank(id, className);
+        if (rankInfo && rankInfo.formatted) {
+            positionText = rankInfo.formatted;
+        }
+    }
+
     const primaryColor = settings.primaryColor || '#4f46e5';
     const secondaryColor = settings.secondaryColor || '#7e3af2';
     const headerTextColor = settings.headerTextColor || '#ffffff';
     const primaryDark = (typeof adjustColorBrightness === 'function') ? adjustColorBrightness(primaryColor, -15) : '#4338ca';
 
-    const logoEl = logo
+    const logoEl = (showLogo && logo)
         ? `<img src="${logo}" style="width:70px;height:70px;object-fit:contain;border-radius:8px;" alt="Logo" crossorigin="anonymous">`
-        : `<div style="width:70px;height:70px;border:2px dashed #cbd5e1;border-radius:8px;display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:11px;text-align:center;">No Logo</div>`;
+        : (showLogo ? `<div style="width:70px;height:70px;border:2px dashed #cbd5e1;border-radius:8px;display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:11px;text-align:center;">No Logo</div>` : '');
 
     const scale = typeof gradeScale === 'function' ? gradeScale(className) : DEFAULT_GRADES;
     const jhsKeywords = ['basic 7','basic 8','basic 9','jhs 1','jhs 2','jhs 3','jhs'];
@@ -1940,44 +2465,74 @@ function buildUnifiedReportHTML(id) {
             ${logoEl}
         </div>
 
-        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;background:#f8fafc;padding:12px 16px;border-radius:8px;margin-bottom:16px;font-size:12.5px;border:1px solid #e2e8f0;">
-            <div><span style="color:#64748b;font-size:11px;display:block;font-weight:600;">NAME OF LEARNER</span><strong>${esc(s.name)}</strong></div>
-            <div><span style="color:#64748b;font-size:11px;display:block;font-weight:600;">CLASS</span><strong>${esc(className)}</strong></div>
-            <div><span style="color:#64748b;font-size:11px;display:block;font-weight:600;">ACADEMIC YEAR</span><strong>${esc(yr)}</strong></div>
-            <div><span style="color:#64748b;font-size:11px;display:block;font-weight:600;">TERM</span><strong>${esc(tm)}</strong></div>
-            <div><span style="color:#64748b;font-size:11px;display:block;font-weight:600;">DATE OF VACATION</span><strong>${esc(schoolInfo.closingDate || '—')}</strong></div>
-            <div><span style="color:#64748b;font-size:11px;display:block;font-weight:600;">RE-OPENING DATE</span><strong>${esc(schoolInfo.reopeningDate || '—')}</strong></div>
+        <div class="report-meta-grid" style="display:grid;grid-template-columns:repeat(auto-fit, minmax(130px, 1fr));gap:8px;background:#f8fafc;padding:12px 14px;border-radius:8px;margin-bottom:14px;font-size:12px;border:1px solid #e2e8f0;">
+            <div><span style="color:#64748b;font-size:10.5px;display:block;font-weight:600;">NAME OF LEARNER</span><strong>${esc(s.name)}</strong></div>
+            <div><span style="color:#64748b;font-size:10.5px;display:block;font-weight:600;">CLASS</span><strong>${esc(className)}</strong></div>
+            ${showPosition ? `<div><span style="color:#64748b;font-size:10.5px;display:block;font-weight:600;">CLASS POSITION</span><strong style="color:${primaryDark};font-size:13.5px;">${esc(positionText)}</strong></div>` : ''}
+            <div><span style="color:#64748b;font-size:10.5px;display:block;font-weight:600;">ACADEMIC YEAR</span><strong>${esc(yr)}</strong></div>
+            <div><span style="color:#64748b;font-size:10.5px;display:block;font-weight:600;">TERM</span><strong>${esc(tm)}</strong></div>
+            ${showNextTerm ? `
+            <div><span style="color:#64748b;font-size:10.5px;display:block;font-weight:600;">DATE OF VACATION</span><strong>${esc(schoolInfo.closingDate || '—')}</strong></div>
+            <div><span style="color:#64748b;font-size:10.5px;display:block;font-weight:600;">RE-OPENING DATE</span><strong>${esc(schoolInfo.reopeningDate || '—')}</strong></div>
+            ` : ''}
         </div>
 
-        <table style="width:100%;border-collapse:collapse;margin-bottom:16px;font-size:12px;text-align:center;">
-            <thead>
-                <tr style="background:${primaryColor};color:${headerTextColor};">
-                    <th style="padding:8px 10px;text-align:left;border:1px solid ${primaryDark};">SUBJECT</th>
-                    <th style="padding:8px 10px;border:1px solid ${primaryDark};">CLASS 50%</th>
-                    <th style="padding:8px 10px;border:1px solid ${primaryDark};">EXAM 50%</th>
-                    <th style="padding:8px 10px;border:1px solid ${primaryDark};">TOTAL 100%</th>
-                    <th style="padding:8px 10px;border:1px solid ${primaryDark};">GRADE</th>
-                    <th style="padding:8px 10px;border:1px solid ${primaryDark};">REMARKS</th>
-                </tr>
-            </thead>
-            <tbody>${subjectRows.join('') || '<tr><td colspan="6" style="padding:16px;color:#94a3b8;">No subjects assigned</td></tr>'}</tbody>
-        </table>
+        <div class="table-wrap" style="margin-bottom:14px;">
+            <table style="width:100%;min-width:440px;border-collapse:collapse;font-size:11.5px;text-align:center;">
+                <thead>
+                    <tr style="background:${primaryColor};color:${headerTextColor};">
+                        <th style="padding:7px 8px;text-align:left;border:1px solid ${primaryDark};">SUBJECT</th>
+                        <th style="padding:7px 8px;border:1px solid ${primaryDark};">CLASS 50%</th>
+                        <th style="padding:7px 8px;border:1px solid ${primaryDark};">EXAM 50%</th>
+                        <th style="padding:7px 8px;border:1px solid ${primaryDark};">TOTAL 100%</th>
+                        <th style="padding:7px 8px;border:1px solid ${primaryDark};">GRADE</th>
+                        <th style="padding:7px 8px;border:1px solid ${primaryDark};">REMARKS</th>
+                    </tr>
+                </thead>
+                <tbody>${subjectRows.join('') || '<tr><td colspan="6" style="padding:16px;color:#94a3b8;">No subjects assigned</td></tr>'}</tbody>
+            </table>
+        </div>
 
         ${jhsAggregateHTML}
 
-        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;background:#eef2ff;padding:12px 16px;border-radius:8px;margin-bottom:16px;font-size:12.5px;border:1px solid #c7d2fe;">
-            <div><span style="color:${primaryDark};font-size:11px;display:block;font-weight:600;">AVERAGE SCORE</span><strong style="font-size:15px;color:#1e1b4b;">${scoredCount ? avg.toFixed(1) + '%' : '—'}</strong></div>
-            <div><span style="color:${primaryDark};font-size:11px;display:block;font-weight:600;">OVERALL GRADE</span><strong style="font-size:15px;color:#1e1b4b;">${scoredCount ? overallGrade.grade + ' (' + overallGrade.remark + ')' : '—'}</strong></div>
-            <div><span style="color:${primaryDark};font-size:11px;display:block;font-weight:600;">RECORDED SUBJECTS</span><strong style="font-size:15px;color:#1e1b4b;">${scoredCount} / ${subs.length}</strong></div>
+        <div class="report-perf-grid" style="display:grid;grid-template-columns:repeat(auto-fit, minmax(130px, 1fr));gap:8px;background:#eef2ff;padding:12px 14px;border-radius:8px;margin-bottom:14px;font-size:12px;border:1px solid #c7d2fe;">
+            <div><span style="color:${primaryDark};font-size:10.5px;display:block;font-weight:600;">AVERAGE SCORE</span><strong style="font-size:14px;color:#1e1b4b;">${scoredCount ? avg.toFixed(1) + '%' : '—'}</strong></div>
+            <div><span style="color:${primaryDark};font-size:10.5px;display:block;font-weight:600;">OVERALL AVERAGE GRADE</span><strong style="font-size:14px;color:#1e1b4b;">${scoredCount ? overallGrade.grade + ' (' + overallGrade.remark + ')' : '—'}</strong></div>
+            ${showPosition ? `<div><span style="color:${primaryDark};font-size:10.5px;display:block;font-weight:600;">CLASS POSITION</span><strong style="font-size:14px;color:#1e1b4b;">${esc(positionText)}</strong></div>` : ''}
+            <div><span style="color:${primaryDark};font-size:10.5px;display:block;font-weight:600;">RECORDED SUBJECTS</span><strong style="font-size:14px;color:#1e1b4b;">${scoredCount} / ${subs.length}</strong></div>
         </div>
 
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;font-size:12.5px;">
-            <div style="background:#f8fafc;padding:10px 14px;border-radius:8px;border:1px solid #e2e8f0;">
+        ${(() => {
+            const prog = typeof getStudentTermProgression === 'function' ? getStudentTermProgression(id) : null;
+            if (!prog || prog.termCount <= 1) return '';
+            let trajColor = prog.trajectory === 'improving' ? '#166534' : (prog.trajectory === 'declining' ? '#991b1b' : '#334155');
+            let trajBg = prog.trajectory === 'improving' ? '#dcfce7' : (prog.trajectory === 'declining' ? '#fee2e2' : '#f1f5f9');
+            let trajBorder = prog.trajectory === 'improving' ? '#86efac' : (prog.trajectory === 'declining' ? '#fca5a5' : '#cbd5e1');
+            return `
+            <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:8px 12px;margin-bottom:14px;font-size:11.5px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+                <div>
+                    <span style="font-weight:700;color:#475569;margin-right:6px;font-size:10.5px;text-transform:uppercase;">Term Progression:</span>
+                    <span>T1: <strong>${prog.t1 !== null ? prog.t1 + '%' : '—'}</strong></span>
+                    <span style="margin:0 5px;color:#cbd5e1;">·</span>
+                    <span>T2: <strong>${prog.t2 !== null ? prog.t2 + '%' : '—'}</strong></span>
+                    <span style="margin:0 5px;color:#cbd5e1;">·</span>
+                    <span>T3: <strong>${prog.t3 !== null ? prog.t3 + '%' : '—'}</strong></span>
+                </div>
+                <div style="display:inline-flex;align-items:center;gap:6px;">
+                    <span style="padding:2px 8px;border-radius:999px;font-size:11px;font-weight:700;background:${trajBg};color:${trajColor};border:1px solid ${trajBorder};">
+                        ${prog.trajectoryLabel}
+                    </span>
+                </div>
+            </div>`;
+        })()}
+
+        <div class="report-conduct-grid" style="display:grid;grid-template-columns:repeat(auto-fit, minmax(200px, 1fr));gap:10px;margin-bottom:14px;font-size:12px;">
+            <div style="background:#f8fafc;padding:10px 12px;border-radius:8px;border:1px solid #e2e8f0;">
                 <div style="margin-bottom:6px;"><span style="color:#64748b;font-weight:600;">Attendance:</span> ${esc(attendanceLabel(id, d))}</div>
                 <div style="margin-bottom:6px;"><span style="color:#64748b;font-weight:600;">Conduct:</span> ${esc(d.conduct || '—')}</div>
                 <div><span style="color:#64748b;font-weight:600;">Interest:</span> ${esc(d.interest || '—')}</div>
             </div>
-            <div style="background:#f8fafc;padding:10px 14px;border-radius:8px;border:1px solid #e2e8f0;">
+            <div style="background:#f8fafc;padding:10px 12px;border-radius:8px;border:1px solid #e2e8f0;">
                 <div style="margin-bottom:6px;"><span style="color:#64748b;font-weight:600;">Promoted to / In:</span> ${esc(d.promotionTarget || (d.promotionStatus || '—'))}</div>
                 <div><span style="color:#64748b;font-weight:600;">Teacher's Remarks:</span> <em>${esc(d.teacherRemarks || '—')}</em></div>
             </div>
@@ -2259,32 +2814,491 @@ async function bulkDownload() {
     toast(`Downloaded ${count} approved report(s) in ZIP successfully!`, 'ok');
 }
 
+let currentPerfView = 'ranking';
+
+function setPerfView(view) {
+    currentPerfView = view;
+    renderPerformance();
+}
+
+function getStudentTermProgression(studentId) {
+    const sId = String(studentId);
+    const history = loadJSON('termProgressionHistory', {});
+    const stuHist = history[sId] || {};
+
+    const allResults = loadJSON('results', []);
+    const currTermNum = String(schoolInfo.term || '1');
+    const currentPerf = studentPerf(sId);
+    const currentAvg = currentPerf ? Math.round(currentPerf.avg * 10) / 10 : null;
+
+    let t1 = (stuHist.term1 !== undefined && stuHist.term1 !== null && stuHist.term1 !== '') ? Number(stuHist.term1) : null;
+    let t2 = (stuHist.term2 !== undefined && stuHist.term2 !== null && stuHist.term2 !== '') ? Number(stuHist.term2) : null;
+    let t3 = (stuHist.term3 !== undefined && stuHist.term3 !== null && stuHist.term3 !== '') ? Number(stuHist.term3) : null;
+
+    // Check stored results collection if any
+    ['1', '2', '3'].forEach(tNum => {
+        if (tNum === currTermNum && currentAvg !== null) {
+            if (tNum === '1' && t1 === null) t1 = currentAvg;
+            if (tNum === '2' && t2 === null) t2 = currentAvg;
+            if (tNum === '3' && t3 === null) t3 = currentAvg;
+        } else {
+            const termRes = allResults.filter(r => String(r.studentId) === sId && String(r.termId || '') === tNum && r.totalScore !== '' && r.totalScore !== undefined);
+            if (termRes.length > 0) {
+                const sum = termRes.reduce((acc, curr) => acc + Number(curr.totalScore || 0), 0);
+                const avg = Math.round((sum / termRes.length) * 10) / 10;
+                if (tNum === '1' && t1 === null) t1 = avg;
+                if (tNum === '2' && t2 === null) t2 = avg;
+                if (tNum === '3' && t3 === null) t3 = avg;
+            }
+        }
+    });
+
+    // If current term is set, ensure current term reflects live calculation
+    if (currTermNum === '1' && currentAvg !== null) t1 = currentAvg;
+    if (currTermNum === '2' && currentAvg !== null) t2 = currentAvg;
+    if (currTermNum === '3' && currentAvg !== null) t3 = currentAvg;
+
+    const termValues = [t1, t2, t3].filter(v => v !== null && !isNaN(v));
+    const cumulativeAvg = termValues.length ? Math.round((termValues.reduce((a, b) => a + b, 0) / termValues.length) * 10) / 10 : null;
+
+    let trajectory = 'steady';
+    let trajectoryLabel = 'Steady (±0.0%)';
+    let diff = 0;
+
+    if (t3 !== null && t2 !== null) {
+        diff = Math.round((t3 - t2) * 10) / 10;
+    } else if (t2 !== null && t1 !== null) {
+        diff = Math.round((t2 - t1) * 10) / 10;
+    } else if (t3 !== null && t1 !== null) {
+        diff = Math.round((t3 - t1) * 10) / 10;
+    }
+
+    if (termValues.length < 2) {
+        trajectory = 'initial';
+        trajectoryLabel = 'Baseline Term';
+    } else if (diff >= 1.5) {
+        trajectory = 'improving';
+        trajectoryLabel = `Improving (+${diff}%)`;
+    } else if (diff <= -1.5) {
+        trajectory = 'declining';
+        trajectoryLabel = `Declining (${diff}%)`;
+    } else {
+        trajectory = 'steady';
+        trajectoryLabel = `Steady (${diff >= 0 ? '+' : ''}${diff}%)`;
+    }
+
+    return {
+        t1, t2, t3,
+        cumulativeAvg,
+        trajectory,
+        trajectoryLabel,
+        diff,
+        termCount: termValues.length
+    };
+}
+
+function saveStudentTermProgression(studentId, t1Val, t2Val, t3Val) {
+    const history = loadJSON('termProgressionHistory', {});
+    const sId = String(studentId);
+    history[sId] = {
+        term1: t1Val !== '' && !isNaN(Number(t1Val)) ? Number(t1Val) : null,
+        term2: t2Val !== '' && !isNaN(Number(t2Val)) ? Number(t2Val) : null,
+        term3: t3Val !== '' && !isNaN(Number(t3Val)) ? Number(t3Val) : null
+    };
+    saveJSON('termProgressionHistory', history);
+    closeModal();
+    toast('Term progression history updated.', 'ok');
+    renderPerformance();
+}
+
+function openEditTermProgressionModal(studentId) {
+    const sId = String(studentId);
+    const s = students.find(x => String(x.id) === sId);
+    if (!s) return;
+    const prog = getStudentTermProgression(sId);
+
+    openModal(`
+        <div class="modal-head" style="margin-bottom:12px;">
+            <h3 style="margin:0;display:flex;align-items:center;gap:8px;font-size:16px;">
+                <i class="fas fa-chart-line" style="color:var(--primary);"></i> Edit Term Averages: ${esc(s.name)}
+            </h3>
+            <p class="hint" style="margin:4px 0 0;font-size:12px;">
+                Record or adjust historical term averages to track this student's multi-term academic trajectory.
+            </p>
+        </div>
+
+        <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(130px, 1fr));gap:10px;margin-bottom:14px;">
+            <div class="field">
+                <label style="font-weight:700;">Term 1 Average (%)</label>
+                <input type="number" step="0.1" min="0" max="100" id="progT1" value="${prog.t1 !== null ? prog.t1 : ''}" placeholder="e.g. 68.5">
+            </div>
+            <div class="field">
+                <label style="font-weight:700;">Term 2 Average (%)</label>
+                <input type="number" step="0.1" min="0" max="100" id="progT2" value="${prog.t2 !== null ? prog.t2 : ''}" placeholder="e.g. 72.0">
+            </div>
+            <div class="field">
+                <label style="font-weight:700;">Term 3 Average (%)</label>
+                <input type="number" step="0.1" min="0" max="100" id="progT3" value="${prog.t3 !== null ? prog.t3 : ''}" placeholder="e.g. 75.4">
+            </div>
+        </div>
+
+        <div class="actions" style="display:flex;justify-content:space-between;align-items:center;border-top:1px solid var(--line);padding-top:12px;">
+            <button type="button" class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+            <button type="button" class="btn btn-primary" onclick="saveStudentTermProgression('${sId}', document.getElementById('progT1').value, document.getElementById('progT2').value, document.getElementById('progT3').value)">
+                <i class="fas fa-save"></i> Save Term History
+            </button>
+        </div>
+    `);
+}
+
+function exportSubjectRemedial(subject) {
+    const list = classStudents();
+    const rows = [];
+    list.forEach(s => {
+        const sc = studentScoreObj(s.id, subject);
+        if (sc && sc.total !== undefined && sc.total < 50) {
+            rows.push({
+                Student: s.name,
+                Class: s.class || currentClass,
+                Subject: subject,
+                ClassScore_50: sc.classScore,
+                ExamScore_50: sc.examScore,
+                TotalScore_100: sc.total,
+                Grade: sc.grade,
+                Remarks: sc.remark,
+                InterventionNeeded: 'Extra Class Remedial Support'
+            });
+        }
+    });
+    if (!rows.length) return toast(`No remedial students recorded for ${subject}.`, 'ok');
+    const csv = window.OneRealFiles ? OneRealFiles.toCsv(rows) : JSON.stringify(rows);
+    const name = `${(currentClass || 'class').replace(/\s/g, '_')}_${subject.replace(/\s/g, '_')}_remedial_list.csv`;
+    downloadBlobFile(csv, name, 'text/csv;charset=utf-8');
+    toast(`Remedial list for ${subject} exported.`, 'ok');
+}
+
+function exportTermProgression() {
+    const list = classStudents();
+    const rows = list.map(s => {
+        const prog = getStudentTermProgression(s.id);
+        return {
+            Student: s.name,
+            Class: s.class || currentClass,
+            Term1_Average: prog.t1 !== null ? prog.t1 : '',
+            Term2_Average: prog.t2 !== null ? prog.t2 : '',
+            Term3_Average: prog.t3 !== null ? prog.t3 : '',
+            Cumulative_Average: prog.cumulativeAvg !== null ? prog.cumulativeAvg : '',
+            Trajectory: prog.trajectoryLabel,
+            Delta: prog.diff
+        };
+    });
+    const csv = window.OneRealFiles ? OneRealFiles.toCsv(rows) : JSON.stringify(rows);
+    const name = `${(currentClass || 'class').replace(/\s/g, '_')}_term_progression.csv`;
+    downloadBlobFile(csv, name, 'text/csv;charset=utf-8');
+    toast('Term-over-Term Progression spreadsheet exported.', 'ok');
+}
+
+function toggleRemedialList(subId) {
+    const el = document.getElementById(`remedial-box-${subId}`);
+    if (el) {
+        el.style.display = el.style.display === 'none' ? 'block' : 'none';
+    }
+}
+
 function renderPerformance() {
-    const rows = classStudents().map(s => {
+    const list = classStudents();
+    const rows = list.map(s => {
         const p = studentPerf(s.id);
         return { s, avg: p ? p.avg : 0, grade: p ? p.grade : '—', remark: p ? p.remark : 'No scores' };
     }).sort((a, b) => b.avg - a.avg);
     rows.forEach((r, i) => { r.rank = i + 1; });
     const withScores = rows.filter(r => r.avg);
     const classAvg = withScores.length ? (withScores.reduce((a, b) => a + b.avg, 0) / withScores.length) : 0;
+
+    // Sub-navigation bar
+    const subnavHtml = `
+        <div class="perf-subnav">
+            <button type="button" class="perf-subnav-btn ${currentPerfView === 'ranking' ? 'active' : ''}" onclick="setPerfView('ranking')">
+                <i class="fas fa-list-ol"></i> Class Ranking &amp; Averages
+            </button>
+            <button type="button" class="perf-subnav-btn ${currentPerfView === 'subjects' ? 'active' : ''}" onclick="setPerfView('subjects')">
+                <i class="fas fa-chart-bar"></i> Subject Performance &amp; Remedials
+            </button>
+            <button type="button" class="perf-subnav-btn ${currentPerfView === 'progression' ? 'active' : ''}" onclick="setPerfView('progression')">
+                <i class="fas fa-chart-line"></i> Term-over-Term Progression
+            </button>
+        </div>
+    `;
+
+    let mainContentHtml = '';
+
+    if (currentPerfView === 'subjects') {
+        // --- 1. Subject Performance Breakdown & Remedial Analysis ---
+        const subs = allClassSubjects(currentClass);
+        const subjectStats = subs.map(sub => {
+            const studentScores = [];
+            list.forEach(s => {
+                const sc = studentScoreObj(s.id, sub);
+                if (sc && sc.total !== undefined && sc.classScore !== '' && sc.examScore !== '') {
+                    studentScores.push({ student: s, scoreObj: sc, total: Number(sc.total) });
+                }
+            });
+
+            const scoredCount = studentScores.length;
+            const avg = scoredCount ? (studentScores.reduce((sum, item) => sum + item.total, 0) / scoredCount) : 0;
+            const passCount = studentScores.filter(item => item.total >= 50).length;
+            const remedialCohort = studentScores.filter(item => item.total < 50);
+            const passRate = scoredCount ? Math.round((passCount / scoredCount) * 100) : 0;
+            const maxScore = scoredCount ? Math.max(...studentScores.map(i => i.total)) : 0;
+            const minScore = scoredCount ? Math.min(...studentScores.map(i => i.total)) : 0;
+
+            let barClass = 'strong';
+            let badgeClass = 'strong';
+            let badgeLabel = 'High Performing';
+
+            if (avg < 50 || (scoredCount > 0 && passRate < 55)) {
+                barClass = 'remedial';
+                badgeClass = 'alert';
+                badgeLabel = 'Urgent Remedial Support';
+            } else if (avg < 60 || remedialCohort.length > 0) {
+                barClass = 'fair';
+                badgeClass = 'fair';
+                badgeLabel = 'Remedial Attention';
+            } else if (avg < 75) {
+                barClass = 'good';
+                badgeClass = 'strong';
+                badgeLabel = 'Satisfactory';
+            }
+
+            return {
+                subject: sub,
+                avg: Math.round(avg * 10) / 10,
+                scoredCount,
+                passCount,
+                passRate,
+                remedialCount: remedialCohort.length,
+                remedialCohort,
+                maxScore,
+                minScore,
+                barClass,
+                badgeClass,
+                badgeLabel
+            };
+        }).sort((a, b) => a.avg - b.avg); // Sort weakest subjects first to immediately show remedial needs
+
+        const remedialSubjectsCount = subjectStats.filter(s => s.remedialCount > 0 || (s.scoredCount > 0 && s.avg < 50)).length;
+        const topSubject = subjectStats.length ? subjectStats.slice().sort((a, b) => b.avg - a.avg)[0] : null;
+
+        mainContentHtml = `
+            <div class="card" style="margin-bottom:14px;">
+                <div class="stats-row">
+                    <div class="stat"><b>${subs.length}</b><span>Total Subjects</span></div>
+                    <div class="stat"><b style="color:${remedialSubjectsCount > 0 ? '#ef4444' : '#10b981'};">${remedialSubjectsCount}</b><span>Needs Remedials</span></div>
+                    <div class="stat"><b>${topSubject && topSubject.scoredCount ? topSubject.avg + '%' : '—'}</b><span>Top Subject (${esc(topSubject ? topSubject.subject : '—')})</span></div>
+                    <div class="stat"><b>${classAvg.toFixed(1)}%</b><span>Class Average</span></div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:14px;">
+                    <div>
+                        <h4 style="margin:0;font-size:15px;color:var(--ink);">Subject Comparison &amp; Extra Class Remedial Identifier</h4>
+                        <p class="hint" style="margin:3px 0 0;font-size:12px;">Compare subject averages across ${esc(currentClass || 'the class')} to identify curriculum areas where students need extra class intervention.</p>
+                    </div>
+                </div>
+
+                ${subjectStats.length === 0 ? '<div class="empty">No subjects assigned for this class.</div>' : `
+                    <div style="display:flex;flex-direction:column;gap:12px;">
+                        ${subjectStats.map((st, idx) => {
+                            const subSafeId = 'sub-' + idx;
+                            return `
+                            <div class="subject-perf-card">
+                                <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px;">
+                                    <div>
+                                        <div style="font-size:14px;font-weight:700;color:var(--ink);display:flex;align-items:center;gap:8px;">
+                                            ${esc(st.subject)}
+                                            <span class="remedial-badge ${st.badgeClass}">
+                                                ${st.remedialCount > 0 ? `<i class="fas fa-exclamation-triangle"></i> ${st.remedialCount} Remedial Student${st.remedialCount === 1 ? '' : 's'}` : `<i class="fas fa-check-circle"></i> ${st.badgeLabel}`}
+                                            </span>
+                                        </div>
+                                        <div style="font-size:11.5px;color:var(--muted);margin-top:2px;">
+                                            ${st.scoredCount} student${st.scoredCount === 1 ? '' : 's'} assessed · Pass Rate: <strong>${st.passRate}%</strong> (${st.passCount}/${st.scoredCount}) · Range: ${st.minScore}% &ndash; ${st.maxScore}%
+                                        </div>
+                                    </div>
+                                    <div style="text-align:right;">
+                                        <div style="font-size:18px;font-weight:800;color:var(--ink);">${st.scoredCount ? st.avg + '%' : '—'}</div>
+                                        <div style="font-size:10.5px;color:var(--muted);text-transform:uppercase;font-weight:700;">Subject Average</div>
+                                    </div>
+                                </div>
+
+                                <div class="subject-bar-track" title="Subject Average: ${st.avg}%">
+                                    <div class="subject-bar-fill ${st.barClass}" style="width:${Math.min(100, Math.max(0, st.avg))}%;"></div>
+                                </div>
+
+                                <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-top:6px;font-size:11.5px;">
+                                    <div style="color:var(--muted);">
+                                        50% Benchmark: <strong style="color:${st.avg >= 50 ? '#10b981' : '#ef4444'};">${st.avg >= 50 ? 'Passed (+' + (Math.round((st.avg - 50)*10)/10) + '%)' : 'Below Pass Mark (' + (Math.round((st.avg - 50)*10)/10) + '%)'}</strong>
+                                    </div>
+                                    <div style="display:flex;gap:8px;">
+                                        ${st.remedialCount > 0 ? `
+                                            <button type="button" class="btn btn-ghost btn-sm" onclick="toggleRemedialList('${subSafeId}')" style="font-size:11px;padding:3px 8px;">
+                                                <i class="fas fa-users-cog"></i> ${st.remedialCohort.length} Remedial Students <i class="fas fa-chevron-down" style="font-size:9px;"></i>
+                                            </button>
+                                            <button type="button" class="btn btn-ghost btn-sm" onclick="exportSubjectRemedial('${esc(st.subject)}')" style="font-size:11px;padding:3px 8px;">
+                                                <i class="fas fa-file-csv"></i> Export List
+                                            </button>
+                                        ` : '<span style="color:#10b981;font-size:11px;font-weight:600;"><i class="fas fa-check"></i> All students above 50%</span>'}
+                                    </div>
+                                </div>
+
+                                ${st.remedialCount > 0 ? `
+                                    <div id="remedial-box-${subSafeId}" class="remedial-box" style="display:none;">
+                                        <div style="font-weight:700;color:#991b1b;margin-bottom:6px;display:flex;align-items:center;gap:6px;">
+                                            <i class="fas fa-bullhorn"></i> Remedial Cohort for ${esc(st.subject)} (Scores below 50%):
+                                        </div>
+                                        <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(220px, 1fr));gap:6px;">
+                                            ${st.remedialCohort.map(rc => `
+                                                <div style="background:#fff;border:1px solid #fecdd3;border-radius:6px;padding:6px 10px;display:flex;justify-content:space-between;align-items:center;">
+                                                    <div>
+                                                        <strong style="color:#1e293b;font-size:11.5px;">${esc(rc.student.name)}</strong>
+                                                        <div style="color:#64748b;font-size:10.5px;">Class: ${rc.scoreObj.classScore || '0'} | Exam: ${rc.scoreObj.examScore || '0'}</div>
+                                                    </div>
+                                                    <div style="text-align:right;">
+                                                        <span style="font-weight:800;color:#dc2626;font-size:12.5px;">${rc.total}%</span>
+                                                        <div style="font-size:10px;color:#dc2626;font-weight:700;">Grade: ${rc.scoreObj.grade || '—'}</div>
+                                                    </div>
+                                                </div>
+                                            `).join('')}
+                                        </div>
+                                    </div>
+                                ` : ''}
+                            </div>`;
+                        }).join('')}
+                    </div>
+                `}
+            </div>
+        `;
+    } else if (currentPerfView === 'progression') {
+        // --- 2. Term-over-Term Progression (Term 1 -> Term 2 -> Term 3) ---
+        const progRows = list.map(s => {
+            const prog = getStudentTermProgression(s.id);
+            return { s, prog };
+        });
+
+        const improvingCount = progRows.filter(r => r.prog.trajectory === 'improving').length;
+        const steadyCount = progRows.filter(r => r.prog.trajectory === 'steady').length;
+        const decliningCount = progRows.filter(r => r.prog.trajectory === 'declining').length;
+
+        mainContentHtml = `
+            <div class="card" style="margin-bottom:14px;">
+                <div class="stats-row">
+                    <div class="stat"><b style="color:#10b981;">▲ ${improvingCount}</b><span>Improving</span></div>
+                    <div class="stat"><b style="color:#64748b;">▶ ${steadyCount}</b><span>Steady</span></div>
+                    <div class="stat"><b style="color:#ef4444;">▼ ${decliningCount}</b><span>Declining</span></div>
+                    <div class="stat"><b>${list.length}</b><span>Total Cohort</span></div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:14px;">
+                    <div>
+                        <h4 style="margin:0;font-size:15px;color:var(--ink);">Term-over-Term Student Progression (Term 1 &rarr; Term 2 &rarr; Term 3)</h4>
+                        <p class="hint" style="margin:3px 0 0;font-size:12px;">Track whether each student's academic performance is improving, steady, or declining across consecutive terms.</p>
+                    </div>
+                    <div class="actions">
+                        <button type="button" class="btn btn-ghost btn-sm" onclick="exportTermProgression()">
+                            <i class="fas fa-file-csv"></i> Export Progression CSV
+                        </button>
+                    </div>
+                </div>
+
+                <div class="table-wrap"><table class="score-table">
+                    <thead>
+                        <tr>
+                            <th>Student</th>
+                            <th>Term 1 (50%)</th>
+                            <th>Term 2 (50%)</th>
+                            <th>Term 3 (50%)</th>
+                            <th>Annual Avg</th>
+                            <th>Trajectory</th>
+                            <th style="text-align:center;">Trend</th>
+                            <th style="text-align:right;">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${progRows.map(r => {
+                            const p = r.prog;
+                            let trajClass = p.trajectory;
+                            let sparkT1 = p.t1 !== null ? Math.max(10, Math.min(100, p.t1)) * 0.16 : 3;
+                            let sparkT2 = p.t2 !== null ? Math.max(10, Math.min(100, p.t2)) * 0.16 : 3;
+                            let sparkT3 = p.t3 !== null ? Math.max(10, Math.min(100, p.t3)) * 0.16 : 3;
+
+                            return `<tr>
+                                <td><strong>${esc(r.s.name)}</strong></td>
+                                <td>${p.t1 !== null ? p.t1.toFixed(1) + '%' : '<span style="color:#94a3b8;">—</span>'}</td>
+                                <td>${p.t2 !== null ? p.t2.toFixed(1) + '%' : '<span style="color:#94a3b8;">—</span>'}</td>
+                                <td>${p.t3 !== null ? p.t3.toFixed(1) + '%' : '<span style="color:#94a3b8;">—</span>'}</td>
+                                <td><strong>${p.cumulativeAvg !== null ? p.cumulativeAvg.toFixed(1) + '%' : '—'}</strong></td>
+                                <td>
+                                    <span class="trajectory-pill ${trajClass}">
+                                        ${p.trajectory === 'improving' ? '<i class="fas fa-arrow-up"></i>' : (p.trajectory === 'declining' ? '<i class="fas fa-arrow-down"></i>' : '<i class="fas fa-minus"></i>')}
+                                        ${p.trajectoryLabel}
+                                    </span>
+                                </td>
+                                <td style="text-align:center;">
+                                    <div class="term-sparkline" title="T1: ${p.t1 || '—'} | T2: ${p.t2 || '—'} | T3: ${p.t3 || '—'}">
+                                        <div class="term-spark-bar t1" style="height:${sparkT1}px;"></div>
+                                        <div class="term-spark-bar t2" style="height:${sparkT2}px;"></div>
+                                        <div class="term-spark-bar t3" style="height:${sparkT3}px;"></div>
+                                    </div>
+                                </td>
+                                <td style="text-align:right;">
+                                    <button type="button" class="btn btn-ghost btn-sm" onclick="openEditTermProgressionModal('${r.s.id}')" title="Edit historical term scores">
+                                        <i class="fas fa-edit"></i> Edit Terms
+                                    </button>
+                                </td>
+                            </tr>`;
+                        }).join('') || '<tr><td colspan="8" style="text-align:center;padding:16px;color:#94a3b8;">No students registered.</td></tr>'}
+                    </tbody>
+                </table></div>
+            </div>
+        `;
+    } else {
+        // --- 3. Class Ranking & Averages ---
+        mainContentHtml = `
+            <div class="card" style="margin-bottom:14px;">
+                <div class="stats-row">
+                    <div class="stat"><b>${withScores.length}</b><span>Ranked Students</span></div>
+                    <div class="stat"><b>${classAvg.toFixed(1)}%</b><span>Class Average</span></div>
+                    <div class="stat"><b>${rows.length ? (rows[0].avg ? rows[0].avg.toFixed(1) + '%' : '—') : '—'}</b><span>Highest Score</span></div>
+                </div>
+            </div>
+            <div class="card">
+                <div class="actions" style="margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+                    <div>
+                        <h4 style="margin:0;font-size:15px;color:var(--ink);">Official Class Ranking</h4>
+                    </div>
+                    <div style="display:flex;gap:8px;">
+                        <a class="btn btn-ghost btn-sm" id="exportPerformanceBtn" href="/open?src=/api/export/performance.xlsx"><i class="fas fa-file-excel"></i> Export Excel</a>
+                        <button type="button" class="btn btn-ghost btn-sm" onclick="exportPerformance()"><i class="fas fa-file-csv"></i> Export CSV</button>
+                    </div>
+                </div>
+                <div class="table-wrap"><table class="score-table">
+                    <thead><tr><th>Rank</th><th>Student</th><th>Average</th><th>Grade</th><th>Level</th></tr></thead>
+                    <tbody>${rows.map(r => `<tr>
+                        <td><strong>#${r.rank}</strong></td><td>${esc(r.s.name)}</td>
+                        <td><strong>${r.avg ? r.avg.toFixed(1) + '%' : '—'}</strong></td>
+                        <td>${esc(r.grade)}</td><td>${esc(r.remark)}</td>
+                    </tr>`).join('')}</tbody>
+                </table></div>
+            </div>`;
+    }
+
     document.getElementById('tab-performance').innerHTML = `
-        <div class="card">
-            <div class="stats-row">
-                <div class="stat"><b>${withScores.length}</b><span>Ranked</span></div>
-                <div class="stat"><b>${classAvg.toFixed(1)}%</b><span>Class average</span></div>
-            </div>
-            <div class="actions" style="margin-bottom:10px;">
-                <a class="btn btn-ghost btn-sm" id="exportPerformanceBtn" href="/open?src=/api/export/performance.xlsx"><i class="fas fa-file-excel"></i> Export Excel</a>
-            </div>
-            <div class="table-wrap"><table class="score-table">
-                <thead><tr><th>Rank</th><th>Student</th><th>Average</th><th>Grade</th><th>Level</th></tr></thead>
-                <tbody>${rows.map(r => `<tr>
-                    <td>${r.rank}</td><td>${esc(r.s.name)}</td>
-                    <td>${r.avg ? r.avg.toFixed(1) + '%' : '—'}</td>
-                    <td>${esc(r.grade)}</td><td>${esc(r.remark)}</td>
-                </tr>`).join('')}</tbody>
-            </table></div>
-        </div>`;
+        ${subnavHtml}
+        ${mainContentHtml}
+    `;
+
     const xp = document.getElementById('exportPerformanceBtn');
     if (xp) xp.href = '/open?src=' + encodeURIComponent('/api/export/performance.xlsx?class=' + encodeURIComponent(currentClass || ''));
 }
