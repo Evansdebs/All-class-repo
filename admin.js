@@ -505,14 +505,36 @@ async function initAdminApp() {
         loadAllData({ refreshForms: false });
     });
 
-    // Real-time listeners for key collections
+    // Listen to BroadcastChannel updates from teacher/student portals (instant cross-portal sync)
+    window.addEventListener('onereal_data_updated', (e) => {
+        const { collection } = (e && e.detail) || {};
+        if (!collection || collection === 'results' || collection === 'scores' ||
+            collection === 'teachers' || collection === 'students' || collection === 'users') {
+            loadAllData({ refreshForms: false });
+        }
+    });
+
+    // Real-time Firestore listeners for key collections (instant push from cloud)
     if (isFirebaseActive && typeof setupAdminRealtimeListeners === 'function') {
         setupAdminRealtimeListeners([
             { name: 'results' },
+            { name: 'scores' },
+            { name: 'teachers' },
+            { name: 'students' },
+            { name: 'users' },
             { name: 'auditLogs' }
         ], (name, data) => {
-            if (name === 'results')   { adminState.results   = data; renderResultsTable(); updateNavBadges(); }
+            if (name === 'results')   { adminState.results   = data; persistResults(); renderResultsTable(); updateNavBadges(); }
+            if (name === 'scores')    { adminState.scores    = data; syncScoresIntoResults(); renderResultsTable(); updateNavBadges(); }
+            if (name === 'teachers')  { adminState.teachers  = data; renderTeachersTable(); }
+            if (name === 'students')  { adminState.students  = data; renderStudentsTable(); }
+            if (name === 'users')     { adminState.users     = data; }
             if (name === 'auditLogs') { adminState.auditLogs = data; renderAuditLogs(); }
+        });
+    } else if (isFirebaseActive && typeof startSchoolRealtime === 'function') {
+        // Fallback: use the universal realtime engine from firebase-config.js
+        startSchoolRealtime((collection, data) => {
+            loadAllData({ refreshForms: false });
         });
     }
 
@@ -521,6 +543,7 @@ async function initAdminApp() {
         setInterval(() => loadAllData({ refreshForms: false }), 3000);
     }
 }
+
 
 function renderCurrentActiveSection() {
     const activeSec = sessionStorage.getItem('adminActiveSection') || 'dashboard';
@@ -1892,58 +1915,43 @@ function toggleTeacherStatus(id) {
 async function confirmDeleteTeacher(id) {
     const t = adminState.teachers.find(t => t.id === id);
     if (!t) return;
-    showConfirm(`Permanently delete "${t.name}"? Their info will be completely removed from the system including class assignments.`, async () => {
-        // Purge teacher from all class assignments
-        adminState.classes.forEach(c => {
-            if (String(c.classTeacherId) === String(id)) {
-                c.classTeacherId = '';
-                c.classTeacherName = '';
-            }
-            if (Array.isArray(c.assignedTeacherIds)) {
-                c.assignedTeacherIds = c.assignedTeacherIds.filter(tid => String(tid) !== String(id));
-            }
-        });
-        localStorage.setItem('classes', JSON.stringify(adminState.classes));
+    showConfirm(`Permanently delete "${t.name}"? This will completely and permanently remove them from the database, all class assignments, and all related records.`, async () => {
+        showToast('Deleting staff member and all related records...', 'info');
 
-        // Mark teacher as deleted
-        t.status = 'deleted';
-        t.isDeleted = true;
-        t.deletedAt = new Date().toISOString();
-        localStorage.setItem('teachers', JSON.stringify(adminState.teachers));
-
-        let users = [];
-        try { users = JSON.parse(localStorage.getItem('users') || '[]'); } catch (e) {}
-        if (Array.isArray(users) && users.length) {
-            users.forEach(u => {
-                if (String(u.id) === String(id) || (u.email && t.email && u.email.toLowerCase() === t.email.toLowerCase())) {
-                    u.status = 'deleted';
-                    u.isDeleted = true;
-                    u.deletedAt = t.deletedAt;
+        // Use cascade deletion if available (removes from Firestore + Firebase Auth + local storage)
+        if (typeof deleteUserCascade === 'function') {
+            try { await deleteUserCascade(id); } catch(e) { console.warn('deleteUserCascade error:', e); }
+        } else {
+            // Fallback: manual local + Firestore cleanup
+            adminState.classes.forEach(c => {
+                if (String(c.classTeacherId) === String(id)) { c.classTeacherId = ''; c.classTeacherName = ''; }
+                if (Array.isArray(c.assignedTeacherIds)) {
+                    c.assignedTeacherIds = c.assignedTeacherIds.filter(tid => String(tid) !== String(id));
                 }
             });
-            localStorage.setItem('users', JSON.stringify(users));
-            if (typeof syncSaveCollection === 'function') {
-                syncSaveCollection('users', users).catch(() => {});
-            }
+            adminState.teachers = adminState.teachers.filter(x => String(x.id) !== String(id));
+            localStorage.setItem('teachers', JSON.stringify(adminState.teachers));
+            localStorage.setItem('classes', JSON.stringify(adminState.classes));
         }
+
+        // Reload local state from storage after cascade
+        try { adminState.teachers = JSON.parse(localStorage.getItem('teachers') || '[]'); } catch(e) {}
+        try { adminState.classes = JSON.parse(localStorage.getItem('classes') || '[]'); } catch(e) {}
 
         // Re-render immediately
         renderTeachersTable();
         renderClassesTable();
         updateNavBadges();
-        showToast('Staff member deleted and removed from all class assignments.', 'success');
+        showToast(`"${t.name}" permanently deleted from all databases.`, 'success');
 
-        // Background cloud sync
+        // Background: sync classes to Firestore and log
         (async () => {
-            try { await updateDocument('teachers', id, { status: 'deleted', isDeleted: true, deletedAt: t.deletedAt }); } catch(e) {}
-            try { await syncSaveCollection('teachers', adminState.teachers); } catch(e) {}
-            try { await syncSaveCollection('classes', adminState.classes); } catch(e) {}
-            for (const c of adminState.classes) {
-                try { await updateDocument('classes', c.id, { classTeacherId: c.classTeacherId || '', classTeacherName: c.classTeacherName || '' }); } catch(e) {}
+            if (typeof syncSaveCollection === 'function') {
+                try { await syncSaveCollection('classes', adminState.classes); } catch(e) {}
             }
-            try { await logActivity('Teacher Deleted', `Deleted teacher ${t.name} and removed from all class assignments`, id); } catch(e) {}
-            try { triggerAdminNotification('Staff Account Deleted', `Teacher ${t.name} (${t.email}) was deleted and removed from all class assignments.`, 'warning', 'teachers'); } catch(e) {}
-        })().catch(e => console.warn('deleteTeacher bg error:', e));
+            try { await logActivity('Teacher Deleted', `Permanently deleted teacher ${t.name} (ID: ${id}) and cascaded all related cleanup`, id); } catch(e) {}
+            try { triggerAdminNotification('Staff Account Deleted', `Teacher ${t.name} (${t.email}) was permanently deleted from all records.`, 'warning', 'teachers'); } catch(e) {}
+        })().catch(e => console.warn('confirmDeleteTeacher bg notice:', e));
     });
 }
 
@@ -3032,92 +3040,141 @@ function syncScoresIntoResults() {
         const activeYear = adminState.academicYears.find(y => y.isActive);
         const activeTerm = adminState.terms.find(t => t.isActive);
 
-        Object.keys(scoresBag).forEach(subName => {
-            const studentScores = scoresBag[subName] || {};
-            Object.keys(studentScores).forEach(studentId => {
-                const se = studentScores[studentId];
-                if (!se || (se.classScore === '' && se.examScore === '' && (se.totalScore == null || se.totalScore === ''))) return;
+        if (typeof syncScoresMapToResults === 'function' && scoresBag && Object.keys(scoresBag).length > 0) {
+            // Run async bridge in background — parent function stays synchronous
+            (async () => {
+                try {
+                    const bridged = await syncScoresMapToResults(scoresBag, activeYear?.id || '2025/2026', activeTerm?.id || '1');
+                    if (bridged && bridged.length > 0) {
+                        bridged.forEach(br => {
+                            const existingIdx = adminState.results.findIndex(ar => String(ar.id) === String(br.id));
+                            if (existingIdx >= 0) adminState.results[existingIdx] = { ...adminState.results[existingIdx], ...br };
+                            else adminState.results.push(br);
+                        });
+                        persistResults();
+                        renderResultsTable();
+                        updateNavBadges();
+                    }
+                } catch (e) {}
+            })();
+        }
 
-                const student = adminState.students.find(s => String(s.id) === String(studentId));
-                const classId = student?.classId || student?.class || '';
 
-                // Resolve real subject object so we store the proper ID, not just the name
-                const subjectsList = adminState.subjects || JSON.parse(localStorage.getItem('subjects') || '[]');
-                const subObj = subjectsList.find(s => s.name === subName || String(s.id) === subName || s.code === subName);
-                const resolvedSubName = subObj?.name || subName;
-                const resolvedSubId   = subObj?.id   || subName;
+        // Generic recursive walker for both 2-level scores[subject][student] and 3-level scores[class][subject][student]
+        function processScoreEntry(studentId, classId, resolvedSubName, resolvedSubId, se) {
+            if (!se || (se.classScore === '' && se.examScore === '' && (se.totalScore == null || se.totalScore === ''))) return;
+            const student = adminState.students.find(s => String(s.id) === String(studentId));
+            const cId = classId || student?.classId || student?.class || '';
 
-                // Normalize for dedup comparison
-                const subNameN = resolvedSubName.toLowerCase().trim();
-                const subIdN   = String(resolvedSubId).toLowerCase().trim();
+            const subNameN = String(resolvedSubName).toLowerCase().trim();
+            const subIdN   = String(resolvedSubId).toLowerCase().trim();
 
-                const existingIdx = adminState.results.findIndex(ar =>
-                    String(ar.studentId) === String(studentId) &&
-                    (
-                        String(ar.subjectName || '').toLowerCase().trim() === subNameN ||
-                        String(ar.subjectId   || '').toLowerCase().trim() === subIdN   ||
-                        String(ar.subjectId   || '').toLowerCase().trim() === subNameN ||
-                        String(ar.subjectName || '').toLowerCase().trim() === subIdN
-                    )
-                );
+            const existingIdx = adminState.results.findIndex(ar =>
+                String(ar.studentId) === String(studentId) &&
+                (
+                    String(ar.subjectName || '').toLowerCase().trim() === subNameN ||
+                    String(ar.subjectId   || '').toLowerCase().trim() === subIdN   ||
+                    String(ar.subjectId   || '').toLowerCase().trim() === subNameN ||
+                    String(ar.subjectName || '').toLowerCase().trim() === subIdN
+                )
+            );
 
-                const csVal = (se.classScore !== '' && se.classScore != null) ? Number(se.classScore) : '';
-                const esVal = (se.examScore !== '' && se.examScore != null) ? Number(se.examScore) : '';
-                const cs50 = csVal !== '' ? (se.classScore50 !== undefined && se.classScore50 !== '' ? Number(se.classScore50) : Math.round((csVal / 100) * 50 * 10) / 10) : '';
-                const es50 = esVal !== '' ? (se.examScore50 !== undefined && se.examScore50 !== '' ? Number(se.examScore50) : Math.round((esVal / 100) * 50 * 10) / 10) : '';
-                const totVal = (cs50 !== '' && es50 !== '') ? Math.round((cs50 + es50) * 10) / 10 : (se.totalScore || '');
-                const className = resolveClass(classId);
-                const isJHS = isJHSDepartment(className);
-                const g = totVal !== '' ? getGradeForDept(totVal, isJHS) : { grade: se.grade || '', remark: se.remark || '' };
+            const csVal = (se.classScore !== '' && se.classScore != null) ? Number(se.classScore) : '';
+            const esVal = (se.examScore !== '' && se.examScore != null) ? Number(se.examScore) : '';
+            const cs50 = csVal !== '' ? (se.classScore50 !== undefined && se.classScore50 !== '' ? Number(se.classScore50) : Math.round((csVal / 100) * 50 * 10) / 10) : '';
+            const es50 = esVal !== '' ? (se.examScore50 !== undefined && se.examScore50 !== '' ? Number(se.examScore50) : Math.round((esVal / 100) * 50 * 10) / 10) : '';
+            const totVal = (cs50 !== '' && es50 !== '') ? Math.round((cs50 + es50) * 10) / 10 : (se.totalScore || '');
+            const className = resolveClass(cId);
+            const isJHS = isJHSDepartment(className);
+            const g = totVal !== '' ? getGradeForDept(totVal, isJHS) : { grade: se.grade || '', remark: se.remark || '' };
 
-                if (existingIdx >= 0) {
-                    const existing = adminState.results[existingIdx];
-                    const isApproved = existing.status === 'Approved';
-                    adminState.results[existingIdx] = {
-                        ...existing,
-                        studentName: student?.name || existing.studentName || '',
-                        classId: classId || existing.classId,
-                        subjectId: resolvedSubId,
-                        subjectName: resolvedSubName,
-                        classScore: csVal,
-                        examScore: esVal,
-                        classScore50: cs50,
-                        examScore50: es50,
-                        totalScore: totVal,
-                        grade: g.grade,
-                        remark: g.remark,
-                        status: isApproved ? 'Approved' : (existing.status || 'Submitted'),
-                        locked: isApproved ? true : (existing.locked ?? false),
-                        academicYearId: existing.academicYearId || activeYear?.id || '',
-                        termId: existing.termId || activeTerm?.id || '',
-                        updatedAt: new Date().toISOString()
-                    };
-                    changed = true;
-                } else {
-                    const newRes = {
-                        id: 'res_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
-                        studentId: String(studentId),
-                        studentName: student?.name || '',
-                        classId: classId,
-                        subjectId: resolvedSubId,
-                        subjectName: resolvedSubName,
-                        classScore: csVal,
-                        examScore: esVal,
-                        classScore50: cs50,
-                        examScore50: es50,
-                        totalScore: totVal,
-                        grade: g.grade,
-                        remark: g.remark,
-                        status: 'Submitted',
-                        locked: false,
-                        academicYearId: activeYear?.id || '',
-                        termId: activeTerm?.id || '',
-                        updatedAt: new Date().toISOString()
-                    };
-                    adminState.results.push(newRes);
-                    changed = true;
-                }
-            });
+            if (existingIdx >= 0) {
+                const existing = adminState.results[existingIdx];
+                const isApproved = existing.status === 'Approved' || se.status === 'Approved';
+                adminState.results[existingIdx] = {
+                    ...existing,
+                    studentName: student?.name || existing.studentName || '',
+                    classId: cId || existing.classId,
+                    subjectId: resolvedSubId,
+                    subjectName: resolvedSubName,
+                    classScore: csVal,
+                    examScore: esVal,
+                    classScore50: cs50,
+                    examScore50: es50,
+                    totalScore: totVal,
+                    grade: g.grade,
+                    remark: g.remark,
+                    status: isApproved ? 'Approved' : (existing.status || se.status || 'Submitted'),
+                    locked: isApproved ? true : (existing.locked ?? se.locked ?? false),
+                    academicYearId: existing.academicYearId || activeYear?.id || '',
+                    termId: existing.termId || activeTerm?.id || '',
+                    updatedAt: new Date().toISOString()
+                };
+                changed = true;
+            } else {
+                const newRes = {
+                    id: 'res_' + String(studentId) + '_' + String(cId) + '_' + String(resolvedSubId) + '_' + String(activeYear?.id || '2025/2026') + '_' + String(activeTerm?.id || '1'),
+                    studentId: String(studentId),
+                    studentName: student?.name || '',
+                    classId: cId,
+                    subjectId: resolvedSubId,
+                    subjectName: resolvedSubName,
+                    classScore: csVal,
+                    examScore: esVal,
+                    classScore50: cs50,
+                    examScore50: es50,
+                    totalScore: totVal,
+                    grade: g.grade,
+                    remark: g.remark,
+                    status: se.status || 'Submitted',
+                    locked: se.locked || false,
+                    academicYearId: activeYear?.id || '',
+                    termId: activeTerm?.id || '',
+                    updatedAt: new Date().toISOString()
+                };
+                adminState.results.push(newRes);
+                changed = true;
+            }
+        }
+
+        const subjectsList = adminState.subjects || JSON.parse(localStorage.getItem('subjects') || '[]');
+
+        Object.keys(scoresBag).forEach(key1 => {
+            const val1 = scoresBag[key1];
+            if (!val1 || typeof val1 !== 'object') return;
+
+            // Check if key1 is classId/className (3-level map) or subjectName (2-level map)
+            const isClassLevel = adminState.classes.some(c => c.id === key1 || c.name === key1);
+            if (isClassLevel) {
+                // key1 is Class -> val1 is { subjectName: { studentId: entry } }
+                Object.keys(val1).forEach(subKey => {
+                    const studentMap = val1[subKey];
+                    if (!studentMap || typeof studentMap !== 'object') return;
+                    const subObj = subjectsList.find(s => s.name === subKey || String(s.id) === subKey || s.code === subKey);
+                    const resSubName = subObj?.name || subKey;
+                    const resSubId   = subObj?.id   || subKey;
+                    Object.keys(studentMap).forEach(studentId => {
+                        processScoreEntry(studentId, key1, resSubName, resSubId, studentMap[studentId]);
+                    });
+                });
+            } else {
+                // key1 is Subject -> val1 is { studentId: entry } OR might be another dictionary
+                const subObj = subjectsList.find(s => s.name === key1 || String(s.id) === key1 || s.code === key1);
+                const resSubName = subObj?.name || key1;
+                const resSubId   = subObj?.id   || key1;
+                Object.keys(val1).forEach(studentOrSub => {
+                    const possibleEntry = val1[studentOrSub];
+                    if (possibleEntry && typeof possibleEntry === 'object' && (possibleEntry.classScore !== undefined || possibleEntry.examScore !== undefined || possibleEntry.totalScore !== undefined)) {
+                        processScoreEntry(studentOrSub, '', resSubName, resSubId, possibleEntry);
+                    } else if (possibleEntry && typeof possibleEntry === 'object') {
+                        // 3-level fallback: key1 is unknown class -> studentOrSub is subject -> possibleEntry is studentMap
+                        Object.keys(possibleEntry).forEach(studentId => {
+                            const subO = subjectsList.find(s => s.name === studentOrSub || String(s.id) === studentOrSub);
+                            processScoreEntry(studentId, key1, subO?.name || studentOrSub, subO?.id || studentOrSub, possibleEntry[studentId]);
+                        });
+                    }
+                });
+            }
         });
 
         // Deduplicate adminState.results
@@ -3439,6 +3496,7 @@ function approveResult(id) {
     updateNavBadges();
     showToast('Result approved and locked.', 'success');
     (async () => {
+        try { if (typeof syncResultStatusToScores === 'function') await syncResultStatusToScores([id], 'Approved', true); } catch(e) {}
         try { if (typeof approveResults === 'function') await approveResults([id], 'Approved'); } catch(e) {}
         try { await updateDocument('results', id, { status: 'Approved', locked: true, approvedAt: r.approvedAt }); } catch(e) {}
         try { if (typeof syncSaveCollection === 'function') await syncSaveCollection('results', adminState.results); } catch(e) {}
@@ -3456,6 +3514,7 @@ function unlockResult(id) {
     updateNavBadges();
     showToast('Result unlocked for editing.', 'success');
     (async () => {
+        try { if (typeof syncResultStatusToScores === 'function') await syncResultStatusToScores([id], 'Reviewed', false); } catch(e) {}
         try { if (typeof unlockResults === 'function') await unlockResults([id]); } catch(e) {}
         try { await updateDocument('results', id, { status: 'Reviewed', locked: false }); } catch(e) {}
         try { if (typeof syncSaveCollection === 'function') await syncSaveCollection('results', adminState.results); } catch(e) {}
@@ -3477,6 +3536,7 @@ function bulkApproveResults() {
         updateNavBadges();
         showToast(`${ids.length} results approved successfully.`, 'success');
         (async () => {
+            try { if (typeof syncResultStatusToScores === 'function') await syncResultStatusToScores(ids, 'Approved', true); } catch(e) {}
             try { if (typeof approveResults === 'function') await approveResults(ids, 'Approved'); } catch(e) {}
             try { if (typeof syncSaveCollection === 'function') await syncSaveCollection('results', adminState.results); } catch(e) {}
             try { await logActivity('Bulk Results Approved', `Approved ${ids.length} results`); } catch(e) {}
@@ -3498,6 +3558,7 @@ function bulkLockResults() {
         updateNavBadges();
         showToast(`${ids.length} results locked.`, 'info');
         (async () => {
+            try { if (typeof syncResultStatusToScores === 'function') await syncResultStatusToScores(ids, r?.status || 'Submitted', true); } catch(e) {}
             try { if (typeof syncSaveCollection === 'function') await syncSaveCollection('results', adminState.results); } catch(e) {}
             try { await logActivity('Bulk Results Locked', `Locked ${ids.length} results`); } catch(e) {}
         })().catch(e => console.warn('bulkLockResults bg error:', e));
@@ -3518,6 +3579,7 @@ function bulkUnlockResults() {
         updateNavBadges();
         showToast(`${ids.length} results unlocked.`, 'success');
         (async () => {
+            try { if (typeof syncResultStatusToScores === 'function') await syncResultStatusToScores(ids, 'Reviewed', false); } catch(e) {}
             try { if (typeof unlockResults === 'function') await unlockResults(ids); } catch(e) {}
             try { if (typeof syncSaveCollection === 'function') await syncSaveCollection('results', adminState.results); } catch(e) {}
             try { await logActivity('Bulk Results Unlocked', `Unlocked ${ids.length} results`); } catch(e) {}

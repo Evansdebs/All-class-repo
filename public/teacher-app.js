@@ -1300,7 +1300,17 @@ function flushScores() {
     syncScoresToResults();
     setAutosaveStatus('All marks saved & updated', '#059669', 'fa-check-circle');
     setTimeout(() => { setAutosaveStatus('Autosaved', '#94a3b8', 'fa-check'); }, 2500);
+    // Also bridge 3-level scores map to Firestore results so admin sees marks instantly
+    if (typeof syncScoresMapToResults === 'function') {
+        const allScores = JSON.parse(localStorage.getItem('scores') || '{}');
+        const years = JSON.parse(localStorage.getItem('academicYears') || '[]');
+        const terms = JSON.parse(localStorage.getItem('terms') || '[]');
+        const activeYear = (years.find(y => y.isActive) || {}).id || schoolInfo.academicYear || '';
+        const activeTerm = (terms.find(t => t.isActive) || {}).id || schoolInfo.term || '';
+        syncScoresMapToResults(allScores, activeYear, activeTerm).catch(() => {});
+    }
 }
+
 
 // Piecewise: update in-memory entry for an individual CA component and refresh the row display.
 // localStorage is NOT written here — that happens on blur (flushScores) or the inactivity timer.
@@ -4551,7 +4561,21 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
         });
     }
+
+    // Cross-portal real-time sync: reload data when any portal triggers an update
+    window.addEventListener('onereal_data_updated', () => {
+        handleTeacherSyncUpdate();
+    });
+    window.addEventListener('onerealDataSynced', () => {
+        handleTeacherSyncUpdate();
+    });
+    window.addEventListener('storage', (e) => {
+        if (!e.key || e.key === 'results' || e.key === 'students' || e.key === 'scores' || e.key === 'reports') {
+            handleTeacherSyncUpdate();
+        }
+    });
 });
+
 
 function handleTeacherSyncUpdate() {
     loadAll();

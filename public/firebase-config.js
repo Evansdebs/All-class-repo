@@ -246,6 +246,7 @@ async function registerFirebaseUser(email, password, displayName, role = 'Teache
             id: creds.user.uid,
             uid: creds.user.uid,
             email,
+            password,
             name: displayName || email,
             displayName: displayName || email,
             role,
@@ -1624,15 +1625,285 @@ async function provisionStaffFromLocal() {
     return { created, skipped };
 }
 
+// ──────────────────────────────────────────────────────────────────────────────
+// CROSS-PORTAL & MULTI-DEVICE REALTIME SYNC ENGINE
+// ──────────────────────────────────────────────────────────────────────────────
+
+let schoolSyncChannel = null;
+try {
+    if (typeof BroadcastChannel !== 'undefined') {
+        schoolSyncChannel = new BroadcastChannel('onereal_school_sync');
+        schoolSyncChannel.onmessage = (event) => {
+            if (event && event.data && event.data.collection) {
+                const { collection, data } = event.data;
+                try {
+                    localStorage.setItem(collection, typeof data === 'string' ? data : JSON.stringify(data));
+                } catch (e) {}
+                window.dispatchEvent(new CustomEvent('onereal_data_updated', {
+                    detail: { collection, data }
+                }));
+            }
+        };
+    }
+} catch (e) {}
+
+window.addEventListener('storage', (e) => {
+    if (e.key && e.newValue) {
+        try {
+            const parsed = JSON.parse(e.newValue);
+            window.dispatchEvent(new CustomEvent('onereal_data_updated', {
+                detail: { collection: e.key, data: parsed }
+            }));
+        } catch (err) {}
+    }
+});
+
+function broadcastDataChange(collection, data) {
+    if (!collection) return;
+    try {
+        if (schoolSyncChannel) {
+            schoolSyncChannel.postMessage({ collection, data, timestamp: Date.now() });
+        }
+        window.dispatchEvent(new CustomEvent('onereal_data_updated', {
+            detail: { collection, data }
+        }));
+    } catch (e) {}
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// TEACHER SCORES <-> ADMIN RESULTS BRIDGE
+// ──────────────────────────────────────────────────────────────────────────────
+
+async function syncScoresMapToResults(scoresMap, defaultYear = '2025/2026', defaultTerm = '1') {
+    if (!scoresMap || typeof scoresMap !== 'object') return [];
+    const localResults = JSON.parse(localStorage.getItem('results') || '[]');
+    const resultsMap = new Map();
+    localResults.forEach(r => { if (r && r.id) resultsMap.set(r.id, r); });
+
+    const updatedResults = [];
+    const activeYear = JSON.parse(localStorage.getItem('activeAcademicYear') || 'null')?.id || defaultYear;
+    const activeTerm = JSON.parse(localStorage.getItem('activeTerm') || 'null')?.id || defaultTerm;
+
+    Object.keys(scoresMap).forEach(classKey => {
+        const classSubjects = scoresMap[classKey];
+        if (!classSubjects || typeof classSubjects !== 'object') return;
+
+        Object.keys(classSubjects).forEach(subjectKey => {
+            const studentScores = classSubjects[subjectKey];
+            if (!studentScores || typeof studentScores !== 'object') return;
+
+            Object.keys(studentScores).forEach(studentId => {
+                const entry = studentScores[studentId];
+                if (!entry || typeof entry !== 'object') return;
+
+                const resultDocId = `res_${studentId}_${classKey}_${subjectKey}_${activeYear}_${activeTerm}`.replace(/[\/\s]/g, '_');
+                const existing = resultsMap.get(resultDocId) || {};
+
+                const normalized = {
+                    id: resultDocId,
+                    studentId: String(studentId),
+                    classId: classKey,
+                    subjectId: subjectKey,
+                    academicYearId: activeYear,
+                    termId: activeTerm,
+                    classScore: entry.classScore !== undefined ? entry.classScore : (existing.classScore ?? 0),
+                    examScore: entry.examScore !== undefined ? entry.examScore : (existing.examScore ?? 0),
+                    totalScore: entry.totalScore !== undefined ? entry.totalScore : (existing.totalScore ?? 0),
+                    grade: entry.grade || existing.grade || '',
+                    remark: entry.remark || existing.remark || '',
+                    status: existing.status || 'Submitted',
+                    locked: existing.locked !== undefined ? existing.locked : false,
+                    updatedAt: new Date().toISOString()
+                };
+
+                resultsMap.set(resultDocId, normalized);
+                updatedResults.push(normalized);
+            });
+        });
+    });
+
+    const mergedResults = Array.from(resultsMap.values());
+    localStorage.setItem('results', JSON.stringify(mergedResults));
+    broadcastDataChange('results', mergedResults);
+
+    if (isFirebaseActive && db && updatedResults.length > 0) {
+        try {
+            const batch = db.batch();
+            const schoolDoc = db.collection('schools').doc(DEFAULT_FIREBASE_CONFIG.projectId || 'onereal_school');
+            updatedResults.slice(0, 450).forEach(res => {
+                const ref = schoolDoc.collection('results').doc(res.id);
+                batch.set(ref, res, { merge: true });
+            });
+            await batch.commit();
+        } catch (e) {
+            console.warn('Batch result sync notice:', e.message);
+        }
+    }
+
+    return mergedResults;
+}
+
+async function syncResultStatusToScores(resultIds, newStatus, locked = false) {
+    if (!Array.isArray(resultIds) || resultIds.length === 0) return;
+    const results = JSON.parse(localStorage.getItem('results') || '[]');
+    const scores = JSON.parse(localStorage.getItem('scores') || '{}');
+    const reports = JSON.parse(localStorage.getItem('reports') || '[]');
+    let modifiedScores = false;
+
+    results.forEach(r => {
+        if (resultIds.includes(r.id)) {
+            r.status = newStatus;
+            r.locked = locked;
+            r.approvedAt = newStatus === 'Approved' ? new Date().toISOString() : r.approvedAt;
+            r.updatedAt = new Date().toISOString();
+
+            if (scores[r.classId] && scores[r.classId][r.subjectId] && scores[r.classId][r.subjectId][r.studentId]) {
+                scores[r.classId][r.subjectId][r.studentId].status = newStatus;
+                scores[r.classId][r.subjectId][r.studentId].locked = locked;
+                modifiedScores = true;
+            }
+        }
+    });
+
+    localStorage.setItem('results', JSON.stringify(results));
+    broadcastDataChange('results', results);
+
+    if (modifiedScores) {
+        localStorage.setItem('scores', JSON.stringify(scores));
+        broadcastDataChange('scores', scores);
+    }
+
+    reports.forEach(rp => {
+        if (resultIds.some(id => id.includes(rp.studentId || rp.id))) {
+            rp.status = newStatus;
+            rp.locked = locked;
+        }
+    });
+    localStorage.setItem('reports', JSON.stringify(reports));
+    broadcastDataChange('reports', reports);
+
+    if (isFirebaseActive && db) {
+        try {
+            const batch = db.batch();
+            const schoolDoc = db.collection('schools').doc(DEFAULT_FIREBASE_CONFIG.projectId || 'onereal_school');
+            resultIds.slice(0, 450).forEach(id => {
+                const r = results.find(x => x.id === id);
+                if (r) {
+                    batch.set(schoolDoc.collection('results').doc(id), { status: newStatus, locked, approvedAt: r.approvedAt || null, updatedAt: r.updatedAt }, { merge: true });
+                }
+            });
+            if (modifiedScores) {
+                batch.set(schoolDoc.collection('scores').doc('matrix'), scores, { merge: true });
+            }
+            await batch.commit();
+        } catch (e) {
+            console.warn('Firestore status sync notice:', e.message);
+        }
+    }
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// COMPLETE CASCADE DELETION ENGINE
+// ──────────────────────────────────────────────────────────────────────────────
+
+async function deleteUserCascade(identifier) {
+    if (!identifier) return false;
+    const norm = String(identifier).trim().toLowerCase();
+
+    let users = JSON.parse(localStorage.getItem('users') || '[]');
+    let teachers = JSON.parse(localStorage.getItem('teachers') || '[]');
+    let classes = JSON.parse(localStorage.getItem('classes') || '[]');
+    let resetReqs = JSON.parse(localStorage.getItem('passwordResetRequests') || '[]');
+
+    const targetUser = users.find(u => u.uid === identifier || u.id === identifier || (u.email && u.email.toLowerCase() === norm));
+    const targetTeacher = teachers.find(t => t.id === identifier || t.uid === identifier || (t.email && t.email.toLowerCase() === norm));
+    const targetEmail = (targetUser?.email || targetTeacher?.email || (norm.includes('@') ? norm : '')).toLowerCase();
+    const targetName = targetUser?.displayName || targetUser?.name || targetTeacher?.name || '';
+    const targetIds = [identifier, targetUser?.id, targetUser?.uid, targetTeacher?.id, targetTeacher?.uid].filter(Boolean);
+
+    // 1. Purge from users
+    users = users.filter(u => !targetIds.includes(u.id) && !targetIds.includes(u.uid) && (!targetEmail || (u.email || '').toLowerCase() !== targetEmail));
+    localStorage.setItem('users', JSON.stringify(users));
+    broadcastDataChange('users', users);
+
+    // 2. Purge from teachers
+    teachers = teachers.filter(t => !targetIds.includes(t.id) && !targetIds.includes(t.uid) && (!targetEmail || (t.email || '').toLowerCase() !== targetEmail));
+    localStorage.setItem('teachers', JSON.stringify(teachers));
+    broadcastDataChange('teachers', teachers);
+
+    // 3. Unassign from all classes
+    let classModified = false;
+    classes.forEach(c => {
+        if (targetIds.includes(c.classTeacherId) || (targetName && c.classTeacherName === targetName)) {
+            c.classTeacherId = '';
+            c.classTeacherName = '';
+            classModified = true;
+        }
+        if (Array.isArray(c.assignedTeacherIds)) {
+            const before = c.assignedTeacherIds.length;
+            c.assignedTeacherIds = c.assignedTeacherIds.filter(id => !targetIds.includes(id));
+            if (c.assignedTeacherIds.length !== before) classModified = true;
+        }
+    });
+    if (classModified) {
+        localStorage.setItem('classes', JSON.stringify(classes));
+        broadcastDataChange('classes', classes);
+    }
+
+    // 4. Purge pending password reset requests
+    if (targetEmail) {
+        resetReqs = resetReqs.filter(r => (r.email || '').toLowerCase() !== targetEmail);
+        localStorage.setItem('passwordResetRequests', JSON.stringify(resetReqs));
+        broadcastDataChange('passwordResetRequests', resetReqs);
+    }
+
+    // 5. Commit Firestore Deletes
+    if (isFirebaseActive && db) {
+        try {
+            const batch = db.batch();
+            targetIds.forEach(id => {
+                batch.delete(db.collection('users').doc(id));
+                batch.delete(db.collection('teachers').doc(id));
+            });
+            if (targetEmail) {
+                const userSnap = await db.collection('users').where('email', '==', targetEmail).get();
+                userSnap.forEach(doc => batch.delete(doc.ref));
+                const teacherSnap = await db.collection('teachers').where('email', '==', targetEmail).get();
+                teacherSnap.forEach(doc => batch.delete(doc.ref));
+            }
+            if (classModified) {
+                classes.forEach(c => {
+                    batch.set(db.collection('classes').doc(c.id), c, { merge: true });
+                });
+            }
+            await batch.commit();
+        } catch (e) {
+            console.warn('Firestore cascade delete notice:', e.message);
+        }
+    }
+
+    logActivity('User Deleted (Cascade)', `Permanently deleted user ${targetName || targetEmail || identifier} across all systems`).catch(() => {});
+    return true;
+}
+
 function startSchoolRealtime(onChange) {
     if (!isFirebaseConnected()) return;
+    const collectionsToListen = [
+        'students', 'teachers', 'classes', 'subjects', 'reports',
+        'results', 'academicYears', 'terms', 'users', 'gradingScales',
+        'scores', 'schoolSettings', 'schoolInfo', 'parentContacts', 'studentReportDetails'
+    ];
+
     setupRealtimeListeners(function (name, data) {
         if (typeof onChange === 'function') onChange(name, data);
+        broadcastDataChange(name, data);
     });
+
     setupAdminRealtimeListeners(
-        ['students', 'teachers', 'classes', 'subjects', 'reports', 'results', 'academicYears', 'terms', 'users', 'gradingScales'].map(name => ({ name })),
+        collectionsToListen.map(name => ({ name })),
         function (name, data) {
             if (typeof onChange === 'function') onChange(name, data);
+            broadcastDataChange(name, data);
         }
     );
 }

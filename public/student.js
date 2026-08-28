@@ -129,6 +129,12 @@ window.addEventListener('onerealDataSynced', () => {
     handleStudentSyncUpdate();
 });
 
+window.addEventListener('onereal_data_updated', () => {
+    handleStudentSyncUpdate();
+});
+
+
+
 window.addEventListener('schoolSettingsUpdated', (e) => {
     syncStudentPortalBranding(e.detail);
     if (activeStudentData) renderStudentResults(activeStudentData);
