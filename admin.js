@@ -179,6 +179,32 @@ function findAccountByEmail(email) {
     return getLocalTeachers().find(t => (t.email || '').toLowerCase() === lc) || null;
 }
 
+function validateAdminSession(silent = false) {
+    const isUnlocked = sessionStorage.getItem('adminUnlocked') === 'true';
+    const savedEmail = sessionStorage.getItem('adminEmail');
+    if (!isUnlocked || !savedEmail) return true;
+
+    const account = findAccountByEmail(savedEmail);
+    const isInvalid = !account || account.status === 'inactive' || account.status === 'deleted' || account.isDeleted || !isAdminPortalRole(account.role);
+
+    if (isInvalid) {
+        sessionStorage.removeItem('adminUnlocked');
+        sessionStorage.removeItem('adminEmail');
+        currentUserProfile = null;
+        if (typeof logoutFirebaseUser === 'function') {
+            try { logoutFirebaseUser(); } catch (e) {}
+        }
+        const app = document.getElementById('adminApp');
+        if (app) app.style.display = 'none';
+        showAuthOverlay(account ? 'This administrator account has been deactivated or deleted.' : 'Your administrator session is no longer active.');
+        if (!silent && typeof showToast === 'function') {
+            showToast('Admin account revoked. Signed out.', 'error');
+        }
+        return false;
+    }
+    return true;
+}
+
 // Set the shared profile object so role helpers (isAdmin/isHeadteacher/...)
 // work for locally-authenticated accounts, not just Firebase ones.
 function setLocalProfile(user) {
@@ -403,6 +429,16 @@ async function initAdminApp() {
         });
     }
 
+    window.addEventListener('storage', (e) => {
+        if (!e.key || (typeof ALL_SYNC_COLLECTIONS !== 'undefined' && ALL_SYNC_COLLECTIONS.includes(e.key))) {
+            loadAllData({ refreshForms: false });
+        }
+    });
+
+    window.addEventListener('onerealDataSynced', () => {
+        loadAllData({ refreshForms: false });
+    });
+
     // Real-time listeners for key collections
     if (isFirebaseActive && typeof setupAdminRealtimeListeners === 'function') {
         setupAdminRealtimeListeners([
@@ -417,6 +453,27 @@ async function initAdminApp() {
     // Poll data in the background, but do not rebuild open form checkboxes
     if (!isFirebaseActive) {
         setInterval(() => loadAllData({ refreshForms: false }), 3000);
+    }
+}
+
+function renderCurrentActiveSection() {
+    const activeSec = sessionStorage.getItem('adminActiveSection') || 'dashboard';
+    const typing = document.activeElement && ['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement.tagName) && isAnyAdminModalOpen();
+    if (typing) return;
+
+    switch(activeSec) {
+        case 'dashboard':      if (typeof loadDashboard === 'function') loadDashboard(); break;
+        case 'students':       if (typeof renderStudentsTable === 'function') renderStudentsTable(); break;
+        case 'teachers':       if (typeof renderTeachersTable === 'function') renderTeachersTable(); break;
+        case 'classes':        if (typeof renderClassesTable === 'function') renderClassesTable(); break;
+        case 'subjects':       if (typeof renderSubjectsTable === 'function') renderSubjectsTable(); break;
+        case 'academic-years': if (typeof renderAcademicYears === 'function') renderAcademicYears(); break;
+        case 'grading':        if (typeof renderGradingScales === 'function') renderGradingScales(); break;
+        case 'results':        if (typeof renderResultsTable === 'function') renderResultsTable(); break;
+        case 'reports':        if (typeof renderReportsTable === 'function') renderReportsTable(); break;
+        case 'timetables':     if (typeof renderAdminExamsTable === 'function') renderAdminExamsTable(); break;
+        case 'audit-logs':     if (typeof renderAuditLogs === 'function') renderAuditLogs(); break;
+        case 'attendance':     if (typeof renderAttendanceSection === 'function') renderAttendanceSection(); break;
     }
 }
 
@@ -521,14 +578,11 @@ async function loadAllData(opts = {}) {
         if (typeof Attendance !== 'undefined') Attendance.load();
 
         updateNavBadges();
+        validateAdminSession();
         if (refreshForms && !isAnyAdminModalOpen()) {
             populateAllDropdowns();
         }
-        const attSection = document.getElementById('section-attendance');
-        if (attSection && attSection.classList.contains('active')) {
-            const typing = document.activeElement && ['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement.tagName);
-            if (!typing) renderAttendanceSection();
-        }
+        renderCurrentActiveSection();
     } catch (e) {
         console.error('Error loading admin data:', e);
     }
@@ -1200,12 +1254,19 @@ async function saveStudent() {
 async function confirmDeleteStudent(id) {
     const s = adminState.students.find(s => s.id === id);
     showConfirm(`Delete student "${s?.name}"? This cannot be undone.`, async () => {
-        await deleteDocument('students', id);
         adminState.students = adminState.students.filter(s => s.id !== id);
+        localStorage.setItem('students', JSON.stringify(adminState.students));
         renderStudentsTable();
         updateNavBadges();
         showToast('Student deleted.', 'success');
-        await logActivity('Student Deleted', `Deleted student ${s?.name}`, id);
+
+        (async () => {
+            try { await deleteDocument('students', id); } catch (e) {}
+            if (typeof syncSaveCollection === 'function') {
+                try { await syncSaveCollection('students', adminState.students); } catch (e) {}
+            }
+            try { await logActivity('Student Deleted', `Deleted student ${s?.name}`, id); } catch (e) {}
+        })().catch(err => console.warn('Delete student bg error:', err));
     });
 }
 
@@ -1733,6 +1794,21 @@ function toggleTeacherStatus(id) {
     // Optimistic UI — update locally first, cloud write in background
     t.status = newStatus;
     localStorage.setItem('teachers', JSON.stringify(adminState.teachers));
+
+    let users = [];
+    try { users = JSON.parse(localStorage.getItem('users') || '[]'); } catch (e) {}
+    if (Array.isArray(users) && users.length) {
+        users.forEach(u => {
+            if (String(u.id) === String(id) || (u.email && t.email && u.email.toLowerCase() === t.email.toLowerCase())) {
+                u.status = newStatus;
+            }
+        });
+        localStorage.setItem('users', JSON.stringify(users));
+        if (typeof syncSaveCollection === 'function') {
+            syncSaveCollection('users', users).catch(() => {});
+        }
+    }
+
     renderTeachersTable();
     showToast(`Teacher account ${newStatus === 'active' ? 'activated' : 'deactivated'}.`, 'success');
     (async () => {
@@ -1763,6 +1839,22 @@ async function confirmDeleteTeacher(id) {
         t.isDeleted = true;
         t.deletedAt = new Date().toISOString();
         localStorage.setItem('teachers', JSON.stringify(adminState.teachers));
+
+        let users = [];
+        try { users = JSON.parse(localStorage.getItem('users') || '[]'); } catch (e) {}
+        if (Array.isArray(users) && users.length) {
+            users.forEach(u => {
+                if (String(u.id) === String(id) || (u.email && t.email && u.email.toLowerCase() === t.email.toLowerCase())) {
+                    u.status = 'deleted';
+                    u.isDeleted = true;
+                    u.deletedAt = t.deletedAt;
+                }
+            });
+            localStorage.setItem('users', JSON.stringify(users));
+            if (typeof syncSaveCollection === 'function') {
+                syncSaveCollection('users', users).catch(() => {});
+            }
+        }
 
         // Re-render immediately
         renderTeachersTable();
@@ -1975,10 +2067,18 @@ async function saveClass() {
 async function confirmDeleteClass(id) {
     const c = adminState.classes.find(c => c.id === id);
     showConfirm(`Delete class "${c?.name}"?`, async () => {
-        await deleteDocument('classes', id);
         adminState.classes = adminState.classes.filter(c => c.id !== id);
+        localStorage.setItem('classes', JSON.stringify(adminState.classes));
         renderClassesTable();
+        updateNavBadges();
         showToast('Class deleted.', 'success');
+        (async () => {
+            try { await deleteDocument('classes', id); } catch (e) {}
+            if (typeof syncSaveCollection === 'function') {
+                try { await syncSaveCollection('classes', adminState.classes); } catch (e) {}
+            }
+            try { await logActivity('Class Deleted', `Deleted class ${c?.name}`, id); } catch (e) {}
+        })().catch(e => console.warn('deleteClass bg error:', e));
     });
 }
 
@@ -2919,6 +3019,13 @@ function persistResults() {
     }
 }
 
+function persistReports() {
+    localStorage.setItem('reports', JSON.stringify(adminState.reports));
+    if (typeof syncSaveCollection === 'function') {
+        try { syncSaveCollection('reports', adminState.reports); } catch (e) {}
+    }
+}
+
 /**
  * Collapses duplicate result entries in the admin state (same student + subject).
  * Keeps latest updatedAt; Approved/Published status wins regardless of age.
@@ -3513,6 +3620,24 @@ async function bulkDeleteSelectedReports() {
         loadDashboard();
         showToast(`${ids.length} report(s) deleted.`, 'success');
         await logActivity('Reports Deleted', `Bulk-deleted ${ids.length} reports`);
+    });
+}
+
+function confirmDeleteReport(id) {
+    const r = adminState.reports.find(x => String(x.id) === String(id));
+    const student = adminState.students.find(s => s.id === r?.studentId);
+    showConfirm(`Delete report for "${student?.name || r?.studentId || 'student'}"?`, async () => {
+        adminState.reports = adminState.reports.filter(x => String(x.id) !== String(id));
+        persistReports();
+        renderReportsTable();
+        handleReportCheckbox();
+        updateNavBadges();
+        loadDashboard();
+        showToast('Report deleted.', 'success');
+        (async () => {
+            try { await deleteDocument('reports', id); } catch(e) {}
+            try { await logActivity('Report Deleted', `Deleted report for student ${student?.name || id}`); } catch(e) {}
+        })().catch(e => console.warn('deleteReport bg error:', e));
     });
 }
 

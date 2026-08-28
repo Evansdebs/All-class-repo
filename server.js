@@ -804,17 +804,29 @@ async function requestHandler(req, res) {
             return;
         }
 
-        // ── Legacy /api/sync (teacher app) ───────────────────────────────────
-        if (pathname === '/api/sync' && method === 'POST') {
-            try {
-                const payload = await readBody(req);
-                const db = readDb();
-                const allowed = ['students','scores','schoolInfo','studentReportDetails','parentContacts','attendanceMarks','attendanceSettings','reports','classes','teachers','subjects','schoolSettings'];
-                allowed.forEach(k => { if (payload[k] !== undefined) db[k] = payload[k]; });
-                writeDb(db);
-                sendJson(res, 200, { success: true, timestamp: new Date().toISOString() });
-            } catch (e) { sendJson(res, 400, { error: e.message }); }
-            return;
+        // ── /api/sync (real-time multi-portal synchronization) ────────────────
+        if (pathname === '/api/sync') {
+            if (method === 'GET') {
+                sendJson(res, 200, readDb());
+                return;
+            }
+            if (method === 'POST') {
+                try {
+                    const payload = await readBody(req);
+                    const db = readDb();
+                    const allowed = [
+                        'students', 'scores', 'schoolInfo', 'studentReportDetails',
+                        'parentContacts', 'attendanceMarks', 'attendanceSettings',
+                        'reports', 'classes', 'teachers', 'subjects', 'schoolSettings',
+                        'gradingScales', 'academicYears', 'terms', 'results', 'alumni',
+                        'timetables', 'examTimetables', 'auditLogs', 'schoolDepartments', 'users'
+                    ];
+                    allowed.forEach(k => { if (payload[k] !== undefined) db[k] = payload[k]; });
+                    writeDb(db);
+                    sendJson(res, 200, { success: true, timestamp: new Date().toISOString(), ...db });
+                } catch (e) { sendJson(res, 400, { error: e.message }); }
+                return;
+            }
         }
 
         // ── COLLECTIONS: students ────────────────────────────────────────────

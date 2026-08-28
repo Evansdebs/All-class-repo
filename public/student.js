@@ -62,6 +62,39 @@ function syncStudentPortalBranding(customSettings) {
     document.title = `${schoolName} — Student Portal`;
 }
 
+function logoutStudent() {
+    activeStudentData = null;
+    sessionStorage.removeItem('studentAuthId');
+    sessionStorage.removeItem('studentTab');
+    const overlayEl = document.getElementById('studentAuthOverlay');
+    if (overlayEl) overlayEl.style.display = 'flex';
+    const mainEl = document.getElementById('studentMainContent');
+    if (mainEl) mainEl.style.display = 'none';
+}
+
+function handleStudentSyncUpdate() {
+    syncStudentPortalBranding();
+    if (activeStudentData) {
+        const students = safeLocalGet('students', []);
+        const current = students.find(s => String(s.id) === String(activeStudentData.id) || (s.admissionNo && activeStudentData.admissionNo && s.admissionNo.toLowerCase() === activeStudentData.admissionNo.toLowerCase()));
+        if (!current || current.isDeleted || current.status === 'deleted' || current.status === 'inactive') {
+            logoutStudent();
+            const err = document.getElementById('studentAuthError');
+            if (err) {
+                err.textContent = 'This student record has been deactivated or removed by administration.';
+                err.style.display = 'block';
+            }
+            return;
+        }
+        activeStudentData = current;
+        renderStudentResults(activeStudentData);
+        if (typeof activeStudentTab !== 'undefined') {
+            if (activeStudentTab === 'timetable') renderStudentTimetable(activeStudentData);
+            else if (activeStudentTab === 'exams') renderStudentExams(activeStudentData);
+        }
+    }
+}
+
 document.addEventListener('DOMContentLoaded', async () => {
     syncStudentPortalBranding();
     if (typeof fetchSchoolSettings === 'function') {
@@ -79,23 +112,21 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     if (typeof registerSyncSubscriber === 'function') {
         registerSyncSubscriber((col, data) => {
-            syncStudentPortalBranding();
-            if (activeStudentData) {
-                renderStudentResults(activeStudentData);
-                if (activeStudentTab === 'timetable') renderStudentTimetable(activeStudentData);
-                else if (activeStudentTab === 'exams') renderStudentExams(activeStudentData);
-            }
+            handleStudentSyncUpdate();
         });
     }
 });
 
 window.addEventListener('storage', (e) => {
-    if (e.key === 'schoolSettings' || e.key === 'schoolInfo') {
+    if (!e.key || e.key === 'schoolSettings' || e.key === 'schoolInfo' || (typeof ALL_SYNC_COLLECTIONS !== 'undefined' && ALL_SYNC_COLLECTIONS.includes(e.key))) {
         try {
-            syncStudentPortalBranding();
-            if (activeStudentData) renderStudentResults(activeStudentData);
+            handleStudentSyncUpdate();
         } catch (err) {}
     }
+});
+
+window.addEventListener('onerealDataSynced', () => {
+    handleStudentSyncUpdate();
 });
 
 window.addEventListener('schoolSettingsUpdated', (e) => {
@@ -157,8 +188,8 @@ async function loadStudentDashboard(admissionNo) {
         );
     }
 
-    if (!student) {
-        throw new Error(`Student with Admission Number "${admissionNo}" not found. Please check your card or contact your class teacher.`);
+    if (!student || student.isDeleted || student.status === 'deleted' || student.status === 'inactive') {
+        throw new Error(`Student record with Admission Number "${admissionNo}" is not active or has been removed.`);
     }
 
     activeStudentData = student;

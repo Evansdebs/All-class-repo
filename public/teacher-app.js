@@ -666,6 +666,47 @@ async function teacherLogin() {
     await openApp();
 }
 
+function validateCurrentTeacherSession(silent = false) {
+    const isUnlocked = sessionStorage.getItem('teacherUnlocked') === 'true';
+    const email = sessionStorage.getItem('teacherEmail');
+    if (!isUnlocked || !email) return false;
+
+    const teachers = loadJSON('teachers', []);
+    const users = loadJSON('users', []);
+    const normEmail = (email || '').trim().toLowerCase();
+    const t = teachers.find(x => (x.email || '').trim().toLowerCase() === normEmail);
+    const u = users.find(x => (x.email || '').trim().toLowerCase() === normEmail);
+
+    const isDeactivated = (t && t.status === 'inactive') || (u && u.status === 'inactive');
+    const isDeleted = (t && (t.status === 'deleted' || t.isDeleted)) || (u && (u.status === 'deleted' || u.isDeleted));
+    const isNotFound = (teachers.length > 0) && !t && !u;
+
+    if (isDeactivated || isDeleted || isNotFound) {
+        sessionStorage.removeItem('teacherUnlocked');
+        sessionStorage.removeItem('teacherEmail');
+        sessionStorage.removeItem('teacherName');
+        if (typeof logoutFirebaseUser === 'function') {
+            try { logoutFirebaseUser(); } catch (e) {}
+        }
+        const app = document.getElementById('app');
+        if (app) app.style.display = 'none';
+        const overlay = document.getElementById('teacherAuthOverlay');
+        if (overlay) overlay.style.display = 'flex';
+        const err = document.getElementById('teacherAuthError');
+        if (err) {
+            err.textContent = isDeactivated
+                ? 'Your teacher account has been deactivated by the school administrator.'
+                : 'Your teacher account has been deleted by the school administrator.';
+            err.style.display = 'block';
+        }
+        if (!silent && typeof showToast === 'function') {
+            showToast(isDeactivated ? 'Account deactivated by administrator' : 'Account deleted. Signed out.', 'error');
+        }
+        return false;
+    }
+    return true;
+}
+
 function teacherLogout() {
     sessionStorage.removeItem('teacherUnlocked');
     sessionStorage.removeItem('teacherEmail');
@@ -677,6 +718,8 @@ function teacherLogout() {
 
 async function openApp() {
     loadAll();
+    if (!validateCurrentTeacherSession(true)) return;
+
     // Show the app immediately with local data. Cloud sync keeps running in
     // the background instead of holding the sign-in screen hostage.
     document.getElementById('teacherAuthOverlay').style.display = 'none';
@@ -704,6 +747,7 @@ async function openApp() {
 
     const refreshFromSync = () => {
         loadAll();
+        if (!validateCurrentTeacherSession()) return;
         fillHeaderClasses();
         const sn = document.getElementById('schoolNameLabel');
         if (sn) sn.textContent = schoolName();
@@ -4382,6 +4426,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     const teacherEmail = sessionStorage.getItem('teacherEmail');
 
     if (isUnlocked && teacherEmail) {
+        if (!validateCurrentTeacherSession(true)) {
+            return;
+        }
         await openApp();
     } else {
         document.getElementById('app').style.display = 'none';
@@ -4400,8 +4447,14 @@ document.addEventListener('DOMContentLoaded', async () => {
                         try {
                             const p = await loadUserProfile(user.uid);
                             if (p?.displayName) sessionStorage.setItem('teacherName', p.displayName);
-                        } catch (e) {}
+                        } catch (e) {
+                            if (e.message && (e.message.includes('deactivated') || e.message.includes('deleted'))) {
+                                validateCurrentTeacherSession();
+                                return;
+                            }
+                        }
                     }
+                    if (!validateCurrentTeacherSession(true)) return;
                     if (document.getElementById('app').style.display !== 'block') {
                         await openApp();
                     }
@@ -4411,20 +4464,32 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 });
 
-window.addEventListener('storage', (e) => {
-    if (['reports', 'scores', 'results', 'students', 'classes', 'subjects', 'schoolSettings', 'schoolInfo'].includes(e.key)) {
-        loadAll();
-        if (typeof currentTab !== 'undefined') {
-            const isTyping = document.activeElement && ['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement.tagName);
-            if (currentTab === 'reports') renderReports();
-            else if (currentTab === 'scores') {
-                if (!isTyping) {
-                    renderScores();
-                    renderStats();
-                }
+function handleTeacherSyncUpdate() {
+    loadAll();
+    if (!validateCurrentTeacherSession()) return;
+    if (typeof currentTab !== 'undefined') {
+        const isTyping = document.activeElement && ['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement.tagName) && document.activeElement.closest('#tab-scores');
+        if (currentTab === 'reports') renderReports();
+        else if (currentTab === 'scores') {
+            if (!isTyping) {
+                renderScores();
+                renderStats();
             }
-            else if (currentTab === 'broadsheet') renderBroadsheet();
         }
+        else if (currentTab === 'broadsheet') renderBroadsheet();
+        else if (currentTab === 'students') renderStudents();
+        else if (currentTab === 'attendance' && typeof renderAttendance === 'function') renderAttendance();
+        else if (currentTab === 'analytics' && typeof renderAnalytics === 'function') renderAnalytics();
     }
+    fillHeaderClasses();
+    updateSidebarState();
+}
+
+window.addEventListener('storage', (e) => {
+    handleTeacherSyncUpdate();
+});
+
+window.addEventListener('onerealDataSynced', (e) => {
+    handleTeacherSyncUpdate();
 });
 

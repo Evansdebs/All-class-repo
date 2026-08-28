@@ -1037,7 +1037,7 @@ const ALL_SYNC_COLLECTIONS = [
     'results', 'reports', 'gradingScales', 'scores', 'schoolInfo',
     'schoolSettings', 'studentReportDetails', 'parentContacts',
     'attendanceMarks', 'attendanceSettings', 'timetables', 'examTimetables',
-    'auditLogs', 'schoolDepartments'
+    'auditLogs', 'schoolDepartments', 'users', 'alumni'
 ];
 
 // Cross-tab broadcast channel for instantaneous zero-latency synchronization across open tabs/portals
@@ -1063,12 +1063,12 @@ if (_syncBroadcastChannel) {
         const msg = event?.data;
         if (msg && msg.type === 'ONEREAL_SYNC' && msg.collection) {
             try {
-                const currentLocal = localStorage.getItem(msg.collection);
-                const newLocal = JSON.stringify(msg.data);
-                if (currentLocal !== newLocal) {
-                    localStorage.setItem(msg.collection, newLocal);
-                    notifySyncSubscribers(msg.collection, msg.data);
+                if (msg.data !== undefined) {
+                    try {
+                        localStorage.setItem(msg.collection, JSON.stringify(msg.data));
+                    } catch (err) {}
                 }
+                notifySyncSubscribers(msg.collection, msg.data);
             } catch (e) {}
         }
     };
