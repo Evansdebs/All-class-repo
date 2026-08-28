@@ -607,10 +607,50 @@ async function teacherLogin() {
     let ok = false;
     let authUser = null;
 
-    // 1. Try Firebase Authentication first if active
-    if (typeof isFirebaseActive !== 'undefined' && isFirebaseActive && typeof loginFirebaseUser === 'function') {
+    // 1. Check local cached accounts first for instant 0ms login
+    loadAll();
+    let teachers = loadJSON('teachers', []);
+    let users = loadJSON('users', []);
+    let t = teachers.find(x => (x.email || '').toLowerCase() === email.toLowerCase());
+    let u = users.find(x => (x.email || '').toLowerCase() === email.toLowerCase());
+
+    if (t?.status === 'inactive' || u?.status === 'inactive' || t?.status === 'deleted' || u?.status === 'deleted' || t?.isDeleted || u?.isDeleted) {
+        err.textContent = 'This account has been deactivated / deleted by the administrator.';
+        err.style.display = 'block';
+        setTeacherLoginLoading(false);
+        return;
+    }
+
+    let stored = u?.password || t?.password || '';
+    if (stored && password === stored) {
+        ok = true;
+    }
+
+    // 2. If not found locally, fast hydrate from REST sync (< 50ms) to immediately get accounts created on other devices
+    if (!ok && typeof hydrateSchoolFromServer === 'function') {
         try {
-            const creds = await withTimeout(loginFirebaseUser(email, password), 12000, 'Sign-in');
+            await hydrateSchoolFromServer();
+            loadAll();
+            teachers = loadJSON('teachers', []);
+            users = loadJSON('users', []);
+            t = teachers.find(x => (x.email || '').toLowerCase() === email.toLowerCase());
+            u = users.find(x => (x.email || '').toLowerCase() === email.toLowerCase());
+
+            if (t?.status === 'inactive' || u?.status === 'inactive' || t?.status === 'deleted' || u?.status === 'deleted' || t?.isDeleted || u?.isDeleted) {
+                err.textContent = 'This account has been deactivated / deleted by the administrator.';
+                err.style.display = 'block';
+                setTeacherLoginLoading(false);
+                return;
+            }
+            stored = u?.password || t?.password || '';
+            if (stored && password === stored) ok = true;
+        } catch (e) {}
+    }
+
+    // 3. If still not authenticated, try Firebase Authentication with quick 3s timeout
+    if (!ok && typeof isFirebaseActive !== 'undefined' && isFirebaseActive && typeof loginFirebaseUser === 'function') {
+        try {
+            const creds = await withTimeout(loginFirebaseUser(email, password), 3000, 'Sign-in');
             authUser = creds?.user || null;
             ok = true;
         } catch (e) {
@@ -624,28 +664,10 @@ async function teacherLogin() {
         }
     }
 
-    // 2. Fetch/Hydrate cloud & server data to ensure this device has latest accounts and records
+    // Background cloud sync pull (non-blocking if already logged in)
     if (typeof pullSchoolFromFirebase === 'function') {
-        try { await pullSchoolFromFirebase(); } catch (e) {}
+        pullSchoolFromFirebase().catch(() => {});
     }
-    try { await hydrateSchoolFromServer(); } catch (e) {}
-
-    // 3. Reload local data and verify teacher credentials
-    loadAll();
-    const teachers = loadJSON('teachers', []);
-    const users = loadJSON('users', []);
-    const t = teachers.find(x => (x.email || '').toLowerCase() === email.toLowerCase());
-    const u = users.find(x => (x.email || '').toLowerCase() === email.toLowerCase());
-
-    if (t?.status === 'inactive' || u?.status === 'inactive' || t?.status === 'deleted' || u?.status === 'deleted' || t?.isDeleted || u?.isDeleted) {
-        err.textContent = 'This account has been deactivated / deleted by the administrator.';
-        err.style.display = 'block';
-        setTeacherLoginLoading(false);
-        return;
-    }
-
-    const stored = u?.password || t?.password || '';
-    if (!ok && stored && password === stored) ok = true;
 
     if (!ok) {
         if (!t && !u && !authUser) {
@@ -1407,7 +1429,74 @@ function syncScoresToResults() {
                 };
 
                 if (existing) {
-                    // Also normalise the stored IDs so future lookups always work
+                    Object.assign(existing, entryData);
+                } else {
+                    entryData.id = 'res_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
+                    entryData.locked = false;
+                    results.push(entryData);
+                }
+            });
+        });
+
+        // Also scan the entire scores bag so any marks across any class/subject are synced to results
+        const allScoresBag = JSON.parse(localStorage.getItem('scores') || '{}');
+        const allStudents = JSON.parse(localStorage.getItem('students') || '[]');
+        Object.keys(allScoresBag).forEach(subKey => {
+            const subMap = allScoresBag[subKey] || {};
+            const subObj = subjectsList.find(s => s.name === subKey || String(s.id) === String(subKey) || s.code === subKey);
+            const subName = subObj?.name || subKey;
+            const subId = subObj?.id || subKey;
+            const subNameN = subName.toLowerCase().trim();
+            const subIdN = String(subId).toLowerCase().trim();
+
+            Object.keys(subMap).forEach(stuIdKey => {
+                const e = subMap[stuIdKey];
+                if (!e || (e.classScore === '' && e.examScore === '' && (e.totalScore == null || e.totalScore === ''))) return;
+
+                const stu = allStudents.find(s => String(s.id) === String(stuIdKey)) || { id: stuIdKey, name: 'Student ' + stuIdKey };
+                const stuClass = stu.classId || stu.class || '';
+                const classRecAll = classes.find(c => c.name === stuClass || String(c.id) === String(stuClass));
+                const classIdAll = classRecAll ? classRecAll.id : (stuClass || classId);
+                const classNameAll = classRecAll ? classRecAll.name : (stuClass || className);
+
+                const csVal = (e.classScore !== '' && e.classScore != null) ? Number(e.classScore) : '';
+                const esVal = (e.examScore !== '' && e.examScore != null) ? Number(e.examScore) : '';
+                const cs50 = csVal !== '' ? (e.classScore50 !== undefined && e.classScore50 !== '' ? Number(e.classScore50) : fifty(csVal)) : '';
+                const es50 = esVal !== '' ? (e.examScore50 !== undefined && e.examScore50 !== '' ? Number(e.examScore50) : fifty(esVal)) : '';
+                const totVal = (cs50 !== '' && es50 !== '') ? Math.round((Number(cs50) + Number(es50)) * 10) / 10 : (e.totalScore || '');
+                const g = totVal !== '' ? getGrade(totVal, classNameAll) : { grade: e.grade || '', remark: e.remark || '' };
+
+                const stuIdN = String(stu.id);
+                const existing = results.find(r =>
+                    String(r.studentId) === stuIdN &&
+                    (
+                        String(r.subjectName || '').toLowerCase().trim() === subNameN ||
+                        String(r.subjectId  || '').toLowerCase().trim() === subIdN ||
+                        String(r.subjectId  || '').toLowerCase().trim() === subNameN ||
+                        String(r.subjectName|| '').toLowerCase().trim() === subIdN
+                    )
+                );
+
+                const entryData = {
+                    studentId: stuIdN,
+                    studentName: stu.name,
+                    classId: classIdAll,
+                    subjectId: subId,
+                    subjectName: subName,
+                    classScore: csVal,
+                    examScore: esVal,
+                    classScore50: cs50,
+                    examScore50: es50,
+                    totalScore: totVal,
+                    grade: g.grade,
+                    remark: g.remark,
+                    status: existing?.status === 'Approved' ? 'Approved' : 'Submitted',
+                    academicYearId: activeYear?.id || schoolInfo.academicYear || '',
+                    termId: activeTerm?.id || schoolInfo.term || '',
+                    updatedAt: new Date().toISOString()
+                };
+
+                if (existing) {
                     Object.assign(existing, entryData);
                 } else {
                     entryData.id = 'res_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);

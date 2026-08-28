@@ -1465,9 +1465,6 @@ async function pullSchoolFromFirebase() {
     if (!isFirebaseConnected()) return false;
     const schoolId = schoolDocId();
 
-    // Fetch every collection in parallel. The old sequential loop made sign-in
-    // wait for ~28 network round trips one after another, which stalled the UI
-    // badly on slow or flaky connections.
     const jobs = [];
 
     SCHOOL_PAYLOAD_KEYS.forEach(key => {
@@ -1503,13 +1500,77 @@ async function pullSchoolFromFirebase() {
         return false;
     })().catch(() => false));
 
-    // Cap the whole sync so a dead or slow connection can never stall the UI.
+    // Cap cloud pull to 3s max so a slow Firebase query never stalls login/actions
     const results = await Promise.race([
         Promise.allSettled(jobs),
-        new Promise(resolve => setTimeout(() => resolve(null), 12000))
+        new Promise(resolve => setTimeout(() => resolve(null), 3000))
     ]);
     if (!results) return false;
     return results.some(r => r.status === 'fulfilled' && r.value === true);
+}
+
+// Hydrate from server endpoint fast and seamlessly
+async function hydrateSchoolFromServer() {
+    try {
+        const res = await fetch('/api/sync');
+        if (!res.ok) return false;
+        const dbData = await res.json();
+        if (!dbData || typeof dbData !== 'object') return false;
+
+        let changed = false;
+        const keys = [
+            'students', 'classes', 'subjects', 'teachers', 'users',
+            'academicYears', 'terms', 'results', 'reports', 'gradingScales',
+            'schoolSettings', 'schoolInfo', 'scores', 'studentReportDetails',
+            'parentContacts', 'attendanceMarks', 'attendanceSettings', 'alumni',
+            'timetables', 'examTimetables', 'auditLogs', 'schoolDepartments'
+        ];
+
+        keys.forEach(k => {
+            const remote = dbData[k];
+            if (remote === undefined || remote === null) return;
+            try {
+                const localRaw = localStorage.getItem(k);
+                const local = localRaw ? JSON.parse(localRaw) : null;
+                if (Array.isArray(remote) && !remote.length && Array.isArray(local) && local.length) return;
+
+                let mergedStr = '';
+                if (Array.isArray(remote) && Array.isArray(local) && local.length > 0) {
+                    const map = new Map();
+                    local.forEach(item => {
+                        if (item) {
+                            const id = String(item.id || item.uid || item.email || '');
+                            if (id) map.set(id, item);
+                        }
+                    });
+                    remote.forEach(item => {
+                        if (item) {
+                            const id = String(item.id || item.uid || item.email || '');
+                            if (id) {
+                                const existing = map.get(id);
+                                map.set(id, existing ? { ...existing, ...item } : item);
+                            } else {
+                                map.set('idx_' + Math.random(), item);
+                            }
+                        }
+                    });
+                    mergedStr = JSON.stringify(Array.from(map.values()));
+                } else if (typeof remote === 'object' && !Array.isArray(remote) && local && typeof local === 'object' && !Array.isArray(local)) {
+                    mergedStr = JSON.stringify({ ...local, ...remote });
+                } else {
+                    mergedStr = JSON.stringify(remote);
+                }
+
+                if (localRaw !== mergedStr) {
+                    localStorage.setItem(k, mergedStr);
+                    changed = true;
+                }
+            } catch (e) {}
+        });
+        return changed;
+    } catch (e) {
+        return false;
+    }
 }
 
 async function provisionAuthUser(email, password, displayName, role) {

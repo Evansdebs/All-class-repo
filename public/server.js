@@ -4,10 +4,18 @@ const http = require('http');
 const fs   = require('fs');
 const path = require('path');
 const os   = require('os');
-const { buildXlsx } = require('./xlsx-lite');
-const { renderOpenPage, objectsToRows } = require('./open-page');
 
-const PORT    = process.env.PORT || 3000;
+const xlsxModule = fs.existsSync(path.join(__dirname, 'xlsx-lite.js')) 
+    ? require('./xlsx-lite') 
+    : require('./public/xlsx-lite');
+const openPageModule = fs.existsSync(path.join(__dirname, 'open-page.js')) 
+    ? require('./open-page') 
+    : (fs.existsSync(path.join(__dirname, 'public', 'open-page.js')) ? require('./public/open-page') : { renderOpenPage: () => '', objectsToRows: () => [] });
+
+const { buildXlsx } = xlsxModule;
+const { renderOpenPage, objectsToRows } = openPageModule;
+
+const PORT    = 3000;
 const isServerless = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME || process.env.LAMBDA_TASK_ROOT);
 const DB_FILE = isServerless ? path.join(os.tmpdir(), 'database.json') : path.join(__dirname, 'database.json');
 const DL_DIR  = isServerless ? path.join(os.tmpdir(), 'user-downloads') : path.join(__dirname, 'user-downloads');
@@ -92,9 +100,11 @@ function initDb() {
     try {
         if (!fs.existsSync(DB_FILE)) {
             const bundledDbPath = path.join(__dirname, 'database.json');
-            if (fs.existsSync(bundledDbPath) && DB_FILE !== bundledDbPath) {
+            const publicDbPath = path.join(__dirname, 'public', 'database.json');
+            const srcDbPath = fs.existsSync(bundledDbPath) ? bundledDbPath : (fs.existsSync(publicDbPath) ? publicDbPath : null);
+            if (srcDbPath && DB_FILE !== srcDbPath) {
                 try {
-                    const content = fs.readFileSync(bundledDbPath, 'utf8');
+                    const content = fs.readFileSync(srcDbPath, 'utf8');
                     fs.writeFileSync(DB_FILE, content, 'utf8');
                     inMemoryDb = safeJsonParse(content, null);
                 } catch (e) {
@@ -340,6 +350,148 @@ function seedNewCollections(db) {
     if (changed) {
         writeDb(db);
     }
+}
+
+function mergeSyncData(db, payload) {
+    if (!payload || typeof payload !== 'object') return db;
+
+    // 1. Array collections with ID-based identity
+    const arrayCollections = [
+        'students', 'classes', 'subjects', 'academicYears', 'terms',
+        'reports', 'gradingScales', 'alumni', 'timetables', 'examTimetables',
+        'auditLogs', 'schoolDepartments'
+    ];
+
+    arrayCollections.forEach(col => {
+        if (Array.isArray(payload[col])) {
+            if (!Array.isArray(db[col])) db[col] = [];
+            const incoming = payload[col];
+            if (incoming.length === 0 && db[col].length > 0) {
+                return;
+            }
+            incoming.forEach(item => {
+                if (!item) return;
+                const itemId = String(item.id || item.uid || '');
+                if (!itemId) {
+                    db[col].push(item);
+                    return;
+                }
+                const idx = db[col].findIndex(x => String(x.id || x.uid || '') === itemId);
+                if (idx >= 0) {
+                    db[col][idx] = { ...db[col][idx], ...item };
+                } else {
+                    db[col].push(item);
+                }
+            });
+        }
+    });
+
+    // 2. Teachers / Users: Merge by ID and Email
+    ['teachers', 'users'].forEach(col => {
+        if (Array.isArray(payload[col])) {
+            if (!Array.isArray(db[col])) db[col] = [];
+            const incoming = payload[col];
+            if (incoming.length === 0 && db[col].length > 0) return;
+
+            incoming.forEach(item => {
+                if (!item) return;
+                const itemId = String(item.id || item.uid || '');
+                const itemEmail = String(item.email || '').toLowerCase().trim();
+
+                const idx = db[col].findIndex(x => {
+                    const xId = String(x.id || x.uid || '');
+                    const xEmail = String(x.email || '').toLowerCase().trim();
+                    return (itemId && xId && itemId === xId) || (itemEmail && xEmail && itemEmail === xEmail);
+                });
+
+                if (idx >= 0) {
+                    db[col][idx] = { ...db[col][idx], ...item };
+                } else {
+                    db[col].push(item);
+                }
+            });
+        }
+    });
+
+    // 3. Results collection: merge by ID or (studentId + subject)
+    if (Array.isArray(payload.results)) {
+        if (!Array.isArray(db.results)) db.results = [];
+        const incoming = payload.results;
+        if (incoming.length > 0 || db.results.length === 0) {
+            incoming.forEach(item => {
+                if (!item) return;
+                const itemId = String(item.id || '');
+                const stuId = String(item.studentId || '');
+                const subNorm = String(item.subjectName || item.subjectId || '').toLowerCase().trim();
+
+                const idx = db.results.findIndex(x => {
+                    if (itemId && String(x.id || '') === itemId) return true;
+                    if (stuId && String(x.studentId || '') === stuId) {
+                        const xSubNorm = String(x.subjectName || x.subjectId || '').toLowerCase().trim();
+                        if (xSubNorm && subNorm && xSubNorm === subNorm) return true;
+                    }
+                    return false;
+                });
+
+                if (idx >= 0) {
+                    const existing = db.results[idx];
+                    const isApproved = existing.status === 'Approved' || item.status === 'Approved';
+                    const hasScores = item.classScore !== undefined || item.examScore !== undefined || item.totalScore !== undefined;
+                    db.results[idx] = {
+                        ...existing,
+                        ...item,
+                        status: isApproved ? 'Approved' : (item.status || existing.status || 'Submitted'),
+                        locked: isApproved ? true : (item.locked ?? existing.locked ?? false),
+                        ...(hasScores ? {
+                            classScore: item.classScore ?? existing.classScore,
+                            examScore: item.examScore ?? existing.examScore,
+                            classScore50: item.classScore50 ?? existing.classScore50,
+                            examScore50: item.examScore50 ?? existing.examScore50,
+                            totalScore: item.totalScore ?? existing.totalScore,
+                            grade: item.grade || existing.grade,
+                            remark: item.remark || existing.remark
+                        } : {})
+                    };
+                } else {
+                    db.results.push(item);
+                }
+            });
+        }
+    }
+
+    // 4. Scores bag: deep merge [subject][studentId]
+    if (payload.scores && typeof payload.scores === 'object' && !Array.isArray(payload.scores)) {
+        if (!db.scores || typeof db.scores !== 'object' || Array.isArray(db.scores)) db.scores = {};
+        Object.keys(payload.scores).forEach(subKey => {
+            if (!db.scores[subKey]) db.scores[subKey] = {};
+            const stuMap = payload.scores[subKey];
+            if (stuMap && typeof stuMap === 'object' && !Array.isArray(stuMap)) {
+                Object.keys(stuMap).forEach(stuId => {
+                    const sObj = stuMap[stuId];
+                    if (sObj) {
+                        db.scores[subKey][stuId] = {
+                            ...(db.scores[subKey][stuId] || {}),
+                            ...sObj
+                        };
+                    }
+                });
+            }
+        });
+    }
+
+    // 5. Object settings & info collections: shallow merge
+    const objectCollections = [
+        'schoolSettings', 'schoolInfo', 'studentReportDetails',
+        'parentContacts', 'attendanceMarks', 'attendanceSettings'
+    ];
+    objectCollections.forEach(col => {
+        if (payload[col] && typeof payload[col] === 'object' && !Array.isArray(payload[col])) {
+            if (!db[col] || typeof db[col] !== 'object' || Array.isArray(db[col])) db[col] = {};
+            db[col] = { ...db[col], ...payload[col] };
+        }
+    });
+
+    return db;
 }
 
 function writeDb(data) {
@@ -771,7 +923,7 @@ async function requestHandler(req, res) {
             const db = readDb();
             sendJson(res, 200, {
                 status: 'online',
-                version: '2.0.0',
+                version: '2.2.0',
                 serverTime: new Date().toISOString(),
                 counts: {
                     students:      (db.students      || []).length,
@@ -794,17 +946,22 @@ async function requestHandler(req, res) {
             return;
         }
 
-        // ── Legacy /api/sync (teacher app) ───────────────────────────────────
-        if (pathname === '/api/sync' && method === 'POST') {
-            try {
-                const payload = await readBody(req);
-                const db = readDb();
-                const allowed = ['students','scores','schoolInfo','studentReportDetails','parentContacts','attendanceMarks','attendanceSettings','reports','classes','teachers','subjects','schoolSettings'];
-                allowed.forEach(k => { if (payload[k] !== undefined) db[k] = payload[k]; });
-                writeDb(db);
-                sendJson(res, 200, { success: true, timestamp: new Date().toISOString() });
-            } catch (e) { sendJson(res, 400, { error: e.message }); }
-            return;
+        // ── /api/sync (real-time multi-portal synchronization) ────────────────
+        if (pathname === '/api/sync') {
+            if (method === 'GET') {
+                sendJson(res, 200, readDb());
+                return;
+            }
+            if (method === 'POST') {
+                try {
+                    const payload = await readBody(req);
+                    let db = readDb();
+                    db = mergeSyncData(db, payload);
+                    writeDb(db);
+                    sendJson(res, 200, { success: true, timestamp: new Date().toISOString(), ...db });
+                } catch (e) { sendJson(res, 400, { error: e.message }); }
+                return;
+            }
         }
 
         // ── COLLECTIONS: students ────────────────────────────────────────────
@@ -1234,7 +1391,6 @@ async function requestHandler(req, res) {
         }
 
         // GET /api/export/attendance.csv
-        // GET /api/export/attendance.csv
         if ((pathname === '/api/export/attendance.csv' || pathname === '/api/export/attendance.xlsx') && method === 'GET') {
             const db = readDb();
             const marks = db.attendanceMarks || {};
@@ -1314,7 +1470,6 @@ async function requestHandler(req, res) {
             sendAttachment(res, rowsToCsv(rows), `${safeFilePart(cls || 'class')}_performance.csv`, 'text/csv; charset=UTF-8');
             return;
         }
-
 
         if ((pathname === '/api/export/student.xlsx' || pathname === '/api/export/student.csv') && method === 'GET') {
             const adm = parsedUrl.searchParams.get('admission') || parsedUrl.searchParams.get('id') || '';
@@ -1817,9 +1972,9 @@ async function requestHandler(req, res) {
             return;
         }
 
-        const examMatch = pathname.match(/^\/api\/timetables\/exams\/([^/]+)$/);
-        if (examMatch) {
-            const id = examMatch[1];
+        const examMatch = pathname.match(/^\/api\/timetables\/([^/]+)$/);
+        if (examMatch && pathname.startsWith('/api/timetables/exams/')) {
+            const id = pathname.replace('/api/timetables/exams/', '');
             if (method === 'GET') {
                 const db = readDb();
                 const item = (db.examTimetables || []).find(e => e.id === id);
@@ -2135,4 +2290,3 @@ if (require.main === module) {
 module.exports = requestHandler;
 module.exports.requestHandler = requestHandler;
 module.exports.server = server;
-
