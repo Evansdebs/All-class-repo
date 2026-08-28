@@ -1228,7 +1228,29 @@ function drawScoreSheet() {
                         </tr>`;
                     }).join('')}
                 </tbody>
-            </table></div>`;
+            </table></div>
+            ${!locked ? `
+            <div style="margin-top:18px;display:flex;align-items:center;justify-content:flex-end;gap:12px;padding:14px 0;border-top:1px solid var(--line,#e2e8f0);">
+                <div style="font-size:12px;color:var(--text-muted,#64748b);">
+                    <i class="fas fa-info-circle"></i>
+                    Marks are autosaved. Click <strong>Submit for Approval</strong> when you are done to send them to the Admin portal for review.
+                </div>
+                <button id="submitForApprovalBtn" type="button" onclick="submitSubjectForApproval()" style="
+                    background:linear-gradient(135deg,#6366f1,#8b5cf6);
+                    color:#fff;border:none;border-radius:10px;padding:11px 24px;
+                    font-size:14px;font-weight:700;cursor:pointer;
+                    display:flex;align-items:center;gap:8px;
+                    box-shadow:0 4px 14px rgba(99,102,241,0.35);
+                    transition:all 0.2s;white-space:nowrap;
+                " onmouseover="this.style.transform='translateY(-1px)';this.style.boxShadow='0 6px 20px rgba(99,102,241,0.45)'" onmouseout="this.style.transform='';this.style.boxShadow='0 4px 14px rgba(99,102,241,0.35)'">
+                    <i class="fas fa-paper-plane"></i>
+                    Submit for Approval
+                </button>
+            </div>` : `
+            <div style="margin-top:14px;display:flex;align-items:center;gap:8px;color:#92400e;font-size:13px;padding:10px 14px;background:#fffbeb;border-radius:8px;border:1px solid #fde68a;">
+                <i class="fas fa-check-circle" style="color:#d97706;"></i>
+                <span>Results for <strong>${esc(currentSubject)}</strong> have been submitted and locked by Admin. Contact the administrator to make further edits.</span>
+            </div>`}`;
     } else {
         wrap.innerHTML = `
             ${lockBanner}
@@ -1268,7 +1290,126 @@ function drawScoreSheet() {
                         </tr>`;
                     }).join('')}
                 </tbody>
-            </table></div>`;
+            </table></div>
+            ${!locked ? `
+            <div style="margin-top:18px;display:flex;align-items:center;justify-content:flex-end;gap:12px;padding:14px 0;border-top:1px solid var(--line,#e2e8f0);">
+                <div style="font-size:12px;color:var(--text-muted,#64748b);">
+                    <i class="fas fa-info-circle"></i>
+                    Marks are autosaved. Click <strong>Submit for Approval</strong> when you are done to send them to the Admin portal for review.
+                </div>
+                <button id="submitForApprovalBtn" type="button" onclick="submitSubjectForApproval()" style="
+                    background:linear-gradient(135deg,#6366f1,#8b5cf6);
+                    color:#fff;border:none;border-radius:10px;padding:11px 24px;
+                    font-size:14px;font-weight:700;cursor:pointer;
+                    display:flex;align-items:center;gap:8px;
+                    box-shadow:0 4px 14px rgba(99,102,241,0.35);
+                    transition:all 0.2s;white-space:nowrap;
+                " onmouseover="this.style.transform='translateY(-1px)';this.style.boxShadow='0 6px 20px rgba(99,102,241,0.45)'" onmouseout="this.style.transform='';this.style.boxShadow='0 4px 14px rgba(99,102,241,0.35)'">
+                    <i class="fas fa-paper-plane"></i>
+                    Submit for Approval
+                </button>
+            </div>` : `
+            <div style="margin-top:14px;display:flex;align-items:center;gap:8px;color:#92400e;font-size:13px;padding:10px 14px;background:#fffbeb;border-radius:8px;border:1px solid #fde68a;">
+                <i class="fas fa-check-circle" style="color:#d97706;"></i>
+                <span>Results for <strong>${esc(currentSubject)}</strong> have been submitted and locked by Admin. Contact the administrator to make further edits.</span>
+            </div>`}`;
+    }
+}
+
+// Submit all marks for currentSubject to admin portal for approval
+async function submitSubjectForApproval() {
+    const btn = document.getElementById('submitForApprovalBtn');
+    const studs = classStudents();
+    const sub = currentSubject;
+
+    if (!sub) { toast('Please select a subject first.', 'bad'); return; }
+    if (!studs || studs.length === 0) { toast('No students found in this class.', 'bad'); return; }
+
+    // Check at least one score has been entered
+    const hasAnyScore = studs.some(s => {
+        const e = getScoreEntry(sub, s.id);
+        return (e.classScore !== '' && e.classScore != null) || (e.examScore !== '' && e.examScore != null);
+    });
+    if (!hasAnyScore) {
+        toast(`No marks entered yet for ${sub}. Please enter marks before submitting.`, 'bad');
+        return;
+    }
+
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Submitting…';
+    }
+
+    try {
+        // Step 1: Flush all in-memory scores to localStorage first
+        persistScores();
+
+        // Step 2: Sync the scores bag to results (sets status = 'Submitted' for unreviewed entries)
+        syncScoresToResults();
+
+        // Step 3: Mark results for this subject as explicitly 'Submitted' in localStorage
+        let results = [];
+        try { results = JSON.parse(localStorage.getItem('results') || '[]'); } catch(e) {}
+        let updatedCount = 0;
+        results.forEach(r => {
+            const subNameN = String(sub).toLowerCase().trim();
+            const matches =
+                String(r.subjectName || '').toLowerCase().trim() === subNameN ||
+                String(r.subjectId   || '').toLowerCase().trim() === subNameN;
+            const classMatch =
+                !r.classId ||
+                String(r.classId) === String(currentClass) ||
+                String(r.classId).toLowerCase() === String(currentClass).toLowerCase();
+            if (matches && classMatch && r.status !== 'Approved') {
+                r.status = 'Submitted';
+                r.submittedAt = new Date().toISOString();
+                r.submittedBy = sessionStorage.getItem('teacherName') || sessionStorage.getItem('teacherEmail') || 'Teacher';
+                updatedCount++;
+            }
+        });
+        localStorage.setItem('results', JSON.stringify(results));
+
+        // Step 4: Push to Firestore via syncSaveCollection
+        if (typeof syncSaveCollection === 'function') {
+            await syncSaveCollection('results', results).catch(() => {});
+        }
+
+        // Step 5: Also bridge via syncScoresMapToResults for the 3-level scores map
+        if (typeof syncScoresMapToResults === 'function') {
+            const allScores = JSON.parse(localStorage.getItem('scores') || '{}');
+            const years = JSON.parse(localStorage.getItem('academicYears') || '[]');
+            const terms = JSON.parse(localStorage.getItem('terms') || '[]');
+            const activeYear = (years.find(y => y.isActive) || {}).id || schoolInfo.academicYear || '';
+            const activeTerm = (terms.find(t => t.isActive) || {}).id || schoolInfo.term || '';
+            await syncScoresMapToResults(allScores, activeYear, activeTerm).catch(() => {});
+        }
+
+        // Step 6: Broadcast update to admin portal via BroadcastChannel / storage event
+        try {
+            if (typeof broadcastSchoolSync === 'function') {
+                broadcastSchoolSync('results', results);
+            } else {
+                // Manual broadcast fallback
+                window.dispatchEvent(new CustomEvent('onereal_data_updated', { detail: { collection: 'results' } }));
+                localStorage.setItem('_sync_ping', Date.now().toString());
+                localStorage.removeItem('_sync_ping');
+            }
+        } catch(e) {}
+
+        const countMsg = updatedCount > 0 ? ` (${updatedCount} student${updatedCount !== 1 ? 's' : ''})` : '';
+        toast(`✅ ${sub} marks submitted to Admin for approval${countMsg}!`, 'good');
+        setAutosaveStatus('Submitted for approval ✓', '#6366f1', 'fa-paper-plane');
+
+        // Brief delay then re-render to show updated submission state
+        setTimeout(() => renderScores(), 1800);
+
+    } catch(err) {
+        console.warn('submitSubjectForApproval error:', err);
+        toast('Submission failed. Please try again.', 'bad');
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-paper-plane"></i> Submit for Approval';
+        }
     }
 }
 
