@@ -685,22 +685,50 @@ async function openApp() {
     document.getElementById('schoolNameLabel').textContent = schoolName();
     document.getElementById('termLabel').textContent = (schoolInfo.academicYear || '') + ' · ' + termHeading();
     fillHeaderClasses();
-    const saved = sessionStorage.getItem('teacherClass');
+    
+    // Check saved state from sessionStorage or hash to restore exact location upon page refresh
+    const savedClass = sessionStorage.getItem('teacherClass');
+    const savedTab   = sessionStorage.getItem('teacherTab') || 'students';
+    const savedSub   = sessionStorage.getItem('teacherSubject') || '';
+    if (savedSub) currentSubject = savedSub;
+
     const allowed = teacherAllowedClasses();
-    if (saved && allowed.includes(saved)) enterClass(saved);
-    else showHub();
+    if (savedClass && allowed.includes(savedClass)) {
+        enterClass(savedClass, savedTab);
+    } else if (allowed.length === 1) {
+        enterClass(allowed[0], savedTab);
+    } else {
+        showHub();
+    }
     setTeacherLoginLoading(false);
 
     const refreshFromSync = () => {
         loadAll();
         fillHeaderClasses();
-        document.getElementById('schoolNameLabel').textContent = schoolName();
-        document.getElementById('termLabel').textContent = (schoolInfo.academicYear || '') + ' · ' + termHeading();
+        const sn = document.getElementById('schoolNameLabel');
+        if (sn) sn.textContent = schoolName();
+        const tl = document.getElementById('termLabel');
+        if (tl) tl.textContent = (schoolInfo.academicYear || '') + ' · ' + termHeading();
         updateSidebarState();
-        if (currentSubject && !classSubjects().includes(currentSubject)) currentSubject = '';
-        if (currentClass) openTab(currentTab);
-        else renderHub();
+        if (currentSubject && !classSubjects().includes(currentSubject)) {
+            const subs = classSubjects();
+            currentSubject = subs[0] || '';
+        }
+        if (currentClass) {
+            const activeEl = document.activeElement;
+            const isEditing = activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || activeEl.tagName === 'SELECT') && activeEl.closest('#tab-scores');
+            if (!isEditing) openTab(currentTab);
+        } else {
+            renderHub();
+        }
     };
+
+    // Register real-time sync subscriber for 0ms cross-portal and cross-tab updates
+    if (typeof registerSyncSubscriber === 'function') {
+        registerSyncSubscriber(function (col, data) {
+            refreshFromSync();
+        });
+    }
 
     // Cloud (Firebase) and local-server sync run in the background.
     const syncJobs = [];
@@ -712,15 +740,11 @@ async function openApp() {
         if (results.some(Boolean)) refreshFromSync();
     }).catch(() => {});
 
+    if (typeof setupRealtimeListeners === 'function') {
+        try { setupRealtimeListeners(refreshFromSync); } catch (e) {}
+    }
     if (typeof startSchoolRealtime === 'function') {
-        startSchoolRealtime(function () {
-            loadAll();
-            fillHeaderClasses();
-            updateSidebarState();
-            if (currentSubject && !classSubjects().includes(currentSubject)) currentSubject = '';
-            if (currentClass) openTab(currentTab);
-            else renderHub();
-        });
+        startSchoolRealtime(refreshFromSync);
     }
     if (typeof Attendance !== 'undefined' && Attendance.hydrateFromServer) Attendance.hydrateFromServer().catch(() => {});
 }
@@ -838,6 +862,7 @@ function openTab(tab) {
         return;
     }
     currentTab = tab;
+    sessionStorage.setItem('teacherTab', tab);
     document.querySelectorAll('.nav-pill, .side-link[data-tab]').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
     document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
     const panel = document.getElementById('tab-' + tab);
@@ -975,9 +1000,16 @@ function isSubjectLocked(subjectName) {
 
 function renderScores() {
     const subs = classSubjects();
-    if (subs.length && (!currentSubject || !subs.includes(currentSubject))) {
-        currentSubject = subs[0];
-    } else if (!subs.length) {
+    const savedSub = sessionStorage.getItem('teacherSubject');
+    if (subs.length) {
+        if (currentSubject && subs.includes(currentSubject)) {
+            // Keep currentSubject
+        } else if (savedSub && subs.includes(savedSub)) {
+            currentSubject = savedSub;
+        } else {
+            currentSubject = subs[0];
+        }
+    } else {
         currentSubject = '';
     }
 
@@ -1044,6 +1076,7 @@ function togglePiecewiseMode(on) {
 
 function openSubject(sub) {
     currentSubject = sub;
+    sessionStorage.setItem('teacherSubject', sub);
     renderScores();
 }
 

@@ -76,6 +76,17 @@ document.addEventListener('DOMContentLoaded', async () => {
             sessionStorage.removeItem('studentAuthId');
         });
     }
+
+    if (typeof registerSyncSubscriber === 'function') {
+        registerSyncSubscriber((col, data) => {
+            syncStudentPortalBranding();
+            if (activeStudentData) {
+                renderStudentResults(activeStudentData);
+                if (activeStudentTab === 'timetable') renderStudentTimetable(activeStudentData);
+                else if (activeStudentTab === 'exams') renderStudentExams(activeStudentData);
+            }
+        });
+    }
 });
 
 window.addEventListener('storage', (e) => {
@@ -190,6 +201,10 @@ async function loadStudentDashboard(admissionNo) {
 
     // Fetch Results for Student
     await renderStudentResults(student);
+
+    // Restore saved active tab on refresh if present
+    const savedTab = sessionStorage.getItem('studentTab') || 'report';
+    if (savedTab) switchStudentTab(savedTab);
 
     // Setup Realtime Updates for Student Portal
     setupStudentRealtimeListener(student);
@@ -686,6 +701,7 @@ let activeStudentTab = 'report';
 
 function switchStudentTab(tab) {
     activeStudentTab = tab;
+    sessionStorage.setItem('studentTab', tab);
     
     // Update button states
     ['report', 'timetable', 'exams'].forEach(t => {

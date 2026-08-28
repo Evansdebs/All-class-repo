@@ -378,8 +378,30 @@ async function initAdminApp() {
         try { await Attendance.hydrateFromServer(); } catch (e) {}
     }
     await loadAllData();
-    loadDashboard();
     renderFieldToggles();
+
+    // Determine target section to restore exact page after refresh
+    let targetSection = 'dashboard';
+    if (window.location.hash) {
+        const hashSec = window.location.hash.replace('#', '').trim();
+        if (hashSec && document.getElementById(`section-${hashSec}`)) {
+            targetSection = hashSec;
+        }
+    }
+    if (targetSection === 'dashboard') {
+        const savedSec = sessionStorage.getItem('adminActiveSection');
+        if (savedSec && document.getElementById(`section-${savedSec}`)) {
+            targetSection = savedSec;
+        }
+    }
+    switchSection(targetSection);
+
+    // Register instant cross-tab & cloud sync subscriber
+    if (typeof registerSyncSubscriber === 'function') {
+        registerSyncSubscriber((col, data) => {
+            loadAllData({ refreshForms: false });
+        });
+    }
 
     // Real-time listeners for key collections
     if (isFirebaseActive && typeof setupAdminRealtimeListeners === 'function') {
@@ -390,14 +412,6 @@ async function initAdminApp() {
             if (name === 'results')   { adminState.results   = data; renderResultsTable(); updateNavBadges(); }
             if (name === 'auditLogs') { adminState.auditLogs = data; renderAuditLogs(); }
         });
-    }
-
-    // Support URL hash routing (e.g. #timetables, #attendance)
-    if (window.location.hash) {
-        const targetSection = window.location.hash.replace('#', '').trim();
-        if (targetSection && document.getElementById(`section-${targetSection}`)) {
-            switchSection(targetSection);
-        }
     }
 
     // Poll data in the background, but do not rebuild open form checkboxes
@@ -572,6 +586,12 @@ function switchSection(sectionId) {
 
     if (navEl)  navEl.classList.add('active');
     if (sectEl) sectEl.classList.add('active');
+
+    // Save active section for state persistence on refresh
+    sessionStorage.setItem('adminActiveSection', sectionId);
+    if (window.location.hash !== '#' + sectionId) {
+        try { history.replaceState(null, '', '#' + sectionId); } catch (e) {}
+    }
 
     // Update breadcrumb
     const labels = {
@@ -1402,6 +1422,56 @@ function openTeacherModal(id = null) {
     modal.style.display = 'flex';
 }
 
+function findSubjectTeacherConflicts(targetTeacherId, candidateClasses, candidateSubjects) {
+    const conflicts = [];
+    const activeTeachers = (adminState.teachers || []).filter(t => 
+        String(t.id) !== String(targetTeacherId) && 
+        String(t.userId || '') !== String(targetTeacherId) && 
+        t.status !== 'inactive' && t.status !== 'deleted' && !t.isDeleted
+    );
+
+    const norm = (v) => String(v || '').trim().toLowerCase();
+
+    candidateClasses.forEach(classId => {
+        const clsObj = (adminState.classes || []).find(c => String(c.id) === String(classId) || norm(c.name) === norm(classId));
+        const className = clsObj ? clsObj.name : classId;
+        const cId = clsObj ? clsObj.id : classId;
+
+        candidateSubjects.forEach(subId => {
+            const subObj = (adminState.subjects || []).find(s => String(s.id) === String(subId) || norm(s.name) === norm(subId));
+            const subjectName = subObj ? subObj.name : subId;
+            const sId = subObj ? subObj.id : subId;
+
+            activeTeachers.forEach(otherT => {
+                const otherClasses = Array.isArray(otherT.assignedClasses) ? otherT.assignedClasses : [];
+                const otherSubjects = Array.isArray(otherT.assignedSubjects) ? otherT.assignedSubjects : [];
+
+                const teachesClass = otherClasses.some(c => 
+                    norm(c) === norm(className) || norm(c) === norm(cId) || 
+                    (otherT.classTeacherOf && (norm(otherT.classTeacherOf) === norm(className) || norm(otherT.classTeacherOf) === norm(cId)))
+                );
+
+                const teachesSubject = otherSubjects.some(s => 
+                    norm(s) === norm(subjectName) || norm(s) === norm(sId)
+                );
+
+                if (teachesClass && teachesSubject) {
+                    conflicts.push({
+                        otherTeacherId: otherT.id,
+                        otherTeacherName: otherT.name || otherT.email || 'Another Teacher',
+                        className,
+                        classId: cId,
+                        subjectName,
+                        subjectId: sId
+                    });
+                }
+            });
+        });
+    });
+
+    return conflicts;
+}
+
 async function saveTeacher() {
     const id       = document.getElementById('tm-id')?.value || null;
     const name     = document.getElementById('tm-name')?.value?.trim() || '';
@@ -1425,6 +1495,39 @@ async function saveTeacher() {
     // If a primary class was selected as Class Teacher, make sure it is in assignedClasses
     if (primaryClassId && !assignedClasses.includes(primaryClassId)) {
         assignedClasses.push(primaryClassId);
+    }
+
+    // ── Rule: Two or more teachers cannot be assigned to a subject for the same class ──
+    if (status === 'active' && assignedClasses.length > 0 && assignedSubjects.length > 0) {
+        const conflicts = findSubjectTeacherConflicts(effectiveId, assignedClasses, assignedSubjects);
+        if (conflicts.length > 0) {
+            const conflictDetails = conflicts.map(c => `• ${c.otherTeacherName} is currently assigned to teach ${c.subjectName} in ${c.className}`).join('\n');
+            const shouldReassign = await new Promise(resolve => {
+                showConfirm(
+                    `Subject Assignment Conflict:\n\nTwo or more teachers cannot be assigned to the same subject for the same class.\n\n${conflictDetails}\n\nWould you like to transfer the assignment of these subject(s) to ${name} and unassign the previous teacher(s)?`,
+                    () => resolve(true),
+                    () => resolve(false),
+                    'Subject Assignment Conflict'
+                );
+            });
+
+            if (!shouldReassign) {
+                showToast('Save cancelled to prevent duplicate teacher subject assignment.', 'warning');
+                return;
+            }
+
+            // Remove conflicting subject assignment from the other teacher(s)
+            const norm = (v) => String(v || '').trim().toLowerCase();
+            conflicts.forEach(c => {
+                const otherT = adminState.teachers.find(t => String(t.id) === String(c.otherTeacherId));
+                if (otherT && Array.isArray(otherT.assignedSubjects)) {
+                    otherT.assignedSubjects = otherT.assignedSubjects.filter(s => 
+                        norm(s) !== norm(c.subjectId) && norm(s) !== norm(c.subjectName)
+                    );
+                }
+            });
+            localStorage.setItem('teachers', JSON.stringify(adminState.teachers));
+        }
     }
 
     const teacherData = {
@@ -5421,17 +5524,41 @@ function closeModal(id, event) {
     if (modal) modal.style.display = 'none';
 }
 
-function showConfirm(message, onConfirm, title = 'Confirm Action') {
-    document.getElementById('confirmModalTitle').textContent   = title;
-    document.getElementById('confirmModalMessage').textContent = message;
+let _currentConfirmCancel = null;
+function showConfirm(message, onConfirm, onCancelOrTitle = null, title = 'Confirm Action') {
+    let onCancel = null;
+    let finalTitle = title;
+    if (typeof onCancelOrTitle === 'function') {
+        onCancel = onCancelOrTitle;
+    } else if (typeof onCancelOrTitle === 'string') {
+        finalTitle = onCancelOrTitle;
+    }
+    _currentConfirmCancel = onCancel;
+    const titleEl = document.getElementById('confirmModalTitle');
+    const msgEl = document.getElementById('confirmModalMessage');
+    if (titleEl) titleEl.textContent = finalTitle;
+    if (msgEl) msgEl.innerHTML = escHtml(message).replace(/\n/g, '<br>');
     const actionBtn = document.getElementById('confirmModalAction');
-    actionBtn.onclick = () => { closeConfirmModal(); onConfirm(); };
-    document.getElementById('confirmModal').style.display = 'flex';
+    if (actionBtn) {
+        actionBtn.onclick = () => {
+            _currentConfirmCancel = null;
+            closeConfirmModal();
+            if (typeof onConfirm === 'function') onConfirm();
+        };
+    }
+    const modal = document.getElementById('confirmModal');
+    if (modal) modal.style.display = 'flex';
 }
 
 function closeConfirmModal(event) {
     if (event && event.target !== event.currentTarget) return;
-    document.getElementById('confirmModal').style.display = 'none';
+    const modal = document.getElementById('confirmModal');
+    if (modal) modal.style.display = 'none';
+    if (typeof _currentConfirmCancel === 'function') {
+        const cb = _currentConfirmCancel;
+        _currentConfirmCancel = null;
+        cb();
+    }
 }
 
 
