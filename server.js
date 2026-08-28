@@ -4,10 +4,18 @@ const http = require('http');
 const fs   = require('fs');
 const path = require('path');
 const os   = require('os');
-const { buildXlsx } = require('./xlsx-lite');
-const { renderOpenPage, objectsToRows } = require('./open-page');
 
-const PORT    = process.env.PORT || 3000;
+const xlsxModule = fs.existsSync(path.join(__dirname, 'xlsx-lite.js')) 
+    ? require('./xlsx-lite') 
+    : require('./public/xlsx-lite');
+const openPageModule = fs.existsSync(path.join(__dirname, 'open-page.js')) 
+    ? require('./open-page') 
+    : (fs.existsSync(path.join(__dirname, 'public', 'open-page.js')) ? require('./public/open-page') : { renderOpenPage: () => '', objectsToRows: () => [] });
+
+const { buildXlsx } = xlsxModule;
+const { renderOpenPage, objectsToRows } = openPageModule;
+
+const PORT    = 3000;
 const isServerless = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME || process.env.LAMBDA_TASK_ROOT);
 const DB_FILE = isServerless ? path.join(os.tmpdir(), 'database.json') : path.join(__dirname, 'database.json');
 const DL_DIR  = isServerless ? path.join(os.tmpdir(), 'user-downloads') : path.join(__dirname, 'user-downloads');
@@ -92,9 +100,11 @@ function initDb() {
     try {
         if (!fs.existsSync(DB_FILE)) {
             const bundledDbPath = path.join(__dirname, 'database.json');
-            if (fs.existsSync(bundledDbPath) && DB_FILE !== bundledDbPath) {
+            const publicDbPath = path.join(__dirname, 'public', 'database.json');
+            const srcDbPath = fs.existsSync(bundledDbPath) ? bundledDbPath : (fs.existsSync(publicDbPath) ? publicDbPath : null);
+            if (srcDbPath && DB_FILE !== srcDbPath) {
                 try {
-                    const content = fs.readFileSync(bundledDbPath, 'utf8');
+                    const content = fs.readFileSync(srcDbPath, 'utf8');
                     fs.writeFileSync(DB_FILE, content, 'utf8');
                     inMemoryDb = safeJsonParse(content, null);
                 } catch (e) {
@@ -771,7 +781,7 @@ async function requestHandler(req, res) {
             const db = readDb();
             sendJson(res, 200, {
                 status: 'online',
-                version: '2.0.0',
+                version: '2.2.0',
                 serverTime: new Date().toISOString(),
                 counts: {
                     students:      (db.students      || []).length,
@@ -1234,7 +1244,6 @@ async function requestHandler(req, res) {
         }
 
         // GET /api/export/attendance.csv
-        // GET /api/export/attendance.csv
         if ((pathname === '/api/export/attendance.csv' || pathname === '/api/export/attendance.xlsx') && method === 'GET') {
             const db = readDb();
             const marks = db.attendanceMarks || {};
@@ -1314,7 +1323,6 @@ async function requestHandler(req, res) {
             sendAttachment(res, rowsToCsv(rows), `${safeFilePart(cls || 'class')}_performance.csv`, 'text/csv; charset=UTF-8');
             return;
         }
-
 
         if ((pathname === '/api/export/student.xlsx' || pathname === '/api/export/student.csv') && method === 'GET') {
             const adm = parsedUrl.searchParams.get('admission') || parsedUrl.searchParams.get('id') || '';
@@ -1817,9 +1825,9 @@ async function requestHandler(req, res) {
             return;
         }
 
-        const examMatch = pathname.match(/^\/api\/timetables\/exams\/([^/]+)$/);
-        if (examMatch) {
-            const id = examMatch[1];
+        const examMatch = pathname.match(/^\/api\/timetables\/([^/]+)$/);
+        if (examMatch && pathname.startsWith('/api/timetables/exams/')) {
+            const id = pathname.replace('/api/timetables/exams/', '');
             if (method === 'GET') {
                 const db = readDb();
                 const item = (db.examTimetables || []).find(e => e.id === id);
@@ -2135,4 +2143,3 @@ if (require.main === module) {
 module.exports = requestHandler;
 module.exports.requestHandler = requestHandler;
 module.exports.server = server;
-

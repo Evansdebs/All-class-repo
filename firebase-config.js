@@ -99,8 +99,8 @@ function initFirebase(config = getStoredFirebaseConfig()) {
         if (firebase.storage) storage = firebase.storage();
 
         try {
-            // Sessions must not survive a page refresh — access is strictly by login.
-            auth.setPersistence(firebase.auth.Auth.Persistence.NONE).catch(() => {});
+            // Sessions persist across page navigations and refreshes on the device.
+            auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(() => {});
         } catch (e) {}
 
         try {
@@ -222,7 +222,7 @@ function getAssignedSubjects() {
 
 async function loginFirebaseUser(email, password) {
     if (!auth) throw new Error('Firebase Auth not initialized.');
-    try { await auth.setPersistence(firebase.auth.Auth.Persistence.NONE); } catch (e) {}
+    try { await auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL); } catch (e) {}
     const creds = await auth.signInWithEmailAndPassword(email, password);
     const profile = await loadUserProfile(creds.user.uid);
     if (profile?.status === 'inactive' || profile?.status === 'deleted' || profile?.isDeleted) {
@@ -242,21 +242,26 @@ async function registerFirebaseUser(email, password, displayName, role = 'Teache
     try {
         const creds = await secondary.auth().createUserWithEmailAndPassword(email, password);
 
-        // Create staff profile in Firestore teachers collection with all provided fields
+        const profileData = {
+            id: creds.user.uid,
+            uid: creds.user.uid,
+            email,
+            name: displayName || email,
+            displayName: displayName || email,
+            role,
+            assignedClasses: extraData.assignedClasses || [],
+            assignedSubjects: extraData.assignedSubjects || [],
+            phone: extraData.phone || '',
+            status: extraData.status || 'active',
+            createdAt: firebase.firestore.FieldValue.serverTimestamp()
+        };
+
+        // Create staff profile in both teachers and users collections in Firestore
         if (db) {
-            await db.collection('teachers').doc(creds.user.uid).set({
-                id: creds.user.uid,
-                uid: creds.user.uid,
-                email,
-                name: displayName || email,
-                displayName: displayName || email,
-                role,
-                assignedClasses: extraData.assignedClasses || [],
-                assignedSubjects: extraData.assignedSubjects || [],
-                phone: extraData.phone || '',
-                status: extraData.status || 'active',
-                createdAt: firebase.firestore.FieldValue.serverTimestamp()
-            }, { merge: true });
+            await Promise.all([
+                db.collection('teachers').doc(creds.user.uid).set(profileData, { merge: true }),
+                db.collection('users').doc(creds.user.uid).set(profileData, { merge: true })
+            ]).catch(err => console.warn('Firestore profile creation notice:', err));
         }
 
         await logActivity('Staff Registration', `Created staff account ${email} with role ${role}`);
@@ -1324,7 +1329,7 @@ const SCHOOL_PAYLOAD_KEYS = [
 ];
 
 function schoolDocId() {
-    return localStorage.getItem('schoolId') || 'living_spring';
+    return localStorage.getItem('schoolId') || 'default_school';
 }
 
 function isFirebaseConnected() {
@@ -1428,7 +1433,7 @@ async function provisionAuthUser(email, password, displayName, role) {
     const secondary = firebase.initializeApp(getStoredFirebaseConfig(), 'provision_' + Date.now());
     try {
         const creds = await secondary.auth().createUserWithEmailAndPassword(email, password);
-        await db.collection('teachers').doc(creds.user.uid).set({
+        const userData = {
             id: creds.user.uid,
             uid: creds.user.uid,
             email,
@@ -1439,7 +1444,11 @@ async function provisionAuthUser(email, password, displayName, role) {
             assignedSubjects: [],
             status: 'active',
             createdAt: firebase.firestore.FieldValue.serverTimestamp()
-        }, { merge: true });
+        };
+        await Promise.all([
+            db.collection('teachers').doc(creds.user.uid).set(userData, { merge: true }),
+            db.collection('users').doc(creds.user.uid).set(userData, { merge: true })
+        ]);
         await secondary.auth().signOut();
         return creds.user.uid;
     } finally {

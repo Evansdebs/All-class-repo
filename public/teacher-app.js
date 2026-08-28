@@ -604,17 +604,39 @@ async function teacherLogin() {
     if (typeof initFirebase === 'function') initFirebase();
     setTeacherLoginLoading(true);
 
-    // Strict access: only accounts created by the administrator can log in.
+    let ok = false;
+    let authUser = null;
+
+    // 1. Try Firebase Authentication first if active
+    if (typeof isFirebaseActive !== 'undefined' && isFirebaseActive && typeof loginFirebaseUser === 'function') {
+        try {
+            const creds = await withTimeout(loginFirebaseUser(email, password), 12000, 'Sign-in');
+            authUser = creds?.user || null;
+            ok = true;
+        } catch (e) {
+            console.warn('Firebase login attempt notice:', e.message);
+            if (e.message && (e.message.includes('deactivated') || e.message.includes('deleted'))) {
+                err.textContent = e.message;
+                err.style.display = 'block';
+                setTeacherLoginLoading(false);
+                return;
+            }
+        }
+    }
+
+    // 2. Fetch/Hydrate cloud & server data to ensure this device has latest accounts and records
+    if (typeof pullSchoolFromFirebase === 'function') {
+        try { await pullSchoolFromFirebase(); } catch (e) {}
+    }
+    try { await hydrateSchoolFromServer(); } catch (e) {}
+
+    // 3. Reload local data and verify teacher credentials
+    loadAll();
     const teachers = loadJSON('teachers', []);
     const users = loadJSON('users', []);
     const t = teachers.find(x => (x.email || '').toLowerCase() === email.toLowerCase());
     const u = users.find(x => (x.email || '').toLowerCase() === email.toLowerCase());
-    if (!t && !u) {
-        err.textContent = 'No account found for this email. Accounts are created by the school administrator.';
-        err.style.display = 'block';
-        setTeacherLoginLoading(false);
-        return;
-    }
+
     if (t?.status === 'inactive' || u?.status === 'inactive' || t?.status === 'deleted' || u?.status === 'deleted' || t?.isDeleted || u?.isDeleted) {
         err.textContent = 'This account has been deactivated / deleted by the administrator.';
         err.style.display = 'block';
@@ -622,20 +644,15 @@ async function teacherLogin() {
         return;
     }
 
-    let ok = false;
-    if (typeof isFirebaseActive !== 'undefined' && isFirebaseActive && typeof loginFirebaseUser === 'function') {
-        try {
-            const creds = await withTimeout(loginFirebaseUser(email, password), 10000, 'Sign-in');
-            sessionStorage.setItem('teacherName', getCurrentUserProfile()?.displayName || creds.user.email);
-            ok = true;
-        } catch (e) {
-            /* fall through to the stored password check */
-        }
-    }
     const stored = u?.password || t?.password || '';
     if (!ok && stored && password === stored) ok = true;
+
     if (!ok) {
-        err.textContent = 'Incorrect email or password. Use the credentials the administrator created for you.';
+        if (!t && !u && !authUser) {
+            err.textContent = 'No account found for this email. Accounts are created by the school administrator.';
+        } else {
+            err.textContent = 'Incorrect email or password. Use the credentials the administrator created for you.';
+        }
         err.style.display = 'block';
         setTeacherLoginLoading(false);
         return;
@@ -643,9 +660,9 @@ async function teacherLogin() {
 
     sessionStorage.setItem('teacherUnlocked', 'true');
     sessionStorage.setItem('teacherEmail', email);
-    if (!sessionStorage.getItem('teacherName')) {
-        sessionStorage.setItem('teacherName', u?.displayName || t?.name || email.split('@')[0]);
-    }
+    const teacherName = (typeof getCurrentUserProfile === 'function' ? getCurrentUserProfile()?.displayName : null) || u?.displayName || t?.name || email.split('@')[0];
+    sessionStorage.setItem('teacherName', teacherName);
+
     await openApp();
 }
 
@@ -4326,6 +4343,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (localStorage.getItem('teacherDark') === '1') document.body.classList.add('dark');
     loadAll();
 
+    if (typeof initFirebase === 'function') initFirebase();
+
     const isUnlocked = sessionStorage.getItem('teacherUnlocked') === 'true';
     const teacherEmail = sessionStorage.getItem('teacherEmail');
 
@@ -4334,6 +4353,28 @@ document.addEventListener('DOMContentLoaded', async () => {
     } else {
         document.getElementById('app').style.display = 'none';
         document.getElementById('teacherAuthOverlay').style.display = 'flex';
+    }
+
+    // Auto-restore session from persistent Firebase Auth if available
+    if (typeof auth !== 'undefined' && auth && typeof auth.onAuthStateChanged === 'function') {
+        auth.onAuthStateChanged(async (user) => {
+            if (user && user.email) {
+                const currentSessionEmail = sessionStorage.getItem('teacherEmail');
+                if (!currentSessionEmail || currentSessionEmail.toLowerCase() === user.email.toLowerCase()) {
+                    sessionStorage.setItem('teacherUnlocked', 'true');
+                    sessionStorage.setItem('teacherEmail', user.email);
+                    if (typeof loadUserProfile === 'function') {
+                        try {
+                            const p = await loadUserProfile(user.uid);
+                            if (p?.displayName) sessionStorage.setItem('teacherName', p.displayName);
+                        } catch (e) {}
+                    }
+                    if (document.getElementById('app').style.display !== 'block') {
+                        await openApp();
+                    }
+                }
+            }
+        });
     }
 });
 

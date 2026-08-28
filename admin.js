@@ -229,8 +229,49 @@ async function handleAdminLogin() {
     }
 
     try {
-        // BOOTSTRAP: when no admin-level account exists anywhere yet, the very
-        // first sign-in creates the Super Admin in teachers so the school is not locked out.
+        if (typeof initFirebase === 'function') initFirebase();
+
+        // 1. Firebase sign-in first (validates real password and permissions across devices)
+        if (typeof isFirebaseActive !== 'undefined' && isFirebaseActive && typeof loginFirebaseUser === 'function') {
+            try {
+                await loginFirebaseUser(email, password);
+                if (typeof pullSchoolFromFirebase === 'function') {
+                    try { await pullSchoolFromFirebase(); } catch (e) {}
+                }
+                const profile = typeof getCurrentUserProfile === 'function' ? getCurrentUserProfile() : null;
+                const account = findAccountByEmail(email);
+                const role = profile?.role || account?.role || '';
+                if (role && !isAdminPortalRole(role)) {
+                    try { await logoutFirebaseUser(); } catch (e) {}
+                    currentUserProfile = null;
+                    showAuthError(errorEl, 'This account does not have admin access. Contact your system administrator.');
+                    return;
+                }
+                await enterAdmin(profile || account || { email, role: role || 'Administrator' }, 'cloud');
+                return;
+            } catch (e) {
+                const code = e.code || '';
+                const msg  = e.message || '';
+                if (/deactivated/i.test(msg) || /deleted/i.test(msg)) { showAuthError(errorEl, msg); return; }
+                if (code === 'auth/invalid-email') { showAuthError(errorEl, 'Invalid email address.'); return; }
+                if (code === 'auth/too-many-requests') { showAuthError(errorEl, 'Too many attempts. Try again later.'); return; }
+                if (code === 'auth/wrong-password' || code === 'auth/invalid-credential') {
+                    showAuthError(errorEl, 'Incorrect email or password.');
+                    return;
+                }
+                // Fall through to try syncing and checking local accounts
+            }
+        }
+
+        // 2. Hydrate from cloud/server so local cache has latest teachers & settings
+        if (typeof pullSchoolFromFirebase === 'function') {
+            try { await pullSchoolFromFirebase(); } catch (e) {}
+        }
+        if (typeof hydrateSchoolFromServer === 'function') {
+            try { await hydrateSchoolFromServer(); } catch (e) {}
+        }
+
+        // 3. BOOTSTRAP: only if no admin-level account exists anywhere and cloud is disconnected
         if (!hasAnyAdminLevelAccount()) {
             if (password.length < 6) {
                 showAuthError(errorEl, 'Password must be at least 6 characters to create the first admin account.');
@@ -250,38 +291,18 @@ async function handleAdminLogin() {
             list.push(firstAdmin);
             localStorage.setItem('teachers', JSON.stringify(list));
             adminState.teachers = list;
+            if (typeof isFirebaseActive !== 'undefined' && isFirebaseActive && typeof registerFirebaseUser === 'function') {
+                try { await registerFirebaseUser(email, password, firstAdmin.name, 'Super Admin', firstAdmin); } catch (e) {}
+            }
             if (typeof syncSaveCollection === 'function') { try { await syncSaveCollection('teachers', list); } catch (e) {} }
+            if (typeof pushSchoolToFirebase === 'function') { try { await pushSchoolToFirebase(); } catch (e) {} }
             await enterAdmin(firstAdmin, 'first-run setup');
             showToast('Super Admin account created.', 'success');
             return;
         }
 
-        // Find the account for this email.
+        // 4. Find the account for this email.
         const account = findAccountByEmail(email);
-
-        // Firebase sign-in (validates the real password), then enforce role.
-        if (isFirebaseActive && typeof loginFirebaseUser === 'function') {
-            try {
-                await loginFirebaseUser(email, password);
-                const profile = getCurrentUserProfile();
-                const role = profile?.role || account?.role || '';
-                if (!isAdminPortalRole(role)) {
-                    try { await logoutFirebaseUser(); } catch (e) {}
-                    currentUserProfile = null;
-                    showAuthError(errorEl, 'This account does not have admin access. Contact your system administrator.');
-                    return;
-                }
-                await enterAdmin(profile || account, 'cloud');
-                return;
-            } catch (e) {
-                const code = e.code || '';
-                const msg  = e.message || '';
-                if (/deactivated/i.test(msg)) { showAuthError(errorEl, msg); return; }
-                if (code === 'auth/invalid-email') { showAuthError(errorEl, 'Invalid email address.'); return; }
-                if (code === 'auth/too-many-requests') { showAuthError(errorEl, 'Too many attempts. Try again later.'); return; }
-                // Fall through to the local password check for offline/local accounts.
-            }
-        }
 
         // Local account check.
         if (!account) {
