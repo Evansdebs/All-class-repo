@@ -1,9 +1,10 @@
 // OneReal School Management System - Service Worker
-const CACHE_NAME = 'onereal-sms-v2.3';
+const CACHE_NAME = 'onereal-sms-v2.4';
 const OFFLINE_URL = '/offline.html';
 
 const STATIC_ASSETS = [
     '/',
+    '/index.html',
     '/report.html',
     '/admin.html',
     '/student.html',

@@ -2118,7 +2118,7 @@ async function requestHandler(req, res) {
 
         // ─── Static file server ────────────────────────────────────────────────
         let reqPath = pathname;
-        if (reqPath === '/' || !reqPath) reqPath = '/report.html';
+        if (reqPath === '/' || !reqPath) reqPath = '/index.html';
         if (reqPath === '/admin') reqPath = '/admin.html';
         if (reqPath === '/student') reqPath = '/student.html';
         if (reqPath === '/alumni') reqPath = '/alumni.html';
