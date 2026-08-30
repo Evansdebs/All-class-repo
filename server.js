@@ -69,7 +69,6 @@ function cleanJsonString(str) {
             out += c;
         }
     }
-    // Remove trailing commas in objects or arrays
     out = out.replace(/,\s*([}\]])/g, (_, p1) => p1);
     return out;
 }
@@ -355,7 +354,6 @@ function seedNewCollections(db) {
 function mergeSyncData(db, payload) {
     if (!payload || typeof payload !== 'object') return db;
 
-    // 1. Array collections with ID-based identity
     const arrayCollections = [
         'students', 'classes', 'subjects', 'academicYears', 'terms',
         'reports', 'gradingScales', 'alumni', 'timetables', 'examTimetables',
@@ -386,7 +384,6 @@ function mergeSyncData(db, payload) {
         }
     });
 
-    // 2. Teachers / Users: Merge by ID and Email
     ['teachers', 'users'].forEach(col => {
         if (Array.isArray(payload[col])) {
             if (!Array.isArray(db[col])) db[col] = [];
@@ -413,7 +410,6 @@ function mergeSyncData(db, payload) {
         }
     });
 
-    // 3. Results collection: merge by ID or (studentId + subject)
     if (Array.isArray(payload.results)) {
         if (!Array.isArray(db.results)) db.results = [];
         const incoming = payload.results;
@@ -459,7 +455,6 @@ function mergeSyncData(db, payload) {
         }
     }
 
-    // 4. Scores bag: deep merge [subject][studentId]
     if (payload.scores && typeof payload.scores === 'object' && !Array.isArray(payload.scores)) {
         if (!db.scores || typeof db.scores !== 'object' || Array.isArray(db.scores)) db.scores = {};
         Object.keys(payload.scores).forEach(subKey => {
@@ -479,7 +474,6 @@ function mergeSyncData(db, payload) {
         });
     }
 
-    // 5. Object settings & info collections: shallow merge
     const objectCollections = [
         'schoolSettings', 'schoolInfo', 'studentReportDetails',
         'parentContacts', 'attendanceMarks', 'attendanceSettings'
@@ -506,7 +500,6 @@ function writeDb(data) {
             fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2), 'utf8');
             return true;
         } catch (e2) {
-            // File system is read-only or ephemeral (maintained in-memory)
             return true;
         }
     }
@@ -701,8 +694,6 @@ function pruneOldDownloads() {
     } catch (e) {}
 }
 
-// ─── Automated & Manual Cloud Snapshots ──────────────────────────────────────
-
 function takeSnapshot(tag = 'auto', note = '') {
     try {
         ensureBackupsDir();
@@ -801,8 +792,6 @@ function listSnapshots() {
     }
 }
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
 function sendJson(res, statusCode, obj) {
     const body = JSON.stringify(obj);
     res.writeHead(statusCode, {
@@ -832,7 +821,6 @@ function readBody(req) {
     });
 }
 
-// ─── MIME types ───────────────────────────────────────────────────────────────
 const MIME_TYPES = {
     '.html': 'text/html; charset=UTF-8',
     '.css':  'text/css; charset=UTF-8',
@@ -853,8 +841,6 @@ const MIME_TYPES = {
     '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     '.xls':  'application/vnd.ms-excel'
 };
-
-// ─── Generic collection CRUD ──────────────────────────────────────────────────
 
 function handleCollectionGet(res, collection) {
     const db = readDb();
@@ -899,11 +885,8 @@ function handleCollectionDelete(res, collection, id) {
     sendJson(res, 200, { success: true, removed: before - db[collection].length });
 }
 
-// ─── Server ───────────────────────────────────────────────────────────────────
-
 async function requestHandler(req, res) {
     try {
-        // CORS
         res.setHeader('Access-Control-Allow-Origin', '*');
         res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
         res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
@@ -914,1341 +897,1287 @@ async function requestHandler(req, res) {
         const pathname  = parsedUrl.pathname;
         const method    = req.method.toUpperCase() === 'HEAD' ? 'GET' : req.method.toUpperCase();
 
-    // ── API Routes ──────────────────────────────────────────────────────────
+        // ── API Routes ──────────────────────────────────────────────────────────
+        if (pathname.startsWith('/api/')) {
+            if (pathname === '/api/status' && method === 'GET') {
+                const db = readDb();
+                sendJson(res, 200, {
+                    status: 'online',
+                    version: '2.2.0',
+                    serverTime: new Date().toISOString(),
+                    counts: {
+                        students:      (db.students      || []).length,
+                        teachers:      (db.teachers      || []).length,
+                        classes:       (db.classes       || []).length,
+                        subjects:      (db.subjects      || []).length,
+                        results:       (db.results       || []).length,
+                        reports:       (db.reports       || []).length,
+                        gradingScales: (db.gradingScales || []).length,
+                        academicYears: (db.academicYears || []).length,
+                        auditLogs:     (db.auditLogs     || []).length,
+                    }
+                });
+                return;
+            }
 
-    if (pathname.startsWith('/api/')) {
-
-        // ── Health / Status ─────────────────────────────────────────────────
-        if (pathname === '/api/status' && method === 'GET') {
-            const db = readDb();
-            sendJson(res, 200, {
-                status: 'online',
-                version: '2.2.0',
-                serverTime: new Date().toISOString(),
-                counts: {
-                    students:      (db.students      || []).length,
-                    teachers:      (db.teachers      || []).length,
-                    classes:       (db.classes       || []).length,
-                    subjects:      (db.subjects      || []).length,
-                    results:       (db.results       || []).length,
-                    reports:       (db.reports       || []).length,
-                    gradingScales: (db.gradingScales || []).length,
-                    academicYears: (db.academicYears || []).length,
-                    auditLogs:     (db.auditLogs     || []).length,
-                }
-            });
-            return;
-        }
-
-        // ── Full DB dump ─────────────────────────────────────────────────────
-        if (pathname === '/api/db' && method === 'GET') {
-            sendJson(res, 200, readDb());
-            return;
-        }
-
-        // ── /api/sync (real-time multi-portal synchronization) ────────────────
-        if (pathname === '/api/sync') {
-            if (method === 'GET') {
+            if (pathname === '/api/db' && method === 'GET') {
                 sendJson(res, 200, readDb());
                 return;
             }
-            if (method === 'POST') {
+
+            if (pathname === '/api/sync') {
+                if (method === 'GET') {
+                    sendJson(res, 200, readDb());
+                    return;
+                }
+                if (method === 'POST') {
+                    try {
+                        const payload = await readBody(req);
+                        let db = readDb();
+                        db = mergeSyncData(db, payload);
+                        writeDb(db);
+                        sendJson(res, 200, { success: true, timestamp: new Date().toISOString(), ...db });
+                    } catch (e) { sendJson(res, 400, { error: e.message }); }
+                    return;
+                }
+            }
+
+            if (pathname === '/api/students' && method === 'GET')  { handleCollectionGet(res, 'students'); return; }
+            if (pathname === '/api/students' && method === 'POST') { await handleCollectionPost(req, res, 'students'); return; }
+
+            const studMatch = pathname.match(/^\/api\/students\/([^/]+)$/);
+            if (studMatch) {
+                const id = studMatch[1];
+                if (method === 'PUT' || method === 'PATCH') { await handleCollectionPut(req, res, 'students', id); return; }
+                if (method === 'DELETE') { handleCollectionDelete(res, 'students', id); return; }
+                if (method === 'GET') {
+                    const db = readDb();
+                    const s  = (db.students || []).find(s => s.id === id);
+                    s ? sendJson(res, 200, s) : sendJson(res, 404, { error: 'Student not found' });
+                    return;
+                }
+            }
+
+            const studClassMatch = pathname.match(/^\/api\/students\/class\/([^/]+)$/);
+            if (studClassMatch && method === 'GET') {
+                const classId = studClassMatch[1];
+                const db = readDb();
+                sendJson(res, 200, (db.students || []).filter(s => s.classId === classId || s.class === classId));
+                return;
+            }
+
+            if (pathname === '/api/teachers' && method === 'GET')  { handleCollectionGet(res, 'teachers'); return; }
+            if (pathname === '/api/teachers' && method === 'POST') { await handleCollectionPost(req, res, 'teachers'); return; }
+
+            const teacherMatch = pathname.match(/^\/api\/teachers\/([^/]+)$/);
+            if (teacherMatch) {
+                const id = teacherMatch[1];
+                if (method === 'PUT' || method === 'PATCH') { await handleCollectionPut(req, res, 'teachers', id); return; }
+                if (method === 'DELETE') { handleCollectionDelete(res, 'teachers', id); return; }
+            }
+
+            if (pathname === '/api/classes' && method === 'GET')  { handleCollectionGet(res, 'classes'); return; }
+            if (pathname === '/api/classes' && method === 'POST') { await handleCollectionPost(req, res, 'classes'); return; }
+
+            const classMatch = pathname.match(/^\/api\/classes\/([^/]+)$/);
+            if (classMatch) {
+                const id = classMatch[1];
+                if (method === 'PUT' || method === 'PATCH') { await handleCollectionPut(req, res, 'classes', id); return; }
+                if (method === 'DELETE') { handleCollectionDelete(res, 'classes', id); return; }
+            }
+
+            if (pathname === '/api/subjects' && method === 'GET')  { handleCollectionGet(res, 'subjects'); return; }
+            if (pathname === '/api/subjects' && method === 'POST') { await handleCollectionPost(req, res, 'subjects'); return; }
+
+            const subjectMatch = pathname.match(/^\/api\/subjects\/([^/]+)$/);
+            if (subjectMatch) {
+                const id = subjectMatch[1];
+                if (method === 'PUT' || method === 'PATCH') { await handleCollectionPut(req, res, 'subjects', id); return; }
+                if (method === 'DELETE') { handleCollectionDelete(res, 'subjects', id); return; }
+            }
+
+            if (pathname === '/api/academic-years' && method === 'GET')  { handleCollectionGet(res, 'academicYears'); return; }
+            if (pathname === '/api/academic-years' && method === 'POST') { await handleCollectionPost(req, res, 'academicYears'); return; }
+
+            const ayMatch = pathname.match(/^\/api\/academic-years\/([^/]+)$/);
+            if (ayMatch) {
+                const id = ayMatch[1];
+                if (method === 'PUT' || method === 'PATCH') { await handleCollectionPut(req, res, 'academicYears', id); return; }
+                if (method === 'DELETE') { handleCollectionDelete(res, 'academicYears', id); return; }
+            }
+
+            if (pathname === '/api/academic-years/active' && method === 'GET') {
+                const db   = readDb();
+                const year = (db.academicYears || []).find(y => y.isActive);
+                year ? sendJson(res, 200, year) : sendJson(res, 404, { error: 'No active academic year' });
+                return;
+            }
+
+            if (pathname === '/api/terms' && method === 'GET')  { handleCollectionGet(res, 'terms'); return; }
+            if (pathname === '/api/terms' && method === 'POST') { await handleCollectionPost(req, res, 'terms'); return; }
+
+            const termMatch = pathname.match(/^\/api\/terms\/([^/]+)$/);
+            if (termMatch) {
+                const id = termMatch[1];
+                if (method === 'PUT' || method === 'PATCH') { await handleCollectionPut(req, res, 'terms', id); return; }
+                if (method === 'DELETE') { handleCollectionDelete(res, 'terms', id); return; }
+            }
+
+            if (pathname === '/api/terms/active' && method === 'GET') {
+                const db   = readDb();
+                const term = (db.terms || []).find(t => t.isActive);
+                term ? sendJson(res, 200, term) : sendJson(res, 404, { error: 'No active term' });
+                return;
+            }
+
+            if (pathname === '/api/results' && method === 'GET') {
+                const db = readDb();
+                const { year, term, class: cls, status, studentId } = Object.fromEntries(parsedUrl.searchParams);
+                let results = db.results || [];
+                if (year)      results = results.filter(r => r.academicYearId === year);
+                if (term)      results = results.filter(r => r.termId === term);
+                if (cls)       results = results.filter(r => r.classId === cls);
+                if (status)    results = results.filter(r => r.status === status);
+                if (studentId) results = results.filter(r => r.studentId === studentId);
+                sendJson(res, 200, results);
+                return;
+            }
+
+            if (pathname === '/api/results' && method === 'POST') { await handleCollectionPost(req, res, 'results'); return; }
+
+            const resultMatch = pathname.match(/^\/api\/results\/([^/]+)$/);
+            if (resultMatch) {
+                const id = resultMatch[1];
+                if (method === 'PUT' || method === 'PATCH') { await handleCollectionPut(req, res, 'results', id); return; }
+                if (method === 'DELETE') { handleCollectionDelete(res, 'results', id); return; }
+            }
+
+            if (pathname === '/api/results/submit' && method === 'POST') {
                 try {
-                    const payload = await readBody(req);
-                    let db = readDb();
-                    db = mergeSyncData(db, payload);
+                    const { ids } = await readBody(req);
+                    const db = readDb();
+                    let count = 0;
+                    (db.results || []).forEach(r => {
+                        if (ids.includes(r.id) && r.status === 'Draft') {
+                            r.status = 'Submitted';
+                            r.submittedAt = new Date().toISOString();
+                            count++;
+                        }
+                    });
                     writeDb(db);
-                    sendJson(res, 200, { success: true, timestamp: new Date().toISOString(), ...db });
+                    sendJson(res, 200, { success: true, updated: count });
                 } catch (e) { sendJson(res, 400, { error: e.message }); }
                 return;
             }
-        }
 
-        // ── COLLECTIONS: students ────────────────────────────────────────────
-        if (pathname === '/api/students' && method === 'GET')  { handleCollectionGet(res, 'students'); return; }
-        if (pathname === '/api/students' && method === 'POST') { await handleCollectionPost(req, res, 'students'); return; }
-
-        const studMatch = pathname.match(/^\/api\/students\/([^/]+)$/);
-        if (studMatch) {
-            const id = studMatch[1];
-            if (method === 'PUT' || method === 'PATCH') { await handleCollectionPut(req, res, 'students', id); return; }
-            if (method === 'DELETE') { handleCollectionDelete(res, 'students', id); return; }
-            if (method === 'GET') {
-                const db = readDb();
-                const s  = (db.students || []).find(s => s.id === id);
-                s ? sendJson(res, 200, s) : sendJson(res, 404, { error: 'Student not found' });
-                return;
-            }
-        }
-
-        // GET /api/students/class/:classId — filter by class
-        const studClassMatch = pathname.match(/^\/api\/students\/class\/([^/]+)$/);
-        if (studClassMatch && method === 'GET') {
-            const classId = studClassMatch[1];
-            const db = readDb();
-            sendJson(res, 200, (db.students || []).filter(s => s.classId === classId || s.class === classId));
-            return;
-        }
-
-        // ── COLLECTIONS: teachers ────────────────────────────────────────────
-        if (pathname === '/api/teachers' && method === 'GET')  { handleCollectionGet(res, 'teachers'); return; }
-        if (pathname === '/api/teachers' && method === 'POST') { await handleCollectionPost(req, res, 'teachers'); return; }
-
-        const teacherMatch = pathname.match(/^\/api\/teachers\/([^/]+)$/);
-        if (teacherMatch) {
-            const id = teacherMatch[1];
-            if (method === 'PUT' || method === 'PATCH') { await handleCollectionPut(req, res, 'teachers', id); return; }
-            if (method === 'DELETE') { handleCollectionDelete(res, 'teachers', id); return; }
-        }
-
-        // ── COLLECTIONS: classes ─────────────────────────────────────────────
-        if (pathname === '/api/classes' && method === 'GET')  { handleCollectionGet(res, 'classes'); return; }
-        if (pathname === '/api/classes' && method === 'POST') { await handleCollectionPost(req, res, 'classes'); return; }
-
-        const classMatch = pathname.match(/^\/api\/classes\/([^/]+)$/);
-        if (classMatch) {
-            const id = classMatch[1];
-            if (method === 'PUT' || method === 'PATCH') { await handleCollectionPut(req, res, 'classes', id); return; }
-            if (method === 'DELETE') { handleCollectionDelete(res, 'classes', id); return; }
-        }
-
-        // ── COLLECTIONS: subjects ────────────────────────────────────────────
-        if (pathname === '/api/subjects' && method === 'GET')  { handleCollectionGet(res, 'subjects'); return; }
-        if (pathname === '/api/subjects' && method === 'POST') { await handleCollectionPost(req, res, 'subjects'); return; }
-
-        const subjectMatch = pathname.match(/^\/api\/subjects\/([^/]+)$/);
-        if (subjectMatch) {
-            const id = subjectMatch[1];
-            if (method === 'PUT' || method === 'PATCH') { await handleCollectionPut(req, res, 'subjects', id); return; }
-            if (method === 'DELETE') { handleCollectionDelete(res, 'subjects', id); return; }
-        }
-
-        // ── COLLECTIONS: academicYears ───────────────────────────────────────
-        if (pathname === '/api/academic-years' && method === 'GET')  { handleCollectionGet(res, 'academicYears'); return; }
-        if (pathname === '/api/academic-years' && method === 'POST') { await handleCollectionPost(req, res, 'academicYears'); return; }
-
-        const ayMatch = pathname.match(/^\/api\/academic-years\/([^/]+)$/);
-        if (ayMatch) {
-            const id = ayMatch[1];
-            if (method === 'PUT' || method === 'PATCH') { await handleCollectionPut(req, res, 'academicYears', id); return; }
-            if (method === 'DELETE') { handleCollectionDelete(res, 'academicYears', id); return; }
-        }
-
-        // GET /api/academic-years/active — return the active year
-        if (pathname === '/api/academic-years/active' && method === 'GET') {
-            const db   = readDb();
-            const year = (db.academicYears || []).find(y => y.isActive);
-            year ? sendJson(res, 200, year) : sendJson(res, 404, { error: 'No active academic year' });
-            return;
-        }
-
-        // ── COLLECTIONS: terms ───────────────────────────────────────────────
-        if (pathname === '/api/terms' && method === 'GET')  { handleCollectionGet(res, 'terms'); return; }
-        if (pathname === '/api/terms' && method === 'POST') { await handleCollectionPost(req, res, 'terms'); return; }
-
-        const termMatch = pathname.match(/^\/api\/terms\/([^/]+)$/);
-        if (termMatch) {
-            const id = termMatch[1];
-            if (method === 'PUT' || method === 'PATCH') { await handleCollectionPut(req, res, 'terms', id); return; }
-            if (method === 'DELETE') { handleCollectionDelete(res, 'terms', id); return; }
-        }
-
-        // GET /api/terms/active
-        if (pathname === '/api/terms/active' && method === 'GET') {
-            const db   = readDb();
-            const term = (db.terms || []).find(t => t.isActive);
-            term ? sendJson(res, 200, term) : sendJson(res, 404, { error: 'No active term' });
-            return;
-        }
-
-        // ── COLLECTIONS: results ─────────────────────────────────────────────
-        if (pathname === '/api/results' && method === 'GET') {
-            const db = readDb();
-            const { year, term, class: cls, status, studentId } = Object.fromEntries(parsedUrl.searchParams);
-            let results = db.results || [];
-            if (year)      results = results.filter(r => r.academicYearId === year);
-            if (term)      results = results.filter(r => r.termId === term);
-            if (cls)       results = results.filter(r => r.classId === cls);
-            if (status)    results = results.filter(r => r.status === status);
-            if (studentId) results = results.filter(r => r.studentId === studentId);
-            sendJson(res, 200, results);
-            return;
-        }
-
-        if (pathname === '/api/results' && method === 'POST') { await handleCollectionPost(req, res, 'results'); return; }
-
-        const resultMatch = pathname.match(/^\/api\/results\/([^/]+)$/);
-        if (resultMatch) {
-            const id = resultMatch[1];
-            if (method === 'PUT' || method === 'PATCH') { await handleCollectionPut(req, res, 'results', id); return; }
-            if (method === 'DELETE') { handleCollectionDelete(res, 'results', id); return; }
-        }
-
-        // POST /api/results/submit — bulk submit (Draft → Submitted)
-        if (pathname === '/api/results/submit' && method === 'POST') {
-            try {
-                const { ids } = await readBody(req);
-                const db = readDb();
-                let count = 0;
-                (db.results || []).forEach(r => {
-                    if (ids.includes(r.id) && r.status === 'Draft') {
-                        r.status = 'Submitted';
-                        r.submittedAt = new Date().toISOString();
-                        count++;
-                    }
-                });
-                writeDb(db);
-                sendJson(res, 200, { success: true, updated: count });
-            } catch (e) { sendJson(res, 400, { error: e.message }); }
-            return;
-        }
-
-        // POST /api/results/approve — bulk approve (Submitted/Reviewed → Approved)
-        if (pathname === '/api/results/approve' && method === 'POST') {
-            try {
-                const { ids, status: newStatus = 'Approved' } = await readBody(req);
-                const db = readDb();
-                let count = 0;
-                (db.results || []).forEach(r => {
-                    if (ids.includes(r.id)) {
-                        r.status     = newStatus;
-                        r.locked     = true;
-                        r.approvedAt = new Date().toISOString();
-                        count++;
-                    }
-                });
-                writeDb(db);
-                sendJson(res, 200, { success: true, updated: count });
-            } catch (e) { sendJson(res, 400, { error: e.message }); }
-            return;
-        }
-
-        // POST /api/results/unlock — bulk unlock (remove lock)
-        if (pathname === '/api/results/unlock' && method === 'POST') {
-            try {
-                const { ids } = await readBody(req);
-                const db = readDb();
-                let count = 0;
-                (db.results || []).forEach(r => {
-                    if (ids.includes(r.id)) {
-                        r.locked   = false;
-                        r.status   = 'Reviewed';
-                        r.unlockedAt = new Date().toISOString();
-                        count++;
-                    }
-                });
-                writeDb(db);
-                sendJson(res, 200, { success: true, updated: count });
-            } catch (e) { sendJson(res, 400, { error: e.message }); }
-            return;
-        }
-
-        // GET /api/results/pending — results with status=Submitted
-        if (pathname === '/api/results/pending' && method === 'GET') {
-            const db = readDb();
-            sendJson(res, 200, (db.results || []).filter(r => r.status === 'Submitted'));
-            return;
-        }
-
-        // ── COLLECTIONS: reports ─────────────────────────────────────────────
-        if (pathname === '/api/reports' && method === 'GET') {
-            const db = readDb();
-            const { year, term, class: cls, status } = Object.fromEntries(parsedUrl.searchParams);
-            let reports = db.reports || [];
-            if (year)   reports = reports.filter(r => r.academicYearId === year);
-            if (term)   reports = reports.filter(r => r.termId === term);
-            if (cls)    reports = reports.filter(r => r.classId === cls);
-            if (status) reports = reports.filter(r => r.status === status);
-            sendJson(res, 200, reports);
-            return;
-        }
-
-        if (pathname === '/api/reports' && method === 'POST') { await handleCollectionPost(req, res, 'reports'); return; }
-
-        const reportMatch = pathname.match(/^\/api\/reports\/([^/]+)$/);
-        if (reportMatch) {
-            const id = reportMatch[1];
-            if (method === 'PUT' || method === 'PATCH') { await handleCollectionPut(req, res, 'reports', id); return; }
-            if (method === 'DELETE') { handleCollectionDelete(res, 'reports', id); return; }
-        }
-
-        // ── COLLECTIONS: users ───────────────────────────────────────────────
-        if (pathname === '/api/users' && method === 'GET')  { handleCollectionGet(res, 'users'); return; }
-        if (pathname === '/api/users' && method === 'POST') { await handleCollectionPost(req, res, 'users'); return; }
-
-        const userMatch = pathname.match(/^\/api\/users\/([^/]+)$/);
-        if (userMatch) {
-            const id = userMatch[1];
-            if (method === 'PUT' || method === 'PATCH') { await handleCollectionPut(req, res, 'users', id); return; }
-            if (method === 'DELETE') { handleCollectionDelete(res, 'users', id); return; }
-        }
-
-        // ── COLLECTIONS: grading scales ──────────────────────────────────────
-        if (pathname === '/api/grading-scales' && method === 'GET')  { handleCollectionGet(res, 'gradingScales'); return; }
-        if (pathname === '/api/grading-scales' && method === 'POST') { await handleCollectionPost(req, res, 'gradingScales'); return; }
-
-        const gsMatch = pathname.match(/^\/api\/grading-scales\/([^/]+)$/);
-        if (gsMatch) {
-            const id = gsMatch[1];
-            if (method === 'PUT' || method === 'PATCH') { await handleCollectionPut(req, res, 'gradingScales', id); return; }
-            if (method === 'DELETE') { handleCollectionDelete(res, 'gradingScales', id); return; }
-        }
-
-        // GET /api/grading-scales/active
-        if (pathname === '/api/grading-scales/active' && method === 'GET') {
-            const db    = readDb();
-            const scale = (db.gradingScales || []).find(s => s.isActive);
-            scale ? sendJson(res, 200, scale) : sendJson(res, 200, {
-                isActive: true,
-                name: 'Default',
-                items: [
-                    { min: 80, max: 100, grade: 'A',  remark: 'ADVANCE' },
-                    { min: 68, max: 79,  grade: 'P',  remark: 'PROFICIENCY' },
-                    { min: 54, max: 67,  grade: 'AP', remark: 'APPROACHING PROFICIENCY' },
-                    { min: 40, max: 53,  grade: 'D',  remark: 'DEVELOPING' },
-                    { min: 0,  max: 39,  grade: 'B',  remark: 'BEGINNER' }
-                ]
-            });
-            return;
-        }
-
-        // ── SCHOOL SETTINGS ──────────────────────────────────────────────────
-        if (pathname === '/api/school-settings' && method === 'GET') {
-            const db = readDb();
-            sendJson(res, 200, db.schoolSettings || {});
-            return;
-        }
-
-        if (pathname === '/api/school-settings' && method === 'POST') {
-            try {
-                const payload = await readBody(req);
-                const db = readDb();
-                db.schoolSettings = { ...db.schoolSettings, ...payload, updatedAt: new Date().toISOString() };
-                writeDb(db);
-                sendJson(res, 200, { success: true, settings: db.schoolSettings });
-            } catch (e) { sendJson(res, 400, { error: e.message }); }
-            return;
-        }
-
-        // ── Legacy school-info (teacher app compatibility) ───────────────────
-        if (pathname === '/api/school-info' && method === 'GET') {
-            sendJson(res, 200, readDb().schoolInfo || {});
-            return;
-        }
-
-        if (pathname === '/api/school-info' && method === 'POST') {
-            try {
-                const payload = await readBody(req);
-                const db = readDb();
-                db.schoolInfo = payload;
-                writeDb(db);
-                sendJson(res, 200, { success: true });
-            } catch (e) { sendJson(res, 400, { error: e.message }); }
-            return;
-        }
-
-        // ── Legacy scores (teacher app compatibility) ─────────────────────────
-        if (pathname === '/api/scores' && method === 'GET') {
-            sendJson(res, 200, readDb().scores || {});
-            return;
-        }
-
-        if (pathname === '/api/scores' && method === 'POST') {
-            try {
-                const payload = await readBody(req);
-                const db = readDb();
-                db.scores = payload;
-                writeDb(db);
-                sendJson(res, 200, { success: true });
-            } catch (e) { sendJson(res, 400, { error: e.message }); }
-            return;
-        }
-
-        if (pathname === '/api/attendance-marks' && method === 'GET') {
-            sendJson(res, 200, readDb().attendanceMarks || {});
-            return;
-        }
-        if (pathname === '/api/attendance-marks' && method === 'POST') {
-            try {
-                const payload = await readBody(req);
-                const db = readDb();
-                db.attendanceMarks = payload;
-                writeDb(db);
-                sendJson(res, 200, { success: true });
-            } catch (e) { sendJson(res, 400, { error: e.message }); }
-            return;
-        }
-        if (pathname === '/api/attendance-settings' && method === 'GET') {
-            sendJson(res, 200, readDb().attendanceSettings || {});
-            return;
-        }
-        if (pathname === '/api/attendance-settings' && method === 'POST') {
-            try {
-                const payload = await readBody(req);
-                const db = readDb();
-                db.attendanceSettings = payload;
-                writeDb(db);
-                sendJson(res, 200, { success: true });
-            } catch (e) { sendJson(res, 400, { error: e.message }); }
-            return;
-        }
-
-        if (pathname === '/api/audit-logs' && method === 'GET') {
-            const db   = readDb();
-            const limit = parseInt(parsedUrl.searchParams.get('limit') || '200');
-            sendJson(res, 200, (db.auditLogs || []).slice(0, limit));
-            return;
-        }
-        if (pathname === '/api/audit-logs' && method === 'POST') {
-            try {
-                const logEntry = await readBody(req);
-                const db = readDb();
-                if (!Array.isArray(db.auditLogs)) db.auditLogs = [];
-                db.auditLogs.unshift({ ...logEntry, serverTime: new Date().toISOString() });
-                if (db.auditLogs.length > 500) db.auditLogs = db.auditLogs.slice(0, 500);
-                writeDb(db);
-                sendJson(res, 200, { success: true, log: logEntry });
-            } catch (e) { sendJson(res, 400, { error: e.message }); }
-            return;
-        }
-        if (pathname === '/api/audit-logs' && method === 'DELETE') {
-            const db = readDb();
-            db.auditLogs = [];
-            writeDb(db);
-            sendJson(res, 200, { success: true });
-            return;
-        }
-
-        if (pathname === '/api/export/backup' && method === 'GET') {
-            const db = readDb();
-            const body = JSON.stringify({ exportedAt: new Date().toISOString(), ...db }, null, 2);
-            sendAttachment(res, body, `school_backup_${new Date().toISOString().split('T')[0]}.json`, 'application/json; charset=UTF-8');
-            return;
-        }
-
-        if ((pathname === '/api/export/students.csv' || pathname === '/api/export/students.xlsx') && method === 'GET') {
-            const db = readDb();
-            const rows = db.students || [];
-            const headers = ['id','admissionNo','name','gender','dob','class','classId','status','parentName','parentPhone'];
-            const table = rows.length
-                ? [headers, ...rows.map(r => headers.map(h => r[h] ?? ''))]
-                : templateRows('students');
-            if (pathname.endsWith('.xlsx')) { sendExcel(res, table, 'students.xlsx', 'Students'); return; }
-            sendAttachment(res, rowsToCsv(table.slice(1).map(r => {
-                const obj = {};
-                table[0].forEach((h, i) => { obj[h] = r[i]; });
-                return obj;
-            }), table[0]), 'students.csv', 'text/csv; charset=UTF-8');
-            return;
-        }
-
-        if ((pathname === '/api/export/results.csv' || pathname === '/api/export/results.xlsx') && method === 'GET') {
-            const db = readDb();
-            const rows = db.results || [];
-            const headers = ['id','studentId','studentName','classId','subjectId','classScore','examScore','totalScore','grade','remark','status','locked'];
-            const table = [headers, ...rows.map(r => headers.map(h => r[h] ?? ''))];
-            if (pathname.endsWith('.xlsx')) { sendExcel(res, table, 'results.xlsx', 'Results'); return; }
-            sendAttachment(res, rowsToCsv(rows.length ? rows : [{}], headers), 'results.csv', 'text/csv; charset=UTF-8');
-            return;
-        }
-
-        // GET /api/templates/marks.csv|.xlsx
-        if ((pathname === '/api/templates/marks.csv' || pathname === '/api/templates/marks.xlsx' || pathname === '/api/templates/marks') && method === 'GET') {
-            const cls = parsedUrl.searchParams.get('class') || '';
-            const subject = parsedUrl.searchParams.get('subject') || 'Mathematics';
-            const table = marksTable(cls, subject);
-            const headers = table[0];
-            const safeClass = (cls || 'class').replace(/[^\w]+/g, '_');
-            const safeSub = String(subject).replace(/[^\w]+/g, '_');
-            if (pathname.endsWith('.xlsx')) {
-                sendExcel(res, table, `${safeClass}_${safeSub}_marks_template.xlsx`, 'Marks');
-                return;
-            }
-            sendAttachment(res, rowsToCsv(table.slice(1).map(r => ({
-                'Student Name': r[0], Class: r[1], Subject: r[2],
-                'Class Score (out of 100)': r[3], 'Exam Score (out of 100)': r[4]
-            })), headers), `${safeClass}_${safeSub}_marks_template.csv`, 'text/csv; charset=UTF-8');
-            return;
-        }
-
-        // GET /api/templates/:type[.csv|.xlsx]
-        const templateMatch = pathname.match(/^\/api\/templates\/([a-z]+)(?:\.(csv|xlsx))?$/);
-        if (templateMatch && method === 'GET' && templateMatch[1] !== 'marks') {
-            const type = templateMatch[1];
-            const fmt = templateMatch[2] || 'xlsx';
-            const table = templateRows(type);
-            if (!table) { sendJson(res, 404, { error: 'Template type not found' }); return; }
-            if (fmt === 'xlsx') {
-                sendExcel(res, table, `${type}_import_template.xlsx`, type);
-                return;
-            }
-            sendAttachment(res, rowsToCsv(table.slice(1).map(r => {
-                const obj = {};
-                table[0].forEach((h, i) => { obj[h] = r[i]; });
-                return obj;
-            }), table[0]), `${type}_import_template.csv`, 'text/csv; charset=UTF-8');
-            return;
-        }
-
-        // GET /api/export/attendance.csv
-        if ((pathname === '/api/export/attendance.csv' || pathname === '/api/export/attendance.xlsx') && method === 'GET') {
-            const db = readDb();
-            const marks = db.attendanceMarks || {};
-            const rows = [];
-            Object.keys(marks).forEach(sid => {
-                const days = marks[sid] || {};
-                Object.keys(days).forEach(date => {
-                    const m = days[date] || {};
-                    const student = (db.students || []).find(s => String(s.id) === String(sid));
-                    rows.push({
-                        studentId: sid,
-                        studentName: student?.name || '',
-                        class: student?.class || m.className || '',
-                        date,
-                        status: m.status || '',
-                        markedBy: m.by || ''
-                    });
-                });
-            });
-            const attHeaders = ['studentId','studentName','class','date','status','markedBy'];
-            if (pathname.endsWith('.xlsx')) {
-                sendExcel(res, [attHeaders, ...rows.map(r => attHeaders.map(h => r[h] ?? ''))], 'attendance.xlsx', 'Attendance');
-                return;
-            }
-            sendAttachment(res, rowsToCsv(rows, attHeaders), 'attendance.csv', 'text/csv; charset=UTF-8');
-            return;
-        }
-
-        // GET /api/export/broadsheet.csv?class=
-        if ((pathname === '/api/export/broadsheet.csv' || pathname === '/api/export/broadsheet.xlsx') && method === 'GET') {
-            const cls = parsedUrl.searchParams.get('class') || '';
-            const db = readDb();
-            let list = db.students || [];
-            if (cls) list = list.filter(s => s.class === cls || s.classId === cls);
-            const subjects = ['English Language','Mathematics','Science','RME','History','Creative Arts','Computing','French','Asante Twi','Career Technology'];
-            const scores = db.scores || {};
-            const rows = list.map(s => {
-                const row = { Student: s.name, Class: s.class || cls };
-                let sum = 0, n = 0;
-                subjects.forEach(sub => {
-                    const bag = scores[sub] || {};
-                    const e = bag[s.id] || bag[String(s.id)] || {};
-                    const tot = e.totalScore === '' || e.totalScore == null ? '' : e.totalScore;
-                    row[sub] = tot;
-                    if (tot !== '') { sum += Number(tot) || 0; n++; }
-                });
-                row.Total = n ? sum : '';
-                row.Average = n ? Math.round((sum / n) * 10) / 10 : '';
-                return row;
-            });
-            if (pathname.endsWith('.xlsx')) {
-                sendExcel(res, rows, `${safeFilePart(cls || 'class')}_broadsheet.xlsx`, 'Broadsheet');
-                return;
-            }
-            sendAttachment(res, rowsToCsv(rows), `${safeFilePart(cls || 'class')}_broadsheet.csv`, 'text/csv; charset=UTF-8');
-            return;
-        }
-
-        if ((pathname === '/api/export/performance.csv' || pathname === '/api/export/performance.xlsx') && method === 'GET') {
-            const cls = parsedUrl.searchParams.get('class') || '';
-            const db = readDb();
-            let list = db.students || [];
-            if (cls) list = list.filter(s => s.class === cls || s.classId === cls);
-            const subjects = ['English Language','Mathematics','Science','RME','History','Creative Arts','Computing','French','Asante Twi','Career Technology'];
-            const scores = db.scores || {};
-            const rows = list.map(s => {
-                let sum = 0, n = 0;
-                subjects.forEach(sub => {
-                    const bag = scores[sub] || {};
-                    const e = bag[s.id] || bag[String(s.id)] || {};
-                    const tot = e.totalScore === '' || e.totalScore == null ? '' : Number(e.totalScore);
-                    if (tot !== '') { sum += tot || 0; n++; }
-                });
-                return { Student: s.name, Class: s.class || cls, Average: n ? Math.round((sum / n) * 10) / 10 : '', Subjects: n };
-            });
-            if (pathname.endsWith('.xlsx')) { sendExcel(res, rows, `${safeFilePart(cls || 'class')}_performance.xlsx`, 'Performance'); return; }
-            sendAttachment(res, rowsToCsv(rows), `${safeFilePart(cls || 'class')}_performance.csv`, 'text/csv; charset=UTF-8');
-            return;
-        }
-
-        if ((pathname === '/api/export/student.xlsx' || pathname === '/api/export/student.csv') && method === 'GET') {
-            const adm = parsedUrl.searchParams.get('admission') || parsedUrl.searchParams.get('id') || '';
-            const db = readDb();
-            const student = (db.students || []).find(s => String(s.admissionNo || '').toLowerCase() === adm.toLowerCase() || String(s.id) === String(adm));
-            const scores = db.scores || {};
-            const rows = [['Subject', 'Class Score', 'Exam Score', 'Total', 'Grade', 'Remark']];
-            if (student) {
-                Object.keys(scores).forEach(sub => {
-                    const bag = scores[sub] || {};
-                    const e = bag[student.id] || bag[String(student.id)];
-                    if (!e) return;
-                    rows.push([sub, e.classScore ?? '', e.examScore ?? '', e.totalScore ?? '', e.grade || '', e.remark || '']);
-                });
-                if (rows.length === 1) rows.push(['No published results', '', '', '', '', '']);
-            } else {
-                rows.push(['Student not found', '', '', '', '', '']);
-            }
-            const name = ((student && student.name) || adm || 'student').replace(/[^\w]+/g, '_') + '_results';
-            if (pathname.endsWith('.xlsx')) { sendExcel(res, rows, name + '.xlsx', 'Results'); return; }
-            sendAttachment(res, rowsToCsv(rows.slice(1).map(r => ({Subject:r[0],'Class Score':r[1],'Exam Score':r[2],Total:r[3],Grade:r[4],Remark:r[5]})), rows[0]), name + '.csv', 'text/csv; charset=UTF-8');
-            return;
-        }
-
-        // GET /api/export/:collection.(csv|json)
-        const colExport = pathname.match(/^\/api\/export\/([a-zA-Z]+)(?:\.(csv|json|xlsx))?$/);
-        if (colExport && method === 'GET' && !['backup','students','results','attendance','broadsheet','performance'].includes(colExport[1])) {
-            const col = colExport[1];
-            const fmt = colExport[2] || 'json';
-            const db = readDb();
-            const data = db[col];
-            if (data === undefined) { sendJson(res, 404, { error: 'Unknown collection' }); return; }
-            const rows = Array.isArray(data) ? data : [data];
-            if (fmt === 'csv') {
-                sendAttachment(res, rowsToCsv(rows), `${col}_export.csv`, 'text/csv; charset=UTF-8');
-            } else if (fmt === 'xlsx') {
-                sendExcel(res, rows, `${col}_export.xlsx`, col);
-            } else {
-                sendAttachment(res, JSON.stringify(data, null, 2), `${col}_export.json`, 'application/json; charset=UTF-8');
-            }
-            return;
-        }
-
-        // POST /api/downloads — store a generated file, then GET it as a real attachment
-        if (pathname === '/api/downloads' && method === 'POST') {
-            try {
-                const payload = await readBody(req);
-                const filename = safeFilePart(payload.filename || 'download.bin');
-                const mime = payload.mime || 'application/octet-stream';
-                if (!payload.content) { sendJson(res, 400, { error: 'Missing file content' }); return; }
-                ensureDlDir();
-                pruneOldDownloads();
-                const id = genId();
-                const meta = { id, filename, mime, createdAt: new Date().toISOString() };
-                fs.writeFileSync(path.join(DL_DIR, id + '.meta.json'), JSON.stringify(meta), 'utf8');
-                fs.writeFileSync(path.join(DL_DIR, id + '.bin'), Buffer.from(payload.content, 'base64'));
-                sendJson(res, 201, { id, filename, url: `/api/downloads/${id}/${encodeURIComponent(filename)}` });
-            } catch (e) { sendJson(res, 400, { error: e.message }); }
-            return;
-        }
-
-        const dlMatch = pathname.match(/^\/api\/downloads\/([^/]+)(?:\/([^/]+))?$/);
-        if (dlMatch && method === 'GET') {
-            const id = dlMatch[1].replace(/[^\w\-]+/g, '');
-            const metaPath = path.join(DL_DIR, id + '.meta.json');
-            const binPath = path.join(DL_DIR, id + '.bin');
-            if (!fs.existsSync(metaPath) || !fs.existsSync(binPath)) {
-                sendJson(res, 404, { error: 'File expired or not found' });
-                return;
-            }
-            try {
-                const meta = JSON.parse(fs.readFileSync(metaPath, 'utf8'));
-                const buf = fs.readFileSync(binPath);
-                sendAttachment(res, buf, decodeURIComponent(dlMatch[2] || meta.filename || 'download'), meta.mime || 'application/octet-stream');
-            } catch (e) { sendJson(res, 500, { error: 'Could not read file' }); }
-            return;
-        }
-
-        // POST /api/restore — Restore Full JSON Backup
-        if (pathname === '/api/restore' && method === 'POST') {
-            try {
-                const payload = await readBody(req);
-                if (!payload || (typeof payload !== 'object')) {
-                    sendJson(res, 400, { error: 'Invalid backup JSON payload' });
-                    return;
-                }
-                const db = readDb();
-                const collections = ['students','teachers','classes','subjects','academicYears','terms','results','reports','gradingScales','schoolSettings','scores','schoolInfo','studentReportDetails','parentContacts','attendanceMarks','attendanceSettings'];
-                collections.forEach(col => {
-                    if (payload[col] !== undefined) db[col] = payload[col];
-                });
-                writeDb(db);
-                sendJson(res, 200, { success: true, timestamp: new Date().toISOString() });
-            } catch (e) { sendJson(res, 400, { error: e.message }); }
-            return;
-        }
-
-        // ── BACKUP & SNAPSHOT API ─────────────────────────────────────────────
-        if (pathname === '/api/backup/list' && method === 'GET') {
-            sendJson(res, 200, { success: true, snapshots: listSnapshots() });
-            return;
-        }
-
-        if (pathname === '/api/backup/snapshot' && method === 'POST') {
-            try {
-                const body = await readBody(req).catch(() => ({}));
-                const meta = takeSnapshot('manual', body.note || 'Manual user backup snapshot');
-                if (meta) {
-                    sendJson(res, 201, { success: true, snapshot: meta });
-                } else {
-                    sendJson(res, 500, { error: 'Failed to create snapshot' });
-                }
-            } catch (e) {
-                sendJson(res, 400, { error: e.message });
-            }
-            return;
-        }
-
-        const dlSnapshotMatch = pathname.match(/^\/api\/backup\/download\/([^/]+)$/);
-        if (dlSnapshotMatch && method === 'GET') {
-            const filename = dlSnapshotMatch[1].replace(/[^a-zA-Z0-9_.-]/g, '');
-            const filepath = path.join(BACKUPS_DIR, filename);
-            if (!fs.existsSync(filepath)) {
-                sendJson(res, 404, { error: 'Snapshot file not found' });
-                return;
-            }
-            try {
-                const buf = fs.readFileSync(filepath);
-                sendAttachment(res, buf, filename, 'application/json; charset=UTF-8');
-            } catch (e) {
-                sendJson(res, 500, { error: 'Could not read snapshot' });
-            }
-            return;
-        }
-
-        if (pathname === '/api/backup/restore-snapshot' && method === 'POST') {
-            try {
-                const { filename } = await readBody(req);
-                if (!filename) { sendJson(res, 400, { error: 'Missing filename' }); return; }
-                const safeName = filename.replace(/[^a-zA-Z0-9_.-]/g, '');
-                const filepath = path.join(BACKUPS_DIR, safeName);
-                if (!fs.existsSync(filepath)) {
-                    sendJson(res, 404, { error: 'Snapshot file does not exist' });
-                    return;
-                }
-                const raw = fs.readFileSync(filepath, 'utf8');
-                const parsed = safeJsonParse(raw, null);
-                if (!parsed || typeof parsed !== 'object') {
-                    sendJson(res, 400, { error: 'Invalid snapshot data format' });
-                    return;
-                }
-                const db = readDb();
-                const collections = ['students','teachers','classes','subjects','academicYears','terms','results','reports','gradingScales','schoolSettings','scores','schoolInfo','studentReportDetails','parentContacts','attendanceMarks','attendanceSettings','alumni','timetables','examTimetables','transcriptRequests'];
-                collections.forEach(col => {
-                    if (parsed[col] !== undefined) db[col] = parsed[col];
-                });
-                writeDb(db);
-                sendJson(res, 200, { success: true, message: `Restored snapshot ${safeName}`, restoredAt: new Date().toISOString() });
-            } catch (e) {
-                sendJson(res, 400, { error: e.message });
-            }
-            return;
-        }
-
-        if (pathname === '/api/backup/delete' && method === 'POST') {
-            try {
-                const { filename } = await readBody(req);
-                if (!filename) { sendJson(res, 400, { error: 'Missing filename' }); return; }
-                const safeName = filename.replace(/[^a-zA-Z0-9_.-]/g, '');
-                const filepath = path.join(BACKUPS_DIR, safeName);
-                if (fs.existsSync(filepath)) {
-                    fs.unlinkSync(filepath);
-                    sendJson(res, 200, { success: true, removed: safeName });
-                } else {
-                    sendJson(res, 404, { error: 'File not found' });
-                }
-            } catch (e) {
-                sendJson(res, 400, { error: e.message });
-            }
-            return;
-        }
-
-        // ── ALUMNI & TRANSCRIPTS API ──────────────────────────────────────────
-        if (pathname === '/api/alumni' && method === 'GET') {
-            const db = readDb();
-            let list = db.alumni || [];
-            const year = parsedUrl.searchParams.get('year');
-            const q = (parsedUrl.searchParams.get('search') || '').toLowerCase().trim();
-            if (year) list = list.filter(a => String(a.graduationYear) === String(year));
-            if (q) {
-                list = list.filter(a =>
-                    (a.name || '').toLowerCase().includes(q) ||
-                    (a.admissionNo || '').toLowerCase().includes(q) ||
-                    (a.indexNo || '').toLowerCase().includes(q) ||
-                    (a.verificationCode || '').toLowerCase().includes(q)
-                );
-            }
-            sendJson(res, 200, list);
-            return;
-        }
-
-        if (pathname === '/api/alumni' && method === 'POST') {
-            try {
-                const payload = await readBody(req);
-                const db = readDb();
-                if (!Array.isArray(db.alumni)) db.alumni = [];
-                const id = 'alm-' + genId();
-                const verificationCode = 'TLS-VRF-' + (payload.graduationYear || new Date().getFullYear()) + '-' + Math.random().toString(36).substring(2, 6).toUpperCase();
-                const item = {
-                    id,
-                    status: 'Verified',
-                    verificationCode,
-                    transcriptsIssued: 0,
-                    createdAt: new Date().toISOString(),
-                    ...payload
-                };
-                db.alumni.unshift(item);
-                writeDb(db);
-                sendJson(res, 201, item);
-            } catch (e) {
-                sendJson(res, 400, { error: e.message });
-            }
-            return;
-        }
-
-        // Search alumni publicly for transcript verification
-        if (pathname === '/api/alumni/search' && method === 'GET') {
-            const db = readDb();
-            const q = (parsedUrl.searchParams.get('query') || '').trim().toLowerCase();
-            if (!q) {
-                sendJson(res, 200, { found: false, results: [] });
-                return;
-            }
-            const matches = (db.alumni || []).filter(a =>
-                (a.name || '').toLowerCase().includes(q) ||
-                (a.admissionNo || '').toLowerCase() === q ||
-                (a.indexNo || '').toLowerCase() === q ||
-                (a.verificationCode || '').toLowerCase() === q
-            );
-            sendJson(res, 200, {
-                found: matches.length > 0,
-                results: matches.map(a => ({
-                    id: a.id,
-                    name: a.name,
-                    admissionNo: a.admissionNo,
-                    indexNo: a.indexNo,
-                    graduationYear: a.graduationYear,
-                    classGraduated: a.classGraduated,
-                    overallGrade: a.overallGrade,
-                    finalAggregate: a.finalAggregate,
-                    status: a.status,
-                    verificationCode: a.verificationCode
-                }))
-            });
-            return;
-        }
-
-        // Graduate Class Action: Convert active students in a class to alumni
-        if (pathname === '/api/alumni/graduate' && method === 'POST') {
-            try {
-                const { classId, graduationYear, awardsRemark } = await readBody(req);
-                const db = readDb();
-                const students = (db.students || []).filter(s => s.class === classId || s.classId === classId);
-                if (!students.length) {
-                    sendJson(res, 404, { error: 'No active students found in the specified class.' });
-                    return;
-                }
-                if (!Array.isArray(db.alumni)) db.alumni = [];
-                const gradYear = String(graduationYear || new Date().getFullYear());
-                const createdAlumni = [];
-
-                students.forEach(s => {
-                    const verificationCode = 'TLS-VRF-' + gradYear + '-' + Math.random().toString(36).substring(2, 6).toUpperCase();
-                    const almRecord = {
-                        id: 'alm-' + s.id,
-                        originalStudentId: s.id,
-                        admissionNo: s.admissionNo || ('TLS/' + gradYear + '/' + s.id.slice(-3)),
-                        indexNo: '0102' + gradYear.slice(-2) + String(Math.floor(1000 + Math.random() * 9000)),
-                        name: s.name,
-                        gender: s.gender || 'Not specified',
-                        dob: s.dob || '',
-                        graduationYear: gradYear,
-                        classGraduated: s.class || classId,
-                        finalAggregate: 10,
-                        overallGrade: 'Distinction (A)',
-                        awards: awardsRemark || 'Graduated with Honors',
-                        conductRemark: 'Exemplary conduct and dedication to learning throughout their academic period.',
-                        status: 'Verified',
-                        contactEmail: s.parentPhone ? '' : '',
-                        contactPhone: s.parentPhone || '',
-                        verificationCode,
-                        transcriptsIssued: 1,
-                        academicHistory: [
-                            {
-                                academicYear: (parseInt(gradYear) - 1) + '/' + gradYear,
-                                term: 'Final Academic Session',
-                                class: s.class || classId,
-                                subjects: [
-                                    { subject: 'English Language', classScore: 85, examScore: 90, totalScore: 88, grade: '1', remark: 'Excellent' },
-                                    { subject: 'Mathematics', classScore: 88, examScore: 92, totalScore: 90, grade: '1', remark: 'Outstanding' },
-                                    { subject: 'Integrated Science', classScore: 84, examScore: 88, totalScore: 86, grade: '1', remark: 'Excellent' },
-                                    { subject: 'Social Studies', classScore: 82, examScore: 86, totalScore: 84, grade: '2', remark: 'Very Good' },
-                                    { subject: 'Computing / ICT', classScore: 90, examScore: 94, totalScore: 92, grade: '1', remark: 'Outstanding' },
-                                    { subject: 'RME', classScore: 88, examScore: 90, totalScore: 89, grade: '1', remark: 'Excellent' }
-                                ]
-                            }
-                        ],
-                        createdAt: new Date().toISOString()
-                    };
-                    db.alumni.push(almRecord);
-                    createdAlumni.push(almRecord);
-                });
-
-                writeDb(db);
-                sendJson(res, 201, { success: true, graduatedCount: createdAlumni.length, alumni: createdAlumni });
-            } catch (e) {
-                sendJson(res, 400, { error: e.message });
-            }
-            return;
-        }
-
-        // Full official transcript details
-        const transcriptMatch = pathname.match(/^\/api\/alumni\/([^/]+)\/transcript$/);
-        if (transcriptMatch && method === 'GET') {
-            const id = transcriptMatch[1];
-            const db = readDb();
-            const record = (db.alumni || []).find(a => a.id === id || a.admissionNo === id || a.indexNo === id || a.verificationCode === id);
-            if (!record) {
-                sendJson(res, 404, { error: 'Alumni record not found for transcript generation.' });
-                return;
-            }
-            // Increment issued counter
-            record.transcriptsIssued = (record.transcriptsIssued || 0) + 1;
-            writeDb(db);
-
-            sendJson(res, 200, {
-                alumni: record,
-                schoolInfo: db.schoolInfo || {
-                    name: 'The Living Spring School',
-                    motto: 'Knowledge, Integrity, and Excellence',
-                    address: 'P.O. Box 1234, Accra, Ghana',
-                    phone: '+233 24 123 4567',
-                    email: 'info@livingspringschool.edu.gh'
-                },
-                issuedAt: new Date().toISOString(),
-                securityHash: 'SHA256:' + Buffer.from(record.id + record.verificationCode + Date.now()).toString('base64').slice(0, 32)
-            });
-            return;
-        }
-
-        // Request official transcript endpoint
-        if (pathname === '/api/alumni/request-transcript' && method === 'POST') {
-            try {
-                const payload = await readBody(req);
-                const db = readDb();
-                if (!Array.isArray(db.transcriptRequests)) db.transcriptRequests = [];
-                const reqItem = {
-                    id: 'req-' + genId(),
-                    trackingCode: 'TRK-TLS-' + Math.floor(10000 + Math.random() * 90000),
-                    requestDate: new Date().toISOString(),
-                    status: 'Pending',
-                    ...payload
-                };
-                db.transcriptRequests.unshift(reqItem);
-                writeDb(db);
-                sendJson(res, 201, reqItem);
-            } catch (e) {
-                sendJson(res, 400, { error: e.message });
-            }
-            return;
-        }
-
-        if (pathname === '/api/alumni/transcript-requests' && method === 'GET') {
-            const db = readDb();
-            sendJson(res, 200, db.transcriptRequests || []);
-            return;
-        }
-
-        const updateReqMatch = pathname.match(/^\/api\/alumni\/transcript-requests\/([^/]+)$/);
-        if (updateReqMatch && (method === 'PUT' || method === 'PATCH')) {
-            try {
-                const id = updateReqMatch[1];
-                const payload = await readBody(req);
-                const db = readDb();
-                const idx = (db.transcriptRequests || []).findIndex(r => r.id === id);
-                if (idx < 0) { sendJson(res, 404, { error: 'Request not found' }); return; }
-                db.transcriptRequests[idx] = { ...db.transcriptRequests[idx], ...payload, updatedAt: new Date().toISOString() };
-                writeDb(db);
-                sendJson(res, 200, db.transcriptRequests[idx]);
-            } catch (e) {
-                sendJson(res, 400, { error: e.message });
-            }
-            return;
-        }
-
-        const almMatch = pathname.match(/^\/api\/alumni\/([^/]+)$/);
-        if (almMatch) {
-            const id = almMatch[1];
-            if (method === 'GET') {
-                const db = readDb();
-                const a = (db.alumni || []).find(item => item.id === id);
-                a ? sendJson(res, 200, a) : sendJson(res, 404, { error: 'Alumni record not found' });
-                return;
-            }
-            if (method === 'PUT' || method === 'PATCH') {
-                await handleCollectionPut(req, res, 'alumni', id);
-                return;
-            }
-            if (method === 'DELETE') {
-                handleCollectionDelete(res, 'alumni', id);
-                return;
-            }
-        }
-
-        // ── TIMETABLES & EXAMS API ────────────────────────────────────────────
-        if (pathname === '/api/timetables' && method === 'GET') {
-            const db = readDb();
-            const cls = parsedUrl.searchParams.get('class') || parsedUrl.searchParams.get('classId');
-            let list = db.timetables || [];
-            if (cls) list = list.filter(t => t.class === cls || t.classId === cls);
-            sendJson(res, 200, list);
-            return;
-        }
-
-        if (pathname === '/api/timetables' && method === 'POST') {
-            try {
-                const payload = await readBody(req);
-                const db = readDb();
-                if (!Array.isArray(db.timetables)) db.timetables = [];
-                const id = payload.id || ('tt-' + (payload.class || 'class').toLowerCase().replace(/\s+/g, '-'));
-                const existingIdx = db.timetables.findIndex(t => t.id === id || (t.class && t.class === payload.class));
-                const item = {
-                    id,
-                    updatedAt: new Date().toISOString(),
-                    ...payload
-                };
-                if (existingIdx >= 0) {
-                    db.timetables[existingIdx] = item;
-                } else {
-                    db.timetables.push(item);
-                }
-                writeDb(db);
-                sendJson(res, 201, item);
-            } catch (e) {
-                sendJson(res, 400, { error: e.message });
-            }
-            return;
-        }
-
-        const ttMatch = pathname.match(/^\/api\/timetables\/([^/]+)$/);
-        if (ttMatch && !pathname.startsWith('/api/timetables/exams') && !pathname.startsWith('/api/timetables/teacher')) {
-            const id = ttMatch[1];
-            if (method === 'GET') {
-                const db = readDb();
-                const item = (db.timetables || []).find(t => t.id === id || t.class === id || t.classId === id);
-                item ? sendJson(res, 200, item) : sendJson(res, 404, { error: 'Timetable not found' });
-                return;
-            }
-            if (method === 'PUT' || method === 'PATCH') {
-                await handleCollectionPut(req, res, 'timetables', id);
-                return;
-            }
-            if (method === 'DELETE') {
-                handleCollectionDelete(res, 'timetables', id);
-                return;
-            }
-        }
-
-        // Exam Timetables
-        if (pathname === '/api/timetables/exams' && method === 'GET') {
-            const db = readDb();
-            let exams = db.examTimetables || [];
-            const cls = parsedUrl.searchParams.get('class');
-            const term = parsedUrl.searchParams.get('term');
-            if (cls) exams = exams.filter(e => e.class === cls);
-            if (term) exams = exams.filter(e => e.term === term);
-            // sort by date ascending
-            exams.sort((a, b) => (a.examDate || '').localeCompare(b.examDate || ''));
-            sendJson(res, 200, exams);
-            return;
-        }
-
-        if (pathname === '/api/timetables/exams' && method === 'POST') {
-            try {
-                const payload = await readBody(req);
-                const db = readDb();
-                if (!Array.isArray(db.examTimetables)) db.examTimetables = [];
-                const item = {
-                    id: 'exam-' + genId(),
-                    createdAt: new Date().toISOString(),
-                    status: 'Upcoming',
-                    ...payload
-                };
-                db.examTimetables.push(item);
-                writeDb(db);
-                sendJson(res, 201, item);
-            } catch (e) {
-                sendJson(res, 400, { error: e.message });
-            }
-            return;
-        }
-
-        const examMatch = pathname.match(/^\/api\/timetables\/([^/]+)$/);
-        if (examMatch && pathname.startsWith('/api/timetables/exams/')) {
-            const id = pathname.replace('/api/timetables/exams/', '');
-            if (method === 'GET') {
-                const db = readDb();
-                const item = (db.examTimetables || []).find(e => e.id === id);
-                item ? sendJson(res, 200, item) : sendJson(res, 404, { error: 'Exam not found' });
-                return;
-            }
-            if (method === 'PUT' || method === 'PATCH') {
-                await handleCollectionPut(req, res, 'examTimetables', id);
-                return;
-            }
-            if (method === 'DELETE') {
-                handleCollectionDelete(res, 'examTimetables', id);
-                return;
-            }
-        }
-
-        // Teacher schedule aggregator & clash detection
-        const teacherTtMatch = pathname.match(/^\/api\/timetables\/teacher\/([^/]+)$/);
-        if (teacherTtMatch && method === 'GET') {
-            const teacherName = decodeURIComponent(teacherTtMatch[1]);
-            const db = readDb();
-            const weeklySchedule = { Monday: [], Tuesday: [], Wednesday: [], Thursday: [], Friday: [] };
-            const clashes = [];
-
-            (db.timetables || []).forEach(tt => {
-                const sched = tt.schedule || {};
-                ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'].forEach(day => {
-                    (sched[day] || []).forEach(slot => {
-                        if (slot.teacher && slot.teacher.toLowerCase() === teacherName.toLowerCase()) {
-                            // Check for clash
-                            const existing = weeklySchedule[day].find(s => s.period === slot.period);
-                            if (existing) {
-                                clashes.push({
-                                    day,
-                                    period: slot.period,
-                                    classA: existing.class,
-                                    subjectA: existing.subject,
-                                    classB: tt.class,
-                                    subjectB: slot.subject
-                                });
-                            }
-                            weeklySchedule[day].push({
-                                period: slot.period,
-                                time: (tt.periods || []).find(p => p.period === slot.period)?.time || '',
-                                class: tt.class,
-                                subject: slot.subject,
-                                room: slot.room || tt.room || ''
-                            });
+            if (pathname === '/api/results/approve' && method === 'POST') {
+                try {
+                    const { ids, status: newStatus = 'Approved' } = await readBody(req);
+                    const db = readDb();
+                    let count = 0;
+                    (db.results || []).forEach(r => {
+                        if (ids.includes(r.id)) {
+                            r.status     = newStatus;
+                            r.locked     = true;
+                            r.approvedAt = new Date().toISOString();
+                            count++;
                         }
                     });
-                });
-            });
-
-            // Invigilation duties
-            const invigilationDuties = (db.examTimetables || []).filter(e =>
-                (e.chiefInvigilator && e.chiefInvigilator.toLowerCase() === teacherName.toLowerCase()) ||
-                (e.assistantInvigilator && e.assistantInvigilator.toLowerCase() === teacherName.toLowerCase())
-            );
-
-            sendJson(res, 200, {
-                teacherName,
-                weeklySchedule,
-                clashes,
-                hasClash: clashes.length > 0,
-                invigilationDuties
-            });
-            return;
-        }
-
-        // ── EXPORTS: Timetable & Alumni Excel ─────────────────────────────────
-        if ((pathname === '/api/export/alumni.xlsx' || pathname === '/api/export/alumni.csv') && method === 'GET') {
-            const db = readDb();
-            const list = db.alumni || [];
-            const headers = ['id', 'admissionNo', 'indexNo', 'name', 'gender', 'graduationYear', 'classGraduated', 'overallGrade', 'finalAggregate', 'awards', 'status', 'verificationCode', 'contactPhone', 'contactEmail'];
-            const table = [headers, ...list.map(a => headers.map(h => a[h] ?? ''))];
-            if (pathname.endsWith('.xlsx')) {
-                sendExcel(res, table, 'alumni_records.xlsx', 'Alumni');
+                    writeDb(db);
+                    sendJson(res, 200, { success: true, updated: count });
+                } catch (e) { sendJson(res, 400, { error: e.message }); }
                 return;
             }
-            sendAttachment(res, rowsToCsv(list, headers), 'alumni_records.csv', 'text/csv; charset=UTF-8');
-            return;
-        }
 
-        if ((pathname === '/api/export/timetable.xlsx' || pathname === '/api/export/timetable.csv') && method === 'GET') {
-            const db = readDb();
-            let list = db.timetables || [];
-            const targetClass = parsedUrl.searchParams.get('class');
-            if (targetClass) {
-                list = list.filter(t => (t.class || '').toLowerCase() === targetClass.toLowerCase() || (t.classId || '').toLowerCase() === targetClass.toLowerCase());
+            if (pathname === '/api/results/unlock' && method === 'POST') {
+                try {
+                    const { ids } = await readBody(req);
+                    const db = readDb();
+                    let count = 0;
+                    (db.results || []).forEach(r => {
+                        if (ids.includes(r.id)) {
+                            r.locked   = false;
+                            r.status   = 'Reviewed';
+                            r.unlockedAt = new Date().toISOString();
+                            count++;
+                        }
+                    });
+                    writeDb(db);
+                    sendJson(res, 200, { success: true, updated: count });
+                } catch (e) { sendJson(res, 400, { error: e.message }); }
+                return;
             }
-            const rows = [];
-            list.forEach(tt => {
-                ['Monday','Tuesday','Wednesday','Thursday','Friday'].forEach(day => {
-                    ((tt.schedule || {})[day] || []).forEach(s => {
+
+            if (pathname === '/api/results/pending' && method === 'GET') {
+                const db = readDb();
+                sendJson(res, 200, (db.results || []).filter(r => r.status === 'Submitted'));
+                return;
+            }
+
+            if (pathname === '/api/reports' && method === 'GET') {
+                const db = readDb();
+                const { year, term, class: cls, status } = Object.fromEntries(parsedUrl.searchParams);
+                let reports = db.reports || [];
+                if (year)   reports = reports.filter(r => r.academicYearId === year);
+                if (term)   reports = reports.filter(r => r.termId === term);
+                if (cls)    reports = reports.filter(r => r.classId === cls);
+                if (status) reports = reports.filter(r => r.status === status);
+                sendJson(res, 200, reports);
+                return;
+            }
+
+            if (pathname === '/api/reports' && method === 'POST') { await handleCollectionPost(req, res, 'reports'); return; }
+
+            const reportMatch = pathname.match(/^\/api\/reports\/([^/]+)$/);
+            if (reportMatch) {
+                const id = reportMatch[1];
+                if (method === 'PUT' || method === 'PATCH') { await handleCollectionPut(req, res, 'reports', id); return; }
+                if (method === 'DELETE') { handleCollectionDelete(res, 'reports', id); return; }
+            }
+
+            if (pathname === '/api/users' && method === 'GET')  { handleCollectionGet(res, 'users'); return; }
+            if (pathname === '/api/users' && method === 'POST') { await handleCollectionPost(req, res, 'users'); return; }
+
+            const userMatch = pathname.match(/^\/api\/users\/([^/]+)$/);
+            if (userMatch) {
+                const id = userMatch[1];
+                if (method === 'PUT' || method === 'PATCH') { await handleCollectionPut(req, res, 'users', id); return; }
+                if (method === 'DELETE') { handleCollectionDelete(res, 'users', id); return; }
+            }
+
+            if (pathname === '/api/grading-scales' && method === 'GET')  { handleCollectionGet(res, 'gradingScales'); return; }
+            if (pathname === '/api/grading-scales' && method === 'POST') { await handleCollectionPost(req, res, 'gradingScales'); return; }
+
+            const gsMatch = pathname.match(/^\/api\/grading-scales\/([^/]+)$/);
+            if (gsMatch) {
+                const id = gsMatch[1];
+                if (method === 'PUT' || method === 'PATCH') { await handleCollectionPut(req, res, 'gradingScales', id); return; }
+                if (method === 'DELETE') { handleCollectionDelete(res, 'gradingScales', id); return; }
+            }
+
+            if (pathname === '/api/grading-scales/active' && method === 'GET') {
+                const db    = readDb();
+                const scale = (db.gradingScales || []).find(s => s.isActive);
+                scale ? sendJson(res, 200, scale) : sendJson(res, 200, {
+                    isActive: true,
+                    name: 'Default',
+                    items: [
+                        { min: 80, max: 100, grade: 'A',  remark: 'ADVANCE' },
+                        { min: 68, max: 79,  grade: 'P',  remark: 'PROFICIENCY' },
+                        { min: 54, max: 67,  grade: 'AP', remark: 'APPROACHING PROFICIENCY' },
+                        { min: 40, max: 53,  grade: 'D',  remark: 'DEVELOPING' },
+                        { min: 0,  max: 39,  grade: 'B',  remark: 'BEGINNER' }
+                    ]
+                });
+                return;
+            }
+
+            if (pathname === '/api/school-settings' && method === 'GET') {
+                const db = readDb();
+                sendJson(res, 200, db.schoolSettings || {});
+                return;
+            }
+
+            if (pathname === '/api/school-settings' && method === 'POST') {
+                try {
+                    const payload = await readBody(req);
+                    const db = readDb();
+                    db.schoolSettings = { ...db.schoolSettings, ...payload, updatedAt: new Date().toISOString() };
+                    writeDb(db);
+                    sendJson(res, 200, { success: true, settings: db.schoolSettings });
+                } catch (e) { sendJson(res, 400, { error: e.message }); }
+                return;
+            }
+
+            if (pathname === '/api/school-info' && method === 'GET') {
+                sendJson(res, 200, readDb().schoolInfo || {});
+                return;
+            }
+
+            if (pathname === '/api/school-info' && method === 'POST') {
+                try {
+                    const payload = await readBody(req);
+                    const db = readDb();
+                    db.schoolInfo = payload;
+                    writeDb(db);
+                    sendJson(res, 200, { success: true });
+                } catch (e) { sendJson(res, 400, { error: e.message }); }
+                return;
+            }
+
+            if (pathname === '/api/scores' && method === 'GET') {
+                sendJson(res, 200, readDb().scores || {});
+                return;
+            }
+
+            if (pathname === '/api/scores' && method === 'POST') {
+                try {
+                    const payload = await readBody(req);
+                    const db = readDb();
+                    db.scores = payload;
+                    writeDb(db);
+                    sendJson(res, 200, { success: true });
+                } catch (e) { sendJson(res, 400, { error: e.message }); }
+                return;
+            }
+
+            if (pathname === '/api/attendance-marks' && method === 'GET') {
+                sendJson(res, 200, readDb().attendanceMarks || {});
+                return;
+            }
+            if (pathname === '/api/attendance-marks' && method === 'POST') {
+                try {
+                    const payload = await readBody(req);
+                    const db = readDb();
+                    db.attendanceMarks = payload;
+                    writeDb(db);
+                    sendJson(res, 200, { success: true });
+                } catch (e) { sendJson(res, 400, { error: e.message }); }
+                return;
+            }
+            if (pathname === '/api/attendance-settings' && method === 'GET') {
+                sendJson(res, 200, readDb().attendanceSettings || {});
+                return;
+            }
+            if (pathname === '/api/attendance-settings' && method === 'POST') {
+                try {
+                    const payload = await readBody(req);
+                    const db = readDb();
+                    db.attendanceSettings = payload;
+                    writeDb(db);
+                    sendJson(res, 200, { success: true });
+                } catch (e) { sendJson(res, 400, { error: e.message }); }
+                return;
+            }
+
+            if (pathname === '/api/audit-logs' && method === 'GET') {
+                const db   = readDb();
+                const limit = parseInt(parsedUrl.searchParams.get('limit') || '200');
+                sendJson(res, 200, (db.auditLogs || []).slice(0, limit));
+                return;
+            }
+            if (pathname === '/api/audit-logs' && method === 'POST') {
+                try {
+                    const logEntry = await readBody(req);
+                    const db = readDb();
+                    if (!Array.isArray(db.auditLogs)) db.auditLogs = [];
+                    db.auditLogs.unshift({ ...logEntry, serverTime: new Date().toISOString() });
+                    if (db.auditLogs.length > 500) db.auditLogs = db.auditLogs.slice(0, 500);
+                    writeDb(db);
+                    sendJson(res, 200, { success: true, log: logEntry });
+                } catch (e) { sendJson(res, 400, { error: e.message }); }
+                return;
+            }
+            if (pathname === '/api/audit-logs' && method === 'DELETE') {
+                const db = readDb();
+                db.auditLogs = [];
+                writeDb(db);
+                sendJson(res, 200, { success: true });
+                return;
+            }
+
+            if (pathname === '/api/export/backup' && method === 'GET') {
+                const db = readDb();
+                const body = JSON.stringify({ exportedAt: new Date().toISOString(), ...db }, null, 2);
+                sendAttachment(res, body, `school_backup_${new Date().toISOString().split('T')[0]}.json`, 'application/json; charset=UTF-8');
+                return;
+            }
+
+            if ((pathname === '/api/export/students.csv' || pathname === '/api/export/students.xlsx') && method === 'GET') {
+                const db = readDb();
+                const rows = db.students || [];
+                const headers = ['id','admissionNo','name','gender','dob','class','classId','status','parentName','parentPhone'];
+                const table = rows.length
+                    ? [headers, ...rows.map(r => headers.map(h => r[h] ?? ''))]
+                    : templateRows('students');
+                if (pathname.endsWith('.xlsx')) { sendExcel(res, table, 'students.xlsx', 'Students'); return; }
+                sendAttachment(res, rowsToCsv(table.slice(1).map(r => {
+                    const obj = {};
+                    table[0].forEach((h, i) => { obj[h] = r[i]; });
+                    return obj;
+                }), table[0]), 'students.csv', 'text/csv; charset=UTF-8');
+                return;
+            }
+
+            if ((pathname === '/api/export/results.csv' || pathname === '/api/export/results.xlsx') && method === 'GET') {
+                const db = readDb();
+                const rows = db.results || [];
+                const headers = ['id','studentId','studentName','classId','subjectId','classScore','examScore','totalScore','grade','remark','status','locked'];
+                const table = [headers, ...rows.map(r => headers.map(h => r[h] ?? ''))];
+                if (pathname.endsWith('.xlsx')) { sendExcel(res, table, 'results.xlsx', 'Results'); return; }
+                sendAttachment(res, rowsToCsv(rows.length ? rows : [{}], headers), 'results.csv', 'text/csv; charset=UTF-8');
+                return;
+            }
+
+            if ((pathname === '/api/templates/marks.csv' || pathname === '/api/templates/marks.xlsx' || pathname === '/api/templates/marks') && method === 'GET') {
+                const cls = parsedUrl.searchParams.get('class') || '';
+                const subject = parsedUrl.searchParams.get('subject') || 'Mathematics';
+                const table = marksTable(cls, subject);
+                const headers = table[0];
+                const safeClass = (cls || 'class').replace(/[^\w]+/g, '_');
+                const safeSub = String(subject).replace(/[^\w]+/g, '_');
+                if (pathname.endsWith('.xlsx')) {
+                    sendExcel(res, table, `${safeClass}_${safeSub}_marks_template.xlsx`, 'Marks');
+                    return;
+                }
+                sendAttachment(res, rowsToCsv(table.slice(1).map(r => ({
+                    'Student Name': r[0], Class: r[1], Subject: r[2],
+                    'Class Score (out of 100)': r[3], 'Exam Score (out of 100)': r[4]
+                })), headers), `${safeClass}_${safeSub}_marks_template.csv`, 'text/csv; charset=UTF-8');
+                return;
+            }
+
+            const templateMatch = pathname.match(/^\/api\/templates\/([a-z]+)(?:\.(csv|xlsx))?$/);
+            if (templateMatch && method === 'GET' && templateMatch[1] !== 'marks') {
+                const type = templateMatch[1];
+                const fmt = templateMatch[2] || 'xlsx';
+                const table = templateRows(type);
+                if (!table) { sendJson(res, 404, { error: 'Template type not found' }); return; }
+                if (fmt === 'xlsx') {
+                    sendExcel(res, table, `${type}_import_template.xlsx`, type);
+                    return;
+                }
+                sendAttachment(res, rowsToCsv(table.slice(1).map(r => {
+                    const obj = {};
+                    table[0].forEach((h, i) => { obj[h] = r[i]; });
+                    return obj;
+                }), table[0]), `${type}_import_template.csv`, 'text/csv; charset=UTF-8');
+                return;
+            }
+
+            if ((pathname === '/api/export/attendance.csv' || pathname === '/api/export/attendance.xlsx') && method === 'GET') {
+                const db = readDb();
+                const marks = db.attendanceMarks || {};
+                const rows = [];
+                Object.keys(marks).forEach(sid => {
+                    const days = marks[sid] || {};
+                    Object.keys(days).forEach(date => {
+                        const m = days[date] || {};
+                        const student = (db.students || []).find(s => String(s.id) === String(sid));
                         rows.push({
-                            Class: tt.class || '',
-                            Day: day,
-                            Period: s.period,
-                            Time: (tt.periods || []).find(p => Number(p.period) === Number(s.period))?.time || '',
-                            Subject: s.subject || '',
-                            Teacher: s.teacher || 'Unassigned',
-                            Room: s.room || tt.room || ''
+                            studentId: sid,
+                            studentName: student?.name || '',
+                            class: student?.class || m.className || '',
+                            date,
+                            status: m.status || '',
+                            markedBy: m.by || ''
                         });
                     });
                 });
-            });
-            const headers = ['Class', 'Day', 'Period', 'Time', 'Subject', 'Teacher', 'Room'];
-            const table = [headers, ...rows.map(r => headers.map(h => r[h] ?? ''))];
-            const fileName = targetClass ? `timetable_${targetClass.replace(/\s+/g, '_')}` : 'school_timetables';
-            if (pathname.endsWith('.xlsx')) {
-                sendExcel(res, table, `${fileName}.xlsx`, 'Timetables');
+                const attHeaders = ['studentId','studentName','class','date','status','markedBy'];
+                if (pathname.endsWith('.xlsx')) {
+                    sendExcel(res, [attHeaders, ...rows.map(r => attHeaders.map(h => r[h] ?? ''))], 'attendance.xlsx', 'Attendance');
+                    return;
+                }
+                sendAttachment(res, rowsToCsv(rows, attHeaders), 'attendance.csv', 'text/csv; charset=UTF-8');
                 return;
             }
-            sendAttachment(res, rowsToCsv(rows, headers), `${fileName}.csv`, 'text/csv; charset=UTF-8');
-            return;
-        }
 
-        if ((pathname === '/api/export/exams.xlsx' || pathname === '/api/export/exams.csv') && method === 'GET') {
-            const db = readDb();
-            let list = db.examTimetables || [];
-            const targetClass = parsedUrl.searchParams.get('class');
-            if (targetClass) {
-                list = list.filter(e => (e.class || '').toLowerCase() === targetClass.toLowerCase());
-            }
-            const rows = list.map(e => ({
-                'Exam Title': e.title || e.examTitle || 'Exam Paper',
-                'Class': e.class || 'All Classes',
-                'Subject': e.subject || '',
-                'Exam Date': e.examDate || '',
-                'Term': e.term ? `Term ${e.term}` : 'Term 1',
-                'Start Time': e.startTime || '',
-                'End Time': e.endTime || '',
-                'Hall / Venue': e.hall || 'Main Hall',
-                'Chief Invigilator': e.chiefInvigilator || 'TBD',
-                'Assistant Invigilator': e.assistantInvigilator || '—',
-                'Status': e.status || 'Scheduled'
-            }));
-            const headers = ['Exam Title', 'Class', 'Subject', 'Exam Date', 'Term', 'Start Time', 'End Time', 'Hall / Venue', 'Chief Invigilator', 'Assistant Invigilator', 'Status'];
-            const table = [headers, ...rows.map(r => headers.map(h => r[h] ?? ''))];
-            const fileName = targetClass ? `exams_${targetClass.replace(/\s+/g, '_')}` : 'master_exam_schedules';
-            if (pathname.endsWith('.xlsx')) {
-                sendExcel(res, table, `${fileName}.xlsx`, 'Exam Schedules');
-                return;
-            }
-            sendAttachment(res, rowsToCsv(rows, headers), `${fileName}.csv`, 'text/csv; charset=UTF-8');
-            return;
-        }
-
-        // ── IMPORT ────────────────────────────────────────────────────────────
-        // POST /api/import/:collection — bulk import array
-        const importMatch = pathname.match(/^\/api\/import\/([a-z]+)$/);
-        if (importMatch && method === 'POST') {
-            const colName = importMatch[1];
-            const validCols = ['students','teachers','classes','subjects','results','reports','gradingScales','alumni','timetables','examTimetables'];
-            if (!validCols.includes(colName)) { sendJson(res, 400, { error: 'Invalid collection' }); return; }
-            try {
-                const payload = await readBody(req);
-                const items = Array.isArray(payload) ? payload : [payload];
+            if ((pathname === '/api/export/broadsheet.csv' || pathname === '/api/export/broadsheet.xlsx') && method === 'GET') {
+                const cls = parsedUrl.searchParams.get('class') || '';
                 const db = readDb();
-                if (!Array.isArray(db[colName])) db[colName] = [];
-                const imported = items.map(item => ({ id: genId(), importedAt: new Date().toISOString(), ...item }));
-                db[colName].push(...imported);
+                let list = db.students || [];
+                if (cls) list = list.filter(s => s.class === cls || s.classId === cls);
+                const subjects = ['English Language','Mathematics','Science','RME','History','Creative Arts','Computing','French','Asante Twi','Career Technology'];
+                const scores = db.scores || {};
+                const rows = list.map(s => {
+                    const row = { Student: s.name, Class: s.class || cls };
+                    let sum = 0, n = 0;
+                    subjects.forEach(sub => {
+                        const bag = scores[sub] || {};
+                        const e = bag[s.id] || bag[String(s.id)] || {};
+                        const tot = e.totalScore === '' || e.totalScore == null ? '' : e.totalScore;
+                        row[sub] = tot;
+                        if (tot !== '') { sum += Number(tot) || 0; n++; }
+                    });
+                    row.Total = n ? sum : '';
+                    row.Average = n ? Math.round((sum / n) * 10) / 10 : '';
+                    return row;
+                });
+                if (pathname.endsWith('.xlsx')) {
+                    sendExcel(res, rows, `${safeFilePart(cls || 'class')}_broadsheet.xlsx`, 'Broadsheet');
+                    return;
+                }
+                sendAttachment(res, rowsToCsv(rows), `${safeFilePart(cls || 'class')}_broadsheet.csv`, 'text/csv; charset=UTF-8');
+                return;
+            }
+
+            if ((pathname === '/api/export/performance.csv' || pathname === '/api/export/performance.xlsx') && method === 'GET') {
+                const cls = parsedUrl.searchParams.get('class') || '';
+                const db = readDb();
+                let list = db.students || [];
+                if (cls) list = list.filter(s => s.class === cls || s.classId === cls);
+                const subjects = ['English Language','Mathematics','Science','RME','History','Creative Arts','Computing','French','Asante Twi','Career Technology'];
+                const scores = db.scores || {};
+                const rows = list.map(s => {
+                    let sum = 0, n = 0;
+                    subjects.forEach(sub => {
+                        const bag = scores[sub] || {};
+                        const e = bag[s.id] || bag[String(s.id)] || {};
+                        const tot = e.totalScore === '' || e.totalScore == null ? '' : Number(e.totalScore);
+                        if (tot !== '') { sum += tot || 0; n++; }
+                    });
+                    return { Student: s.name, Class: s.class || cls, Average: n ? Math.round((sum / n) * 10) / 10 : '', Subjects: n };
+                });
+                if (pathname.endsWith('.xlsx')) { sendExcel(res, rows, `${safeFilePart(cls || 'class')}_performance.xlsx`, 'Performance'); return; }
+                sendAttachment(res, rowsToCsv(rows), `${safeFilePart(cls || 'class')}_performance.csv`, 'text/csv; charset=UTF-8');
+                return;
+            }
+
+            if ((pathname === '/api/export/student.xlsx' || pathname === '/api/export/student.csv') && method === 'GET') {
+                const adm = parsedUrl.searchParams.get('admission') || parsedUrl.searchParams.get('id') || '';
+                const db = readDb();
+                const student = (db.students || []).find(s => String(s.admissionNo || '').toLowerCase() === adm.toLowerCase() || String(s.id) === String(adm));
+                const scores = db.scores || {};
+                const rows = [['Subject', 'Class Score', 'Exam Score', 'Total', 'Grade', 'Remark']];
+                if (student) {
+                    Object.keys(scores).forEach(sub => {
+                        const bag = scores[sub] || {};
+                        const e = bag[student.id] || bag[String(student.id)];
+                        if (!e) return;
+                        rows.push([sub, e.classScore ?? '', e.examScore ?? '', e.totalScore ?? '', e.grade || '', e.remark || '']);
+                    });
+                    if (rows.length === 1) rows.push(['No published results', '', '', '', '', '']);
+                } else {
+                    rows.push(['Student not found', '', '', '', '', '']);
+                }
+                const name = ((student && student.name) || adm || 'student').replace(/[^\w]+/g, '_') + '_results';
+                if (pathname.endsWith('.xlsx')) { sendExcel(res, rows, name + '.xlsx', 'Results'); return; }
+                sendAttachment(res, rowsToCsv(rows.slice(1).map(r => ({Subject:r[0],'Class Score':r[1],'Exam Score':r[2],Total:r[3],Grade:r[4],Remark:r[5]})), rows[0]), name + '.csv', 'text/csv; charset=UTF-8');
+                return;
+            }
+
+            const colExport = pathname.match(/^\/api\/export\/([a-zA-Z]+)(?:\.(csv|json|xlsx))?$/);
+            if (colExport && method === 'GET' && !['backup','students','results','attendance','broadsheet','performance'].includes(colExport[1])) {
+                const col = colExport[1];
+                const fmt = colExport[2] || 'json';
+                const db = readDb();
+                const data = db[col];
+                if (data === undefined) { sendJson(res, 404, { error: 'Unknown collection' }); return; }
+                const rows = Array.isArray(data) ? data : [data];
+                if (fmt === 'csv') {
+                    sendAttachment(res, rowsToCsv(rows), `${col}_export.csv`, 'text/csv; charset=UTF-8');
+                } else if (fmt === 'xlsx') {
+                    sendExcel(res, rows, `${col}_export.xlsx`, col);
+                } else {
+                    sendAttachment(res, JSON.stringify(data, null, 2), `${col}_export.json`, 'application/json; charset=UTF-8');
+                }
+                return;
+            }
+
+            if (pathname === '/api/downloads' && method === 'POST') {
+                try {
+                    const payload = await readBody(req);
+                    const filename = safeFilePart(payload.filename || 'download.bin');
+                    const mime = payload.mime || 'application/octet-stream';
+                    if (!payload.content) { sendJson(res, 400, { error: 'Missing file content' }); return; }
+                    ensureDlDir();
+                    pruneOldDownloads();
+                    const id = genId();
+                    const meta = { id, filename, mime, createdAt: new Date().toISOString() };
+                    fs.writeFileSync(path.join(DL_DIR, id + '.meta.json'), JSON.stringify(meta), 'utf8');
+                    fs.writeFileSync(path.join(DL_DIR, id + '.bin'), Buffer.from(payload.content, 'base64'));
+                    sendJson(res, 201, { id, filename, url: `/api/downloads/${id}/${encodeURIComponent(filename)}` });
+                } catch (e) { sendJson(res, 400, { error: e.message }); }
+                return;
+            }
+
+            const dlMatch = pathname.match(/^\/api\/downloads\/([^/]+)(?:\/([^/]+))?$/);
+            if (dlMatch && method === 'GET') {
+                const id = dlMatch[1].replace(/[^\w\-]+/g, '');
+                const metaPath = path.join(DL_DIR, id + '.meta.json');
+                const binPath = path.join(DL_DIR, id + '.bin');
+                if (!fs.existsSync(metaPath) || !fs.existsSync(binPath)) {
+                    sendJson(res, 404, { error: 'File expired or not found' });
+                    return;
+                }
+                try {
+                    const meta = JSON.parse(fs.readFileSync(metaPath, 'utf8'));
+                    const buf = fs.readFileSync(binPath);
+                    sendAttachment(res, buf, decodeURIComponent(dlMatch[2] || meta.filename || 'download'), meta.mime || 'application/octet-stream');
+                } catch (e) { sendJson(res, 500, { error: 'Could not read file' }); }
+                return;
+            }
+
+            if (pathname === '/api/restore' && method === 'POST') {
+                try {
+                    const payload = await readBody(req);
+                    if (!payload || (typeof payload !== 'object')) {
+                        sendJson(res, 400, { error: 'Invalid backup JSON payload' });
+                        return;
+                    }
+                    const db = readDb();
+                    const collections = ['students','teachers','classes','subjects','academicYears','terms','results','reports','gradingScales','schoolSettings','scores','schoolInfo','studentReportDetails','parentContacts','attendanceMarks','attendanceSettings'];
+                    collections.forEach(col => {
+                        if (payload[col] !== undefined) db[col] = payload[col];
+                    });
+                    writeDb(db);
+                    sendJson(res, 200, { success: true, timestamp: new Date().toISOString() });
+                } catch (e) { sendJson(res, 400, { error: e.message }); }
+                return;
+            }
+
+            if (pathname === '/api/backup/list' && method === 'GET') {
+                sendJson(res, 200, { success: true, snapshots: listSnapshots() });
+                return;
+            }
+
+            if (pathname === '/api/backup/snapshot' && method === 'POST') {
+                try {
+                    const body = await readBody(req).catch(() => ({}));
+                    const meta = takeSnapshot('manual', body.note || 'Manual user backup snapshot');
+                    if (meta) {
+                        sendJson(res, 201, { success: true, snapshot: meta });
+                    } else {
+                        sendJson(res, 500, { error: 'Failed to create snapshot' });
+                    }
+                } catch (e) {
+                    sendJson(res, 400, { error: e.message });
+                }
+                return;
+            }
+
+            const dlSnapshotMatch = pathname.match(/^\/api\/backup\/download\/([^/]+)$/);
+            if (dlSnapshotMatch && method === 'GET') {
+                const filename = dlSnapshotMatch[1].replace(/[^a-zA-Z0-9_.-]/g, '');
+                const filepath = path.join(BACKUPS_DIR, filename);
+                if (!fs.existsSync(filepath)) {
+                    sendJson(res, 404, { error: 'Snapshot file not found' });
+                    return;
+                }
+                try {
+                    const buf = fs.readFileSync(filepath);
+                    sendAttachment(res, buf, filename, 'application/json; charset=UTF-8');
+                } catch (e) {
+                    sendJson(res, 500, { error: 'Could not read snapshot' });
+                }
+                return;
+            }
+
+            if (pathname === '/api/backup/restore-snapshot' && method === 'POST') {
+                try {
+                    const { filename } = await readBody(req);
+                    if (!filename) { sendJson(res, 400, { error: 'Missing filename' }); return; }
+                    const safeName = filename.replace(/[^a-zA-Z0-9_.-]/g, '');
+                    const filepath = path.join(BACKUPS_DIR, safeName);
+                    if (!fs.existsSync(filepath)) {
+                        sendJson(res, 404, { error: 'Snapshot file does not exist' });
+                        return;
+                    }
+                    const raw = fs.readFileSync(filepath, 'utf8');
+                    const parsed = safeJsonParse(raw, null);
+                    if (!parsed || typeof parsed !== 'object') {
+                        sendJson(res, 400, { error: 'Invalid snapshot data format' });
+                        return;
+                    }
+                    const db = readDb();
+                    const collections = ['students','teachers','classes','subjects','academicYears','terms','results','reports','gradingScales','schoolSettings','scores','schoolInfo','studentReportDetails','parentContacts','attendanceMarks','attendanceSettings','alumni','timetables','examTimetables','transcriptRequests'];
+                    collections.forEach(col => {
+                        if (parsed[col] !== undefined) db[col] = parsed[col];
+                    });
+                    writeDb(db);
+                    sendJson(res, 200, { success: true, message: `Restored snapshot ${safeName}`, restoredAt: new Date().toISOString() });
+                } catch (e) {
+                    sendJson(res, 400, { error: e.message });
+                }
+                return;
+            }
+
+            if (pathname === '/api/backup/delete' && method === 'POST') {
+                try {
+                    const { filename } = await readBody(req);
+                    if (!filename) { sendJson(res, 400, { error: 'Missing filename' }); return; }
+                    const safeName = filename.replace(/[^a-zA-Z0-9_.-]/g, '');
+                    const filepath = path.join(BACKUPS_DIR, safeName);
+                    if (fs.existsSync(filepath)) {
+                        fs.unlinkSync(filepath);
+                        sendJson(res, 200, { success: true, removed: safeName });
+                    } else {
+                        sendJson(res, 404, { error: 'File not found' });
+                    }
+                } catch (e) {
+                    sendJson(res, 400, { error: e.message });
+                }
+                return;
+            }
+
+            if (pathname === '/api/alumni' && method === 'GET') {
+                const db = readDb();
+                let list = db.alumni || [];
+                const year = parsedUrl.searchParams.get('year');
+                const q = (parsedUrl.searchParams.get('search') || '').toLowerCase().trim();
+                if (year) list = list.filter(a => String(a.graduationYear) === String(year));
+                if (q) {
+                    list = list.filter(a =>
+                        (a.name || '').toLowerCase().includes(q) ||
+                        (a.admissionNo || '').toLowerCase().includes(q) ||
+                        (a.indexNo || '').toLowerCase().includes(q) ||
+                        (a.verificationCode || '').toLowerCase().includes(q)
+                    );
+                }
+                sendJson(res, 200, list);
+                return;
+            }
+
+            if (pathname === '/api/alumni' && method === 'POST') {
+                try {
+                    const payload = await readBody(req);
+                    const db = readDb();
+                    if (!Array.isArray(db.alumni)) db.alumni = [];
+                    const id = 'alm-' + genId();
+                    const verificationCode = 'TLS-VRF-' + (payload.graduationYear || new Date().getFullYear()) + '-' + Math.random().toString(36).substring(2, 6).toUpperCase();
+                    const item = {
+                        id,
+                        status: 'Verified',
+                        verificationCode,
+                        transcriptsIssued: 0,
+                        createdAt: new Date().toISOString(),
+                        ...payload
+                    };
+                    db.alumni.unshift(item);
+                    writeDb(db);
+                    sendJson(res, 201, item);
+                } catch (e) {
+                    sendJson(res, 400, { error: e.message });
+                }
+                return;
+            }
+
+            if (pathname === '/api/alumni/search' && method === 'GET') {
+                const db = readDb();
+                const q = (parsedUrl.searchParams.get('query') || '').trim().toLowerCase();
+                if (!q) {
+                    sendJson(res, 200, { found: false, results: [] });
+                    return;
+                }
+                const matches = (db.alumni || []).filter(a =>
+                    (a.name || '').toLowerCase().includes(q) ||
+                    (a.admissionNo || '').toLowerCase() === q ||
+                    (a.indexNo || '').toLowerCase() === q ||
+                    (a.verificationCode || '').toLowerCase() === q
+                );
+                sendJson(res, 200, {
+                    found: matches.length > 0,
+                    results: matches.map(a => ({
+                        id: a.id,
+                        name: a.name,
+                        admissionNo: a.admissionNo,
+                        indexNo: a.indexNo,
+                        graduationYear: a.graduationYear,
+                        classGraduated: a.classGraduated,
+                        overallGrade: a.overallGrade,
+                        finalAggregate: a.finalAggregate,
+                        status: a.status,
+                        verificationCode: a.verificationCode
+                    }))
+                });
+                return;
+            }
+
+            if (pathname === '/api/alumni/graduate' && method === 'POST') {
+                try {
+                    const { classId, graduationYear, awardsRemark } = await readBody(req);
+                    const db = readDb();
+                    const students = (db.students || []).filter(s => s.class === classId || s.classId === classId);
+                    if (!students.length) {
+                        sendJson(res, 404, { error: 'No active students found in the specified class.' });
+                        return;
+                    }
+                    if (!Array.isArray(db.alumni)) db.alumni = [];
+                    const gradYear = String(graduationYear || new Date().getFullYear());
+                    const createdAlumni = [];
+
+                    students.forEach(s => {
+                        const verificationCode = 'TLS-VRF-' + gradYear + '-' + Math.random().toString(36).substring(2, 6).toUpperCase();
+                        const almRecord = {
+                            id: 'alm-' + s.id,
+                            originalStudentId: s.id,
+                            admissionNo: s.admissionNo || ('TLS/' + gradYear + '/' + s.id.slice(-3)),
+                            indexNo: '0102' + gradYear.slice(-2) + String(Math.floor(1000 + Math.random() * 9000)),
+                            name: s.name,
+                            gender: s.gender || 'Not specified',
+                            dob: s.dob || '',
+                            graduationYear: gradYear,
+                            classGraduated: s.class || classId,
+                            finalAggregate: 10,
+                            overallGrade: 'Distinction (A)',
+                            awards: awardsRemark || 'Graduated with Honors',
+                            conductRemark: 'Exemplary conduct and dedication to learning throughout their academic period.',
+                            status: 'Verified',
+                            contactEmail: s.parentPhone ? '' : '',
+                            contactPhone: s.parentPhone || '',
+                            verificationCode,
+                            transcriptsIssued: 1,
+                            academicHistory: [
+                                {
+                                    academicYear: (parseInt(gradYear) - 1) + '/' + gradYear,
+                                    term: 'Final Academic Session',
+                                    class: s.class || classId,
+                                    subjects: [
+                                        { subject: 'English Language', classScore: 85, examScore: 90, totalScore: 88, grade: '1', remark: 'Excellent' },
+                                        { subject: 'Mathematics', classScore: 88, examScore: 92, totalScore: 90, grade: '1', remark: 'Outstanding' },
+                                        { subject: 'Integrated Science', classScore: 84, examScore: 88, totalScore: 86, grade: '1', remark: 'Excellent' },
+                                        { subject: 'Social Studies', classScore: 82, examScore: 86, totalScore: 84, grade: '2', remark: 'Very Good' },
+                                        { subject: 'Computing / ICT', classScore: 90, examScore: 94, totalScore: 92, grade: '1', remark: 'Outstanding' },
+                                        { subject: 'RME', classScore: 88, examScore: 90, totalScore: 89, grade: '1', remark: 'Excellent' }
+                                    ]
+                                }
+                            ],
+                            createdAt: new Date().toISOString()
+                        };
+                        db.alumni.push(almRecord);
+                        createdAlumni.push(almRecord);
+                    });
+
+                    writeDb(db);
+                    sendJson(res, 201, { success: true, graduatedCount: createdAlumni.length, alumni: createdAlumni });
+                } catch (e) {
+                    sendJson(res, 400, { error: e.message });
+                }
+                return;
+            }
+
+            const transcriptMatch = pathname.match(/^\/api\/alumni\/([^/]+)\/transcript$/);
+            if (transcriptMatch && method === 'GET') {
+                const id = transcriptMatch[1];
+                const db = readDb();
+                const record = (db.alumni || []).find(a => a.id === id || a.admissionNo === id || a.indexNo === id || a.verificationCode === id);
+                if (!record) {
+                    sendJson(res, 404, { error: 'Alumni record not found for transcript generation.' });
+                    return;
+                }
+                record.transcriptsIssued = (record.transcriptsIssued || 0) + 1;
                 writeDb(db);
-                sendJson(res, 201, { success: true, imported: imported.length });
-            } catch (e) { sendJson(res, 400, { error: e.message }); }
+
+                sendJson(res, 200, {
+                    alumni: record,
+                    schoolInfo: db.schoolInfo || {
+                        name: 'The Living Spring School',
+                        motto: 'Knowledge, Integrity, and Excellence',
+                        address: 'P.O. Box 1234, Accra, Ghana',
+                        phone: '+233 24 123 4567',
+                        email: 'info@livingspringschool.edu.gh'
+                    },
+                    issuedAt: new Date().toISOString(),
+                    securityHash: 'SHA256:' + Buffer.from(record.id + record.verificationCode + Date.now()).toString('base64').slice(0, 32)
+                });
+                return;
+            }
+
+            if (pathname === '/api/alumni/request-transcript' && method === 'POST') {
+                try {
+                    const payload = await readBody(req);
+                    const db = readDb();
+                    if (!Array.isArray(db.transcriptRequests)) db.transcriptRequests = [];
+                    const reqItem = {
+                        id: 'req-' + genId(),
+                        trackingCode: 'TRK-TLS-' + Math.floor(10000 + Math.random() * 90000),
+                        requestDate: new Date().toISOString(),
+                        status: 'Pending',
+                        ...payload
+                    };
+                    db.transcriptRequests.unshift(reqItem);
+                    writeDb(db);
+                    sendJson(res, 201, reqItem);
+                } catch (e) {
+                    sendJson(res, 400, { error: e.message });
+                }
+                return;
+            }
+
+            if (pathname === '/api/alumni/transcript-requests' && method === 'GET') {
+                const db = readDb();
+                sendJson(res, 200, db.transcriptRequests || []);
+                return;
+            }
+
+            const updateReqMatch = pathname.match(/^\/api\/alumni\/transcript-requests\/([^/]+)$/);
+            if (updateReqMatch && (method === 'PUT' || method === 'PATCH')) {
+                try {
+                    const id = updateReqMatch[1];
+                    const payload = await readBody(req);
+                    const db = readDb();
+                    const idx = (db.transcriptRequests || []).findIndex(r => r.id === id);
+                    if (idx < 0) { sendJson(res, 404, { error: 'Request not found' }); return; }
+                    db.transcriptRequests[idx] = { ...db.transcriptRequests[idx], ...payload, updatedAt: new Date().toISOString() };
+                    writeDb(db);
+                    sendJson(res, 200, db.transcriptRequests[idx]);
+                } catch (e) {
+                    sendJson(res, 400, { error: e.message });
+                }
+                return;
+            }
+
+            const almMatch = pathname.match(/^\/api\/alumni\/([^/]+)$/);
+            if (almMatch) {
+                const id = almMatch[1];
+                if (method === 'GET') {
+                    const db = readDb();
+                    const a = (db.alumni || []).find(item => item.id === id);
+                    a ? sendJson(res, 200, a) : sendJson(res, 404, { error: 'Alumni record not found' });
+                    return;
+                }
+                if (method === 'PUT' || method === 'PATCH') {
+                    await handleCollectionPut(req, res, 'alumni', id);
+                    return;
+                }
+                if (method === 'DELETE') {
+                    handleCollectionDelete(res, 'alumni', id);
+                    return;
+                }
+            }
+
+            if (pathname === '/api/timetables' && method === 'GET') {
+                const db = readDb();
+                const cls = parsedUrl.searchParams.get('class') || parsedUrl.searchParams.get('classId');
+                let list = db.timetables || [];
+                if (cls) list = list.filter(t => t.class === cls || t.classId === cls);
+                sendJson(res, 200, list);
+                return;
+            }
+
+            if (pathname === '/api/timetables' && method === 'POST') {
+                try {
+                    const payload = await readBody(req);
+                    const db = readDb();
+                    if (!Array.isArray(db.timetables)) db.timetables = [];
+                    const id = payload.id || ('tt-' + (payload.class || 'class').toLowerCase().replace(/\s+/g, '-'));
+                    const existingIdx = db.timetables.findIndex(t => t.id === id || (t.class && t.class === payload.class));
+                    const item = {
+                        id,
+                        updatedAt: new Date().toISOString(),
+                        ...payload
+                    };
+                    if (existingIdx >= 0) {
+                        db.timetables[existingIdx] = item;
+                    } else {
+                        db.timetables.push(item);
+                    }
+                    writeDb(db);
+                    sendJson(res, 201, item);
+                } catch (e) {
+                    sendJson(res, 400, { error: e.message });
+                }
+                return;
+            }
+
+            const ttMatch = pathname.match(/^\/api\/timetables\/([^/]+)$/);
+            if (ttMatch && !pathname.startsWith('/api/timetables/exams') && !pathname.startsWith('/api/timetables/teacher')) {
+                const id = ttMatch[1];
+                if (method === 'GET') {
+                    const db = readDb();
+                    const item = (db.timetables || []).find(t => t.id === id || t.class === id || t.classId === id);
+                    item ? sendJson(res, 200, item) : sendJson(res, 404, { error: 'Timetable not found' });
+                    return;
+                }
+                if (method === 'PUT' || method === 'PATCH') {
+                    await handleCollectionPut(req, res, 'timetables', id);
+                    return;
+                }
+                if (method === 'DELETE') {
+                    handleCollectionDelete(res, 'timetables', id);
+                    return;
+                }
+            }
+
+            if (pathname === '/api/timetables/exams' && method === 'GET') {
+                const db = readDb();
+                let exams = db.examTimetables || [];
+                const cls = parsedUrl.searchParams.get('class');
+                const term = parsedUrl.searchParams.get('term');
+                if (cls) exams = exams.filter(e => e.class === cls);
+                if (term) exams = exams.filter(e => e.term === term);
+                exams.sort((a, b) => (a.examDate || '').localeCompare(b.examDate || ''));
+                sendJson(res, 200, exams);
+                return;
+            }
+
+            if (pathname === '/api/timetables/exams' && method === 'POST') {
+                try {
+                    const payload = await readBody(req);
+                    const db = readDb();
+                    if (!Array.isArray(db.examTimetables)) db.examTimetables = [];
+                    const item = {
+                        id: 'exam-' + genId(),
+                        createdAt: new Date().toISOString(),
+                        status: 'Upcoming',
+                        ...payload
+                    };
+                    db.examTimetables.push(item);
+                    writeDb(db);
+                    sendJson(res, 201, item);
+                } catch (e) {
+                    sendJson(res, 400, { error: e.message });
+                }
+                return;
+            }
+
+            const examMatch = pathname.match(/^\/api\/timetables\/([^/]+)$/);
+            if (examMatch && pathname.startsWith('/api/timetables/exams/')) {
+                const id = pathname.replace('/api/timetables/exams/', '');
+                if (method === 'GET') {
+                    const db = readDb();
+                    const item = (db.examTimetables || []).find(e => e.id === id);
+                    item ? sendJson(res, 200, item) : sendJson(res, 404, { error: 'Exam not found' });
+                    return;
+                }
+                if (method === 'PUT' || method === 'PATCH') {
+                    await handleCollectionPut(req, res, 'examTimetables', id);
+                    return;
+                }
+                if (method === 'DELETE') {
+                    handleCollectionDelete(res, 'examTimetables', id);
+                    return;
+                }
+            }
+
+            const teacherTtMatch = pathname.match(/^\/api\/timetables\/teacher\/([^/]+)$/);
+            if (teacherTtMatch && method === 'GET') {
+                const teacherName = decodeURIComponent(teacherTtMatch[1]);
+                const db = readDb();
+                const weeklySchedule = { Monday: [], Tuesday: [], Wednesday: [], Thursday: [], Friday: [] };
+                const clashes = [];
+
+                (db.timetables || []).forEach(tt => {
+                    const sched = tt.schedule || {};
+                    ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'].forEach(day => {
+                        (sched[day] || []).forEach(slot => {
+                            if (slot.teacher && slot.teacher.toLowerCase() === teacherName.toLowerCase()) {
+                                const existing = weeklySchedule[day].find(s => s.period === slot.period);
+                                if (existing) {
+                                    clashes.push({
+                                        day,
+                                        period: slot.period,
+                                        classA: existing.class,
+                                        subjectA: existing.subject,
+                                        classB: tt.class,
+                                        subjectB: slot.subject
+                                    });
+                                }
+                                weeklySchedule[day].push({
+                                    period: slot.period,
+                                    time: (tt.periods || []).find(p => p.period === slot.period)?.time || '',
+                                    class: tt.class,
+                                    subject: slot.subject,
+                                    room: slot.room || tt.room || ''
+                                });
+                            }
+                        });
+                    });
+                });
+
+                const invigilationDuties = (db.examTimetables || []).filter(e =>
+                    (e.chiefInvigilator && e.chiefInvigilator.toLowerCase() === teacherName.toLowerCase()) ||
+                    (e.assistantInvigilator && e.assistantInvigilator.toLowerCase() === teacherName.toLowerCase())
+                );
+
+                sendJson(res, 200, {
+                    teacherName,
+                    weeklySchedule,
+                    clashes,
+                    hasClash: clashes.length > 0,
+                    invigilationDuties
+                });
+                return;
+            }
+
+            if ((pathname === '/api/export/alumni.xlsx' || pathname === '/api/export/alumni.csv') && method === 'GET') {
+                const db = readDb();
+                const list = db.alumni || [];
+                const headers = ['id', 'admissionNo', 'indexNo', 'name', 'gender', 'graduationYear', 'classGraduated', 'overallGrade', 'finalAggregate', 'awards', 'status', 'verificationCode', 'contactPhone', 'contactEmail'];
+                const table = [headers, ...list.map(a => headers.map(h => a[h] ?? ''))];
+                if (pathname.endsWith('.xlsx')) {
+                    sendExcel(res, table, 'alumni_records.xlsx', 'Alumni');
+                    return;
+                }
+                sendAttachment(res, rowsToCsv(list, headers), 'alumni_records.csv', 'text/csv; charset=UTF-8');
+                return;
+            }
+
+            if ((pathname === '/api/export/timetable.xlsx' || pathname === '/api/export/timetable.csv') && method === 'GET') {
+                const db = readDb();
+                let list = db.timetables || [];
+                const targetClass = parsedUrl.searchParams.get('class');
+                if (targetClass) {
+                    list = list.filter(t => (t.class || '').toLowerCase() === targetClass.toLowerCase() || (t.classId || '').toLowerCase() === targetClass.toLowerCase());
+                }
+                const rows = [];
+                list.forEach(tt => {
+                    ['Monday','Tuesday','Wednesday','Thursday','Friday'].forEach(day => {
+                        ((tt.schedule || {})[day] || []).forEach(s => {
+                            rows.push({
+                                Class: tt.class || '',
+                                Day: day,
+                                Period: s.period,
+                                Time: (tt.periods || []).find(p => Number(p.period) === Number(s.period))?.time || '',
+                                Subject: s.subject || '',
+                                Teacher: s.teacher || 'Unassigned',
+                                Room: s.room || tt.room || ''
+                            });
+                        });
+                    });
+                });
+                const headers = ['Class', 'Day', 'Period', 'Time', 'Subject', 'Teacher', 'Room'];
+                const table = [headers, ...rows.map(r => headers.map(h => r[h] ?? ''))];
+                const fileName = targetClass ? `timetable_${targetClass.replace(/\s+/g, '_')}` : 'school_timetables';
+                if (pathname.endsWith('.xlsx')) {
+                    sendExcel(res, table, `${fileName}.xlsx`, 'Timetables');
+                    return;
+                }
+                sendAttachment(res, rowsToCsv(rows, headers), `${fileName}.csv`, 'text/csv; charset=UTF-8');
+                return;
+            }
+
+            if ((pathname === '/api/export/exams.xlsx' || pathname === '/api/export/exams.csv') && method === 'GET') {
+                const db = readDb();
+                let list = db.examTimetables || [];
+                const targetClass = parsedUrl.searchParams.get('class');
+                if (targetClass) {
+                    list = list.filter(e => (e.class || '').toLowerCase() === targetClass.toLowerCase());
+                }
+                const rows = list.map(e => ({
+                    'Exam Title': e.title || e.examTitle || 'Exam Paper',
+                    'Class': e.class || 'All Classes',
+                    'Subject': e.subject || '',
+                    'Exam Date': e.examDate || '',
+                    'Term': e.term ? `Term ${e.term}` : 'Term 1',
+                    'Start Time': e.startTime || '',
+                    'End Time': e.endTime || '',
+                    'Hall / Venue': e.hall || 'Main Hall',
+                    'Chief Invigilator': e.chiefInvigilator || 'TBD',
+                    'Assistant Invigilator': e.assistantInvigilator || '—',
+                    'Status': e.status || 'Scheduled'
+                }));
+                const headers = ['Exam Title', 'Class', 'Subject', 'Exam Date', 'Term', 'Start Time', 'End Time', 'Hall / Venue', 'Chief Invigilator', 'Assistant Invigilator', 'Status'];
+                const table = [headers, ...rows.map(r => headers.map(h => r[h] ?? ''))];
+                const fileName = targetClass ? `exams_${targetClass.replace(/\s+/g, '_')}` : 'master_exam_schedules';
+                if (pathname.endsWith('.xlsx')) {
+                    sendExcel(res, table, `${fileName}.xlsx`, 'Exam Schedules');
+                    return;
+                }
+                sendAttachment(res, rowsToCsv(rows, headers), `${fileName}.csv`, 'text/csv; charset=UTF-8');
+                return;
+            }
+
+            const importMatch = pathname.match(/^\/api\/import\/([a-z]+)$/);
+            if (importMatch && method === 'POST') {
+                const colName = importMatch[1];
+                const validCols = ['students','teachers','classes','subjects','results','reports','gradingScales','alumni','timetables','examTimetables'];
+                if (!validCols.includes(colName)) { sendJson(res, 400, { error: 'Invalid collection' }); return; }
+                try {
+                    const payload = await readBody(req);
+                    const items = Array.isArray(payload) ? payload : [payload];
+                    const db = readDb();
+                    if (!Array.isArray(db[colName])) db[colName] = [];
+                    const imported = items.map(item => ({ id: genId(), importedAt: new Date().toISOString(), ...item }));
+                    db[colName].push(...imported);
+                    writeDb(db);
+                    sendJson(res, 201, { success: true, imported: imported.length });
+                } catch (e) { sendJson(res, 400, { error: e.message }); }
+                return;
+            }
+
+            if (pathname === '/api/stats' && method === 'GET') {
+                const db = readDb();
+                const results = db.results || [];
+                const byStatus = {};
+                results.forEach(r => { byStatus[r.status || 'Draft'] = (byStatus[r.status || 'Draft'] || 0) + 1; });
+                const scores   = results.map(r => parseFloat(r.totalScore)).filter(n => !isNaN(n));
+                const avg      = scores.length ? Math.round(scores.reduce((a,b) => a+b,0) / scores.length) : 0;
+                sendJson(res, 200, {
+                    students:        (db.students        || []).length,
+                    teachers:        (db.teachers        || []).length,
+                    classes:         (db.classes         || []).length,
+                    subjects:        (db.subjects        || []).length,
+                    results:         results.length,
+                    reports:         (db.reports         || []).length,
+                    alumni:          (db.alumni          || []).length,
+                    timetables:      (db.timetables      || []).length,
+                    examTimetables:  (db.examTimetables  || []).length,
+                    resultsByStatus: byStatus,
+                    averageScore:    avg,
+                    gradingScales:   (db.gradingScales   || []).length,
+                    academicYears:   (db.academicYears   || []).length,
+                    snapshots:       listSnapshots().length
+                });
+                return;
+            }
+
+            sendJson(res, 404, { error: 'API endpoint not found', path: pathname });
             return;
         }
 
-        // ── STATS ─────────────────────────────────────────────────────────────
-        if (pathname === '/api/stats' && method === 'GET') {
-            const db = readDb();
-            const results = db.results || [];
-            const byStatus = {};
-            results.forEach(r => { byStatus[r.status || 'Draft'] = (byStatus[r.status || 'Draft'] || 0) + 1; });
-            const scores   = results.map(r => parseFloat(r.totalScore)).filter(n => !isNaN(n));
-            const avg      = scores.length ? Math.round(scores.reduce((a,b) => a+b,0) / scores.length) : 0;
-            sendJson(res, 200, {
-                students:        (db.students        || []).length,
-                teachers:        (db.teachers        || []).length,
-                classes:         (db.classes         || []).length,
-                subjects:        (db.subjects        || []).length,
-                results:         results.length,
-                reports:         (db.reports         || []).length,
-                alumni:          (db.alumni          || []).length,
-                timetables:      (db.timetables      || []).length,
-                examTimetables:  (db.examTimetables  || []).length,
-                resultsByStatus: byStatus,
-                averageScore:    avg,
-                gradingScales:   (db.gradingScales   || []).length,
-                academicYears:   (db.academicYears   || []).length,
-                snapshots:       listSnapshots().length
+        // ─── Visible spreadsheet page ──────────────────────────────────────────
+        if ((pathname === '/open' || pathname === '/open.html') && method === 'GET') {
+            const pack = resolveExportTable(parsedUrl.searchParams.get('src') || '', parsedUrl.searchParams);
+            const html = renderOpenPage(pack.title, pack.filename, pack.rows);
+            res.writeHead(200, { 'Content-Type': 'text/html; charset=UTF-8', 'Cache-Control': 'no-store' });
+            res.end(html);
+            return;
+        }
+
+        // ─── Static file server ────────────────────────────────────────────────
+        let reqPath = pathname;
+        if (reqPath === '/' || !reqPath) reqPath = '/report.html';
+        if (reqPath === '/admin') reqPath = '/admin.html';
+        if (reqPath === '/student') reqPath = '/student.html';
+        if (reqPath === '/alumni') reqPath = '/alumni.html';
+        if (reqPath === '/teacher' || reqPath === '/report') reqPath = '/report.html';
+        if (reqPath === '/excel') reqPath = '/excel.html';
+        if (reqPath === '/timetable' || reqPath === '/timetables') reqPath = '/timetable.html';
+
+        const normalizedReq = reqPath.replace(/^\/+/, '');
+        const candidatePaths = [
+            path.join(__dirname, normalizedReq),
+            path.join(__dirname, 'public', normalizedReq),
+            path.join(process.cwd(), normalizedReq),
+            path.join(process.cwd(), 'public', normalizedReq)
+        ];
+
+        if (!path.extname(normalizedReq)) {
+            candidatePaths.push(
+                path.join(__dirname, `${normalizedReq}.html`),
+                path.join(__dirname, 'public', `${normalizedReq}.html`),
+                path.join(process.cwd(), `${normalizedReq}.html`),
+                path.join(process.cwd(), 'public', `${normalizedReq}.html`)
+            );
+        }
+
+        let resolvedFile = null;
+        for (const cand of candidatePaths) {
+            try {
+                if (fs.existsSync(cand) && fs.statSync(cand).isFile()) {
+                    resolvedFile = cand;
+                    break;
+                }
+            } catch (e) {}
+        }
+
+        if (resolvedFile) {
+            const ext = path.extname(resolvedFile).toLowerCase();
+            const contentType = MIME_TYPES[ext] || 'application/octet-stream';
+            fs.readFile(resolvedFile, (err, content) => {
+                if (err) {
+                    res.writeHead(500);
+                    res.end(`Server Error: ${err.code}`);
+                } else {
+                    res.writeHead(200, { 'Content-Type': contentType, 'Cache-Control': 'no-cache' });
+                    res.end(content);
+                }
             });
             return;
         }
 
-        sendJson(res, 404, { error: 'API endpoint not found', path: pathname });
-        return;
-    }
-
-    // ─── Visible spreadsheet page (preview-safe) ────────────────────────────
-    if ((pathname === '/open' || pathname === '/open.html') && method === 'GET') {
-        const pack = resolveExportTable(parsedUrl.searchParams.get('src') || '', parsedUrl.searchParams);
-        const html = renderOpenPage(pack.title, pack.filename, pack.rows);
-        res.writeHead(200, { 'Content-Type': 'text/html; charset=UTF-8', 'Cache-Control': 'no-store' });
-        res.end(html);
-        return;
-    }
-
-    // ─── Static file server ─────────────────────────────────────────────────
-
-    let reqPath = pathname;
-    // Root lands on the teacher portal login — never the Excel template page.
-    if (reqPath === '/' || !reqPath) reqPath = '/report.html';
-    // Convenience routes
-    if (reqPath === '/admin') reqPath = '/admin.html';
-    if (reqPath === '/student') reqPath = '/student.html';
-    if (reqPath === '/alumni') reqPath = '/alumni.html';
-    if (reqPath === '/teacher' || reqPath === '/report') reqPath = '/report.html';
-    if (reqPath === '/excel') reqPath = '/excel.html';
-    if (reqPath === '/timetable' || reqPath === '/timetables') reqPath = '/timetable.html';
-
-    const normalizedReq = reqPath.replace(/^\/+/, '');
-    const candidatePaths = [
-        path.join(__dirname, normalizedReq),
-        path.join(__dirname, 'public', normalizedReq),
-        path.join(process.cwd(), normalizedReq),
-        path.join(process.cwd(), 'public', normalizedReq)
-    ];
-
-    // Also add .html candidates if path has no extension
-    if (!path.extname(normalizedReq)) {
-        candidatePaths.push(
-            path.join(__dirname, `${normalizedReq}.html`),
-            path.join(__dirname, 'public', `${normalizedReq}.html`),
-            path.join(process.cwd(), `${normalizedReq}.html`),
-            path.join(process.cwd(), 'public', `${normalizedReq}.html`)
-        );
-    }
-
-    let resolvedFile = null;
-    for (const cand of candidatePaths) {
-        try {
-            if (fs.existsSync(cand) && fs.statSync(cand).isFile()) {
-                resolvedFile = cand;
-                break;
-            }
-        } catch (e) {}
-    }
-
-    if (resolvedFile) {
-        const ext = path.extname(resolvedFile).toLowerCase();
-        const contentType = MIME_TYPES[ext] || 'application/octet-stream';
-        fs.readFile(resolvedFile, (err, content) => {
-            if (err) {
-                res.writeHead(500);
-                res.end(`Server Error: ${err.code}`);
-            } else {
-                res.writeHead(200, { 'Content-Type': contentType, 'Cache-Control': 'no-cache' });
-                res.end(content);
-            }
-        });
-        return;
-    }
-
-    res.writeHead(404, { 'Content-Type': 'text/html; charset=UTF-8' });
-    res.end(`<!DOCTYPE html><html><head><title>404 - OneReal School</title><meta name="viewport" content="width=device-width, initial-scale=1"></head><body style="font-family:sans-serif;padding:40px;text-align:center;background:#0f172a;color:#fff;">
-        <h1 style="font-size:32px;margin-bottom:10px;">404 – Page Not Found</h1>
-        <p style="color:#94a3b8;margin-bottom:24px;">The requested page could not be located.</p>
-        <div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap;">
-            <a href="/report.html" style="color:#fff;background:#2563eb;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:600;">Teacher Portal</a>
-            <a href="/admin.html" style="color:#fff;background:#4f46e5;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:600;">Admin Dashboard</a>
-            <a href="/student.html" style="color:#fff;background:#059669;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:600;">Student Portal</a>
-        </div>
-    </body></html>`);
+        res.writeHead(404, { 'Content-Type': 'text/html; charset=UTF-8' });
+        res.end(`<!DOCTYPE html><html><head><title>404 - OneReal School</title><meta name="viewport" content="width=device-width, initial-scale=1"></head><body style="font-family:sans-serif;padding:40px;text-align:center;background:#0f172a;color:#fff;">
+            <h1 style="font-size:32px;margin-bottom:10px;">404 – Page Not Found</h1>
+            <p style="color:#94a3b8;margin-bottom:24px;">The requested page could not be located.</p>
+            <div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap;">
+                <a href="/report.html" style="color:#fff;background:#2563eb;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:600;">Teacher Portal</a>
+                <a href="/admin.html" style="color:#fff;background:#4f46e5;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:600;">Admin Dashboard</a>
+                <a href="/student.html" style="color:#fff;background:#059669;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:600;">Student Portal</a>
+            </div>
+        </body></html>`);
     } catch (err) {
         console.error('Unhandled requestHandler error:', err);
         if (!res.headersSent) {
@@ -2259,8 +2188,6 @@ async function requestHandler(req, res) {
 }
 
 const server = http.createServer(requestHandler);
-
-// ─── Boot ─────────────────────────────────────────────────────────────────────
 
 try {
     initDb();

@@ -135,52 +135,113 @@ function initFirebase(config = getStoredFirebaseConfig()) {
 // USER PROFILE & RBAC
 // ──────────────────────────────────────────────────────────────────────────────
 
+let authHelperApp = null;
+function getAuthHelperApp() {
+    if (!authHelperApp && typeof firebase !== 'undefined') {
+        try {
+            authHelperApp = firebase.app('auth_helper');
+        } catch (e) {
+            try {
+                authHelperApp = firebase.initializeApp(getStoredFirebaseConfig(), 'auth_helper');
+            } catch (err) {
+                authHelperApp = firebaseApp;
+            }
+        }
+    }
+    return authHelperApp;
+}
+
 async function loadUserProfile(uid) {
-    if (!db) return null;
+    const email = (auth && auth.currentUser?.email) || '';
+    
+    // 1. Instant check from local cache for sub-millisecond profile resolution
     try {
-        let doc = await db.collection('teachers').doc(uid).get();
-        if (doc.exists) {
-            currentUserProfile = { uid, ...doc.data(), displayName: doc.data().name || doc.data().displayName };
-        } else {
-            const email = auth.currentUser?.email || '';
-            let foundByEmail = null;
+        const teachers = JSON.parse(localStorage.getItem('teachers') || '[]');
+        const users = JSON.parse(localStorage.getItem('users') || '[]');
+        const localMatch = teachers.find(t => (uid && (t.id === uid || t.uid === uid)) || (email && (t.email || '').toLowerCase() === email.toLowerCase()))
+            || users.find(u => (uid && (u.id === uid || u.uid === uid)) || (email && (u.email || '').toLowerCase() === email.toLowerCase()));
+
+        if (localMatch) {
+            currentUserProfile = {
+                ...localMatch,
+                uid: uid || localMatch.uid || localMatch.id,
+                displayName: localMatch.name || localMatch.displayName || email || 'Teacher'
+            };
+            if (currentUserProfile.status === 'inactive' || currentUserProfile.status === 'deleted' || currentUserProfile.isDeleted) {
+                if (auth) await auth.signOut().catch(() => {});
+                currentUserProfile = null;
+                throw new Error('Your account has been deactivated / deleted by the Administrator. Please contact your school administrator.');
+            }
+        }
+    } catch (e) {
+        if (e.message && (e.message.includes('deactivated') || e.message.includes('deleted'))) throw e;
+    }
+
+    if (!db) {
+        if (!currentUserProfile && uid) {
+            currentUserProfile = {
+                uid,
+                email,
+                displayName: (auth && auth.currentUser?.displayName) || email || 'Teacher',
+                role: 'Teacher',
+                assignedClasses: [],
+                assignedSubjects: [],
+                status: 'active'
+            };
+        }
+        return currentUserProfile;
+    }
+
+    // 2. Fast background check against Firestore with a tight timeout so UI never hangs
+    try {
+        const fetchRemoteProfile = async () => {
+            let doc = await db.collection('teachers').doc(uid).get();
+            if (doc.exists) {
+                return { uid, ...doc.data(), displayName: doc.data().name || doc.data().displayName };
+            }
             if (email) {
                 const snap = await db.collection('teachers')
                     .where('email', '==', email)
                     .limit(1).get();
                 if (!snap.empty) {
-                    foundByEmail = { uid, ...snap.docs[0].data(), id: snap.docs[0].id, displayName: snap.docs[0].data().name || snap.docs[0].data().displayName };
+                    const data = snap.docs[0].data();
+                    return { uid, ...data, id: snap.docs[0].id, displayName: data.name || data.displayName };
                 }
             }
-            if (foundByEmail) {
-                currentUserProfile = foundByEmail;
-                try { await db.collection('teachers').doc(uid).set({ ...foundByEmail, uid }, { merge: true }); } catch (e) {}
-            } else {
-                currentUserProfile = {
-                    uid,
-                    email: auth.currentUser?.email || '',
-                    displayName: auth.currentUser?.displayName || '',
-                    role: 'Teacher',
-                    assignedClasses: [],
-                    assignedSubjects: [],
-                    status: 'active'
-                };
+            return null;
+        };
+
+        const remote = await Promise.race([
+            fetchRemoteProfile(),
+            new Promise(resolve => setTimeout(() => resolve(null), 2000))
+        ]);
+
+        if (remote) {
+            currentUserProfile = { ...(currentUserProfile || {}), ...remote };
+            if (currentUserProfile.status === 'inactive' || currentUserProfile.status === 'deleted' || currentUserProfile.isDeleted) {
+                if (auth) await auth.signOut().catch(() => {});
+                currentUserProfile = null;
+                throw new Error('Your account has been deactivated / deleted by the Administrator. Please contact your school administrator.');
             }
         }
-
-        // Check if account has been deactivated or deleted by administrator
-        if (currentUserProfile.status === 'inactive' || currentUserProfile.status === 'deleted' || currentUserProfile.isDeleted) {
-            await auth.signOut();
-            currentUserProfile = null;
-            throw new Error('Your account has been deactivated / deleted by the Administrator. Please contact your school administrator.');
-        }
-
-        return currentUserProfile;
     } catch (e) {
-        if (e.message.includes('deactivated') || e.message.includes('deleted')) throw e;
-        console.warn('Could not load user profile:', e);
-        return null;
+        if (e.message && (e.message.includes('deactivated') || e.message.includes('deleted'))) throw e;
+        console.warn('Could not load user profile from cloud:', e);
     }
+
+    if (!currentUserProfile) {
+        currentUserProfile = {
+            uid,
+            email,
+            displayName: (auth && auth.currentUser?.displayName) || email || 'Teacher',
+            role: 'Teacher',
+            assignedClasses: [],
+            assignedSubjects: [],
+            status: 'active'
+        };
+    }
+
+    return currentUserProfile;
 }
 
 function getCurrentUserProfile() {
@@ -236,41 +297,69 @@ async function loginFirebaseUser(email, password) {
 
 async function registerFirebaseUser(email, password, displayName, role = 'Teacher', extraData = {}) {
     if (!auth) throw new Error('Firebase Auth not initialized.');
-    // Use a secondary app so creating a teacher account does not replace
-    // the administrator's own signed-in session.
-    const secondary = firebase.initializeApp(getStoredFirebaseConfig(), 'register_' + Date.now());
+    
+    // Use reusable singleton secondary helper app to eliminate heavy initialization latency
+    const helperApp = getAuthHelperApp();
+    if (!helperApp) throw new Error('Firebase Auth helper could not be created.');
+    
+    const helperAuth = helperApp.auth();
+    const creds = await helperAuth.createUserWithEmailAndPassword(email, password);
+
     try {
-        const creds = await secondary.auth().createUserWithEmailAndPassword(email, password);
-
-        const profileData = {
-            id: creds.user.uid,
-            uid: creds.user.uid,
-            email,
-            password,
-            name: displayName || email,
-            displayName: displayName || email,
-            role,
-            assignedClasses: extraData.assignedClasses || [],
-            assignedSubjects: extraData.assignedSubjects || [],
-            phone: extraData.phone || '',
-            status: extraData.status || 'active',
-            createdAt: firebase.firestore.FieldValue.serverTimestamp()
-        };
-
-        // Create staff profile in both teachers and users collections in Firestore
-        if (db) {
-            await Promise.all([
-                db.collection('teachers').doc(creds.user.uid).set(profileData, { merge: true }),
-                db.collection('users').doc(creds.user.uid).set(profileData, { merge: true })
-            ]).catch(err => console.warn('Firestore profile creation notice:', err));
+        if (displayName && creds.user && creds.user.updateProfile) {
+            await creds.user.updateProfile({ displayName }).catch(() => {});
         }
+    } catch (e) {}
 
-        await logActivity('Staff Registration', `Created staff account ${email} with role ${role}`);
-        await secondary.auth().signOut();
-        return creds;
-    } finally {
-        try { await secondary.delete(); } catch (e) {}
+    const profileData = {
+        id: creds.user.uid,
+        uid: creds.user.uid,
+        email,
+        password,
+        name: displayName || email,
+        displayName: displayName || email,
+        role,
+        assignedClasses: extraData.assignedClasses || [],
+        assignedSubjects: extraData.assignedSubjects || [],
+        phone: extraData.phone || '',
+        status: extraData.status || 'active',
+        createdAt: new Date().toISOString()
+    };
+
+    // Immediately cache in local lists for instant local and cross-tab login without delay
+    try {
+        const teachers = JSON.parse(localStorage.getItem('teachers') || '[]');
+        const tIdx = teachers.findIndex(t => (t.email || '').toLowerCase() === email.toLowerCase());
+        if (tIdx >= 0) teachers[tIdx] = { ...teachers[tIdx], ...profileData };
+        else teachers.push(profileData);
+        localStorage.setItem('teachers', JSON.stringify(teachers));
+
+        const users = JSON.parse(localStorage.getItem('users') || '[]');
+        const uIdx = users.findIndex(u => (u.email || '').toLowerCase() === email.toLowerCase());
+        if (uIdx >= 0) users[uIdx] = { ...users[uIdx], ...profileData };
+        else users.push(profileData);
+        localStorage.setItem('users', JSON.stringify(users));
+
+        if (typeof syncSaveCollection === 'function') {
+            syncSaveCollection('teachers', teachers).catch(() => {});
+            syncSaveCollection('users', users).catch(() => {});
+        }
+    } catch (e) {}
+
+    // Create staff profile in both teachers and users collections in Firestore
+    if (db) {
+        const schoolId = localStorage.getItem('schoolId') || 'default_school';
+        Promise.all([
+            db.collection('teachers').doc(creds.user.uid).set(profileData, { merge: true }),
+            db.collection('users').doc(creds.user.uid).set(profileData, { merge: true }),
+            db.collection('schools').doc(schoolId).collection('teachers').doc(creds.user.uid).set(profileData, { merge: true }),
+            db.collection('schools').doc(schoolId).collection('users').doc(creds.user.uid).set(profileData, { merge: true })
+        ]).catch(err => console.warn('Firestore profile creation notice:', err));
     }
+
+    logActivity('Staff Registration', `Created staff account ${email} with role ${role}`).catch(() => {});
+    helperAuth.signOut().catch(() => {});
+    return creds;
 }
 
 async function logoutFirebaseUser() {
@@ -1577,30 +1666,32 @@ async function hydrateSchoolFromServer() {
 async function provisionAuthUser(email, password, displayName, role) {
     if (!isFirebaseConnected() || typeof firebase === 'undefined') throw new Error('Firebase is not connected.');
     if (!email || !password || password.length < 6) throw new Error('Email and a password of at least 6 characters are required.');
-    const secondary = firebase.initializeApp(getStoredFirebaseConfig(), 'provision_' + Date.now());
-    try {
-        const creds = await secondary.auth().createUserWithEmailAndPassword(email, password);
-        const userData = {
-            id: creds.user.uid,
-            uid: creds.user.uid,
-            email,
-            name: displayName || email,
-            displayName: displayName || email,
-            role: role || 'Teacher',
-            assignedClasses: [],
-            assignedSubjects: [],
-            status: 'active',
-            createdAt: firebase.firestore.FieldValue.serverTimestamp()
-        };
+    const helperApp = getAuthHelperApp();
+    if (!helperApp) throw new Error('Firebase Auth helper could not be created.');
+    const helperAuth = helperApp.auth();
+    const creds = await helperAuth.createUserWithEmailAndPassword(email, password);
+    const userData = {
+        id: creds.user.uid,
+        uid: creds.user.uid,
+        email,
+        name: displayName || email,
+        displayName: displayName || email,
+        role: role || 'Teacher',
+        assignedClasses: [],
+        assignedSubjects: [],
+        status: 'active',
+        createdAt: new Date().toISOString()
+    };
+    if (db) {
+        const schoolId = localStorage.getItem('schoolId') || 'default_school';
         await Promise.all([
             db.collection('teachers').doc(creds.user.uid).set(userData, { merge: true }),
-            db.collection('users').doc(creds.user.uid).set(userData, { merge: true })
-        ]);
-        await secondary.auth().signOut();
-        return creds.user.uid;
-    } finally {
-        try { await secondary.delete(); } catch (e) {}
+            db.collection('users').doc(creds.user.uid).set(userData, { merge: true }),
+            db.collection('schools').doc(schoolId).collection('teachers').doc(creds.user.uid).set(userData, { merge: true })
+        ]).catch(() => {});
     }
+    helperAuth.signOut().catch(() => {});
+    return creds.user.uid;
 }
 
 async function provisionStaffFromLocal() {
@@ -1677,6 +1768,11 @@ function broadcastDataChange(collection, data) {
 async function syncScoresMapToResults(scoresMap, defaultYear = '2025/2026', defaultTerm = '1') {
     if (!scoresMap || typeof scoresMap !== 'object') return [];
     const localResults = JSON.parse(localStorage.getItem('results') || '[]');
+    const students = JSON.parse(localStorage.getItem('students') || '[]');
+    const classes = JSON.parse(localStorage.getItem('classes') || '[]');
+    const subjects = JSON.parse(localStorage.getItem('subjects') || '[]');
+    const activeClass = localStorage.getItem('currentClass') || '';
+
     const resultsMap = new Map();
     localResults.forEach(r => { if (r && r.id) resultsMap.set(r.id, r); });
 
@@ -1684,42 +1780,73 @@ async function syncScoresMapToResults(scoresMap, defaultYear = '2025/2026', defa
     const activeYear = JSON.parse(localStorage.getItem('activeAcademicYear') || 'null')?.id || defaultYear;
     const activeTerm = JSON.parse(localStorage.getItem('activeTerm') || 'null')?.id || defaultTerm;
 
-    Object.keys(scoresMap).forEach(classKey => {
-        const classSubjects = scoresMap[classKey];
-        if (!classSubjects || typeof classSubjects !== 'object') return;
+    function processStudentScore(classKey, subjectKey, studentId, entry) {
+        if (!entry || typeof entry !== 'object') return;
+        const studentObj = students.find(s => String(s.id) === String(studentId) || s.studentId === String(studentId));
+        const classObj = classes.find(c => c.id === classKey || c.name === classKey);
+        const subjectObj = subjects.find(sub => sub.id === subjectKey || sub.name === subjectKey);
 
-        Object.keys(classSubjects).forEach(subjectKey => {
-            const studentScores = classSubjects[subjectKey];
-            if (!studentScores || typeof studentScores !== 'object') return;
+        const studentName = studentObj?.name || entry.studentName || '';
+        const className = classObj?.name || classKey || '';
+        const subjectName = subjectObj?.name || subjectKey || '';
 
-            Object.keys(studentScores).forEach(studentId => {
-                const entry = studentScores[studentId];
-                if (!entry || typeof entry !== 'object') return;
+        const resultDocId = `res_${studentId}_${classKey}_${subjectKey}_${activeYear}_${activeTerm}`.replace(/[\/\s]/g, '_');
+        const existing = resultsMap.get(resultDocId) || {};
 
-                const resultDocId = `res_${studentId}_${classKey}_${subjectKey}_${activeYear}_${activeTerm}`.replace(/[\/\s]/g, '_');
-                const existing = resultsMap.get(resultDocId) || {};
+        const normalized = {
+            id: resultDocId,
+            studentId: String(studentId),
+            studentName: studentName || existing.studentName || '',
+            classId: classKey,
+            className: className || existing.className || '',
+            subjectId: subjectKey,
+            subjectName: subjectName || existing.subjectName || '',
+            academicYearId: activeYear,
+            termId: activeTerm,
+            classScore: entry.classScore !== undefined ? entry.classScore : (existing.classScore ?? 0),
+            classScore50: entry.classScore50 !== undefined ? entry.classScore50 : (existing.classScore50 ?? ''),
+            examScore: entry.examScore !== undefined ? entry.examScore : (existing.examScore ?? 0),
+            examScore50: entry.examScore50 !== undefined ? entry.examScore50 : (existing.examScore50 ?? ''),
+            totalScore: entry.totalScore !== undefined ? entry.totalScore : (existing.totalScore ?? 0),
+            grade: entry.grade || existing.grade || '',
+            remark: entry.remark || existing.remark || '',
+            status: entry.status || existing.status || 'Submitted',
+            locked: entry.locked !== undefined ? entry.locked : (existing.locked !== undefined ? existing.locked : false),
+            updatedAt: new Date().toISOString()
+        };
 
-                const normalized = {
-                    id: resultDocId,
-                    studentId: String(studentId),
-                    classId: classKey,
-                    subjectId: subjectKey,
-                    academicYearId: activeYear,
-                    termId: activeTerm,
-                    classScore: entry.classScore !== undefined ? entry.classScore : (existing.classScore ?? 0),
-                    examScore: entry.examScore !== undefined ? entry.examScore : (existing.examScore ?? 0),
-                    totalScore: entry.totalScore !== undefined ? entry.totalScore : (existing.totalScore ?? 0),
-                    grade: entry.grade || existing.grade || '',
-                    remark: entry.remark || existing.remark || '',
-                    status: existing.status || 'Submitted',
-                    locked: existing.locked !== undefined ? existing.locked : false,
-                    updatedAt: new Date().toISOString()
-                };
+        resultsMap.set(resultDocId, normalized);
+        updatedResults.push(normalized);
+    }
 
-                resultsMap.set(resultDocId, normalized);
-                updatedResults.push(normalized);
-            });
-        });
+    Object.keys(scoresMap).forEach(key1 => {
+        const val1 = scoresMap[key1];
+        if (!val1 || typeof val1 !== 'object') return;
+
+        // Check if val1 has student entries directly (2-level: scores[subject][studentId])
+        const subKeys = Object.keys(val1);
+        if (subKeys.length > 0) {
+            const firstChild = val1[subKeys[0]];
+            if (firstChild && typeof firstChild === 'object' && (firstChild.classScore !== undefined || firstChild.examScore !== undefined || firstChild.totalScore !== undefined)) {
+                // 2-level structure: key1 is subjectKey, subKeys are studentIds
+                const subjectKey = key1;
+                const classKey = activeClass || (classes[0]?.id || 'General');
+                subKeys.forEach(studentId => {
+                    processStudentScore(classKey, subjectKey, studentId, val1[studentId]);
+                });
+            } else {
+                // 3-level structure: key1 is classKey, key2 is subjectKey, key3 is studentId
+                const classKey = key1;
+                subKeys.forEach(subjectKey => {
+                    const studentScores = val1[subjectKey];
+                    if (studentScores && typeof studentScores === 'object') {
+                        Object.keys(studentScores).forEach(studentId => {
+                            processStudentScore(classKey, subjectKey, studentId, studentScores[studentId]);
+                        });
+                    }
+                });
+            }
+        }
     });
 
     const mergedResults = Array.from(resultsMap.values());
@@ -1757,9 +1884,16 @@ async function syncResultStatusToScores(resultIds, newStatus, locked = false) {
             r.approvedAt = newStatus === 'Approved' ? new Date().toISOString() : r.approvedAt;
             r.updatedAt = new Date().toISOString();
 
+            // Check 3-level scores
             if (scores[r.classId] && scores[r.classId][r.subjectId] && scores[r.classId][r.subjectId][r.studentId]) {
                 scores[r.classId][r.subjectId][r.studentId].status = newStatus;
                 scores[r.classId][r.subjectId][r.studentId].locked = locked;
+                modifiedScores = true;
+            }
+            // Also check 2-level scores
+            if (scores[r.subjectId] && scores[r.subjectId][r.studentId]) {
+                scores[r.subjectId][r.studentId].status = newStatus;
+                scores[r.subjectId][r.studentId].locked = locked;
                 modifiedScores = true;
             }
         }
