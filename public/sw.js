@@ -1,9 +1,10 @@
 // OneReal School Management System - Service Worker
-const CACHE_NAME = 'onereal-sms-v2.3';
+const CACHE_NAME = 'onereal-sms-v2.4';
 const OFFLINE_URL = '/offline.html';
 
 const STATIC_ASSETS = [
     '/',
+    '/index.html',
     '/report.html',
     '/admin.html',
     '/student.html',
@@ -119,9 +120,9 @@ self.addEventListener('fetch', event => {
                     }
                     return networkRes;
                 })
-                .catch(err => {
-                    // Ignore network error if we have cache
-                    return cached;
+                .catch(() => {
+                    if (cached) return cached;
+                    return new Response('', { status: 408, statusText: 'Offline or asset unavailable' });
                 });
 
             return cached || fetchPromise;
