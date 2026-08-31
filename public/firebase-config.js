@@ -967,8 +967,29 @@ async function getCollection(collectionName) {
     try {
         const snap = await db.collection(collectionName).get();
         const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-        localStorage.setItem(collectionName, JSON.stringify(data));
-        return data;
+        if (data.length > 0) {
+            localStorage.setItem(collectionName, JSON.stringify(data));
+            return data;
+        } else {
+            const localData = JSON.parse(localStorage.getItem(collectionName) || '[]');
+            if (Array.isArray(localData) && localData.length > 0) {
+                try {
+                    const batch = db.batch();
+                    let count = 0;
+                    for (const item of localData) {
+                        if (item && (item.id || item.uid)) {
+                            const id = String(item.id || item.uid);
+                            batch.set(db.collection(collectionName).doc(id), { ...item, id }, { merge: true });
+                            count++;
+                            if (count >= 400) break;
+                        }
+                    }
+                    if (count > 0) batch.commit().catch(() => {});
+                } catch (e) {}
+                return localData;
+            }
+            return [];
+        }
     } catch (e) {
         console.warn(`Could not get collection ${collectionName} directly from Firestore:`, e);
         return JSON.parse(localStorage.getItem(collectionName) || '[]');
@@ -1032,7 +1053,16 @@ async function addDocument(collectionName, data) {
     localStorage.setItem(collectionName, JSON.stringify(items));
     syncCollectionToServer(collectionName);
 
-    // 2. Cloud Firestore write in background via debounced scheduler
+    // 2. Direct Firestore collection write
+    if (isFirebaseActive && db) {
+        try {
+            await db.collection(collectionName).doc(String(docId)).set(newItem, { merge: true });
+        } catch (e) {
+            console.warn(`Firestore addDocument error for ${collectionName}/${docId}:`, e);
+        }
+    }
+
+    // 3. Cloud Firestore write in background via debounced scheduler
     scheduleDebouncedFirestoreSync(collectionName, items);
 
     return newItem;
@@ -1042,13 +1072,27 @@ async function updateDocument(collectionName, docId, data) {
     // 1. Always update local cache & server instantly
     const items = JSON.parse(localStorage.getItem(collectionName) || '[]');
     const idx = items.findIndex(i => String(i.id) === String(docId) || String(i.uid) === String(docId));
+    let itemToSave;
     if (idx >= 0) {
-        items[idx] = { ...items[idx], ...data, id: docId, updatedAt: new Date().toISOString() };
-        localStorage.setItem(collectionName, JSON.stringify(items));
-        syncCollectionToServer(collectionName);
+        items[idx] = { ...items[idx], ...data, id: String(docId), updatedAt: new Date().toISOString() };
+        itemToSave = items[idx];
+    } else {
+        itemToSave = { ...data, id: String(docId), createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+        items.push(itemToSave);
+    }
+    localStorage.setItem(collectionName, JSON.stringify(items));
+    syncCollectionToServer(collectionName);
+
+    // 2. Direct Firestore collection write
+    if (isFirebaseActive && db) {
+        try {
+            await db.collection(collectionName).doc(String(docId)).set(itemToSave, { merge: true });
+        } catch (e) {
+            console.warn(`Firestore updateDocument error for ${collectionName}/${docId}:`, e);
+        }
     }
 
-    // 2. Cloud Firestore write in background via debounced scheduler
+    // 3. Cloud Firestore write in background via debounced scheduler
     scheduleDebouncedFirestoreSync(collectionName, items);
 }
 
@@ -1058,7 +1102,16 @@ async function deleteDocument(collectionName, docId) {
     localStorage.setItem(collectionName, JSON.stringify(items));
     syncCollectionToServer(collectionName);
 
-    // 2. Cloud Firestore write in background via debounced scheduler
+    // 2. Direct Firestore collection delete
+    if (isFirebaseActive && db) {
+        try {
+            await db.collection(collectionName).doc(String(docId)).delete();
+        } catch (e) {
+            console.warn(`Firestore deleteDocument error for ${collectionName}/${docId}:`, e);
+        }
+    }
+
+    // 3. Cloud Firestore write in background via debounced scheduler
     scheduleDebouncedFirestoreSync(collectionName, items);
 }
 
@@ -1177,6 +1230,27 @@ async function syncSaveCollection(collectionName, data) {
             body: JSON.stringify(payload)
         }).catch(() => {});
     } catch (e) {}
+
+    // Direct batch sync to top-level Firestore collection for instant real-time sync across clients
+    if (isFirebaseActive && db && Array.isArray(data) && data.length > 0) {
+        try {
+            const batch = db.batch();
+            let count = 0;
+            for (const item of data) {
+                if (item && (item.id || item.uid)) {
+                    const id = String(item.id || item.uid);
+                    batch.set(db.collection(collectionName).doc(id), { ...item, id }, { merge: true });
+                    count++;
+                    if (count >= 400) break;
+                }
+            }
+            if (count > 0) {
+                batch.commit().catch(err => console.warn(`Batch sync error for ${collectionName}:`, err));
+            }
+        } catch (e) {
+            console.warn(`Firestore batch sync error for ${collectionName}:`, e);
+        }
+    }
 
     // Non-blocking, debounced and diff-checked Firestore sync
     scheduleDebouncedFirestoreSync(collectionName, data);
@@ -1452,10 +1526,37 @@ function setupAdminRealtimeListeners(collectionsConfig, onUpdate) {
             const ref = query ? query(db.collection(name)) : db.collection(name);
             const unsub = ref.onSnapshot(snap => {
                 const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-                localStorage.setItem(name, JSON.stringify(data));
-                if (typeof onUpdate === 'function') onUpdate(name, data);
-                notifySyncSubscribers(name, data);
-            }, () => {});
+                if (data.length > 0 || snap.metadata.hasPendingWrites) {
+                    localStorage.setItem(name, JSON.stringify(data));
+                    if (typeof onUpdate === 'function') onUpdate(name, data);
+                    notifySyncSubscribers(name, data);
+                } else {
+                    const localRaw = localStorage.getItem(name);
+                    const localData = localRaw ? JSON.parse(localRaw) : [];
+                    if (!Array.isArray(localData) || localData.length === 0) {
+                        localStorage.setItem(name, JSON.stringify([]));
+                        if (typeof onUpdate === 'function') onUpdate(name, []);
+                        notifySyncSubscribers(name, []);
+                    } else {
+                        // Push existing local items up to Firestore collection
+                        try {
+                            const batch = db.batch();
+                            let count = 0;
+                            for (const item of localData) {
+                                if (item && (item.id || item.uid)) {
+                                    const id = String(item.id || item.uid);
+                                    batch.set(db.collection(name).doc(id), { ...item, id }, { merge: true });
+                                    count++;
+                                    if (count >= 400) break;
+                                }
+                            }
+                            if (count > 0) batch.commit().catch(() => {});
+                        } catch (e) {}
+                    }
+                }
+            }, (err) => {
+                console.warn(`Snapshot listener warning for ${name}:`, err);
+            });
             unsubscribers.push(unsub);
         } catch (e) {}
     });
