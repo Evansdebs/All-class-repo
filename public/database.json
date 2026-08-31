@@ -182,6 +182,42 @@
       "deletedAt": "2026-08-24T18:40:01.886Z",
       "role": "Teacher",
       "name": "kwame"
+    },
+    {
+      "id": "test_admin_001",
+      "uid": "test_admin_001",
+      "userId": "test_admin_001",
+      "name": "Test Administrator",
+      "displayName": "Test Administrator",
+      "email": "admin@test.com",
+      "password": "admin123",
+      "role": "Super Admin",
+      "status": "active",
+      "isDeleted": false,
+      "phone": "",
+      "assignedClasses": [],
+      "assignedSubjects": [],
+      "createdAt": "2026-08-31T07:00:00.000Z",
+      "updatedAt": "2026-08-31T07:00:00.000Z"
+    },
+    {
+      "id": "test_teacher_001",
+      "uid": "test_teacher_001",
+      "userId": "test_teacher_001",
+      "name": "Test Teacher",
+      "displayName": "Test Teacher",
+      "email": "teacher@test.com",
+      "password": "teacher123",
+      "role": "Teacher",
+      "status": "active",
+      "isDeleted": false,
+      "phone": "",
+      "assignedClasses": [
+        "iPooVjMkWOUvEpY1UYDu"
+      ],
+      "assignedSubjects": [],
+      "createdAt": "2026-08-31T07:00:00.000Z",
+      "updatedAt": "2026-08-31T07:00:00.000Z"
     }
   ],
   "classes": [
