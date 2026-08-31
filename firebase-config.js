@@ -1133,6 +1133,7 @@ const ALL_SYNC_COLLECTIONS = [
 // Cross-tab broadcast channel for instantaneous zero-latency synchronization across open tabs/portals
 const _syncBroadcastChannel = (typeof BroadcastChannel !== 'undefined') ? new BroadcastChannel('onereal_cross_portal_sync') : null;
 const _onerealSyncSubscribers = new Set();
+let _notifySyncTimers = {};
 
 function registerSyncSubscriber(callback) {
     if (typeof callback === 'function') _onerealSyncSubscribers.add(callback);
@@ -1140,12 +1141,20 @@ function registerSyncSubscriber(callback) {
 }
 
 function notifySyncSubscribers(collection, data) {
-    _onerealSyncSubscribers.forEach(cb => {
-        try { cb(collection, data); } catch (e) { console.warn('Sync subscriber notification error:', e); }
-    });
-    if (typeof window !== 'undefined') {
-        window.dispatchEvent(new CustomEvent('onerealDataSynced', { detail: { collection, data } }));
+    if (!collection) return;
+    // Debounce notifications per collection to prevent render storms
+    if (_notifySyncTimers[collection]) {
+        clearTimeout(_notifySyncTimers[collection]);
     }
+    _notifySyncTimers[collection] = setTimeout(() => {
+        delete _notifySyncTimers[collection];
+        _onerealSyncSubscribers.forEach(cb => {
+            try { cb(collection, data); } catch (e) { console.warn('Sync subscriber notification error:', e); }
+        });
+        if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('onerealDataSynced', { detail: { collection, data } }));
+        }
+    }, 80);
 }
 
 if (_syncBroadcastChannel) {
@@ -1189,8 +1198,10 @@ function syncCollectionToServer(collectionName) {
     } catch (e) {}
 }
 
-async function syncSaveCollection(collectionName, data) {
-    localStorage.setItem(collectionName, JSON.stringify(data));
+async function syncSaveCollection(collectionName, data, options = {}) {
+    try {
+        localStorage.setItem(collectionName, JSON.stringify(data));
+    } catch (e) {}
 
     // Instant local broadcast to all other open tabs/portals
     if (_syncBroadcastChannel) {
@@ -1203,7 +1214,10 @@ async function syncSaveCollection(collectionName, data) {
             });
         } catch (e) {}
     }
-    notifySyncSubscribers(collectionName, data);
+
+    if (options && options.notifySelf) {
+        notifySyncSubscribers(collectionName, data);
+    }
 
     // Non-blocking sync to REST API backend
     try {

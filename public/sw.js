@@ -120,9 +120,9 @@ self.addEventListener('fetch', event => {
                     }
                     return networkRes;
                 })
-                .catch(err => {
-                    // Ignore network error if we have cache
-                    return cached;
+                .catch(() => {
+                    if (cached) return cached;
+                    return new Response('', { status: 408, statusText: 'Offline or asset unavailable' });
                 });
 
             return cached || fetchPromise;

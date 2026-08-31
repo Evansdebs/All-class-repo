@@ -767,26 +767,31 @@ async function openApp() {
     }
     setTeacherLoginLoading(false);
 
+    let _teacherSyncDebounceTimer = null;
     const refreshFromSync = () => {
-        loadAll();
-        if (!validateCurrentTeacherSession()) return;
-        fillHeaderClasses();
-        const sn = document.getElementById('schoolNameLabel');
-        if (sn) sn.textContent = schoolName();
-        const tl = document.getElementById('termLabel');
-        if (tl) tl.textContent = (schoolInfo.academicYear || '') + ' · ' + termHeading();
-        updateSidebarState();
-        if (currentSubject && !classSubjects().includes(currentSubject)) {
-            const subs = classSubjects();
-            currentSubject = subs[0] || '';
-        }
-        if (currentClass) {
-            const activeEl = document.activeElement;
-            const isEditing = activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || activeEl.tagName === 'SELECT') && activeEl.closest('#tab-scores');
-            if (!isEditing) openTab(currentTab);
-        } else {
-            renderHub();
-        }
+        if (_teacherSyncDebounceTimer) clearTimeout(_teacherSyncDebounceTimer);
+        _teacherSyncDebounceTimer = setTimeout(() => {
+            _teacherSyncDebounceTimer = null;
+            loadAll();
+            if (!validateCurrentTeacherSession()) return;
+            fillHeaderClasses();
+            const sn = document.getElementById('schoolNameLabel');
+            if (sn) sn.textContent = schoolName();
+            const tl = document.getElementById('termLabel');
+            if (tl) tl.textContent = (schoolInfo.academicYear || '') + ' · ' + termHeading();
+            updateSidebarState();
+            if (currentSubject && !classSubjects().includes(currentSubject)) {
+                const subs = classSubjects();
+                currentSubject = subs[0] || '';
+            }
+            if (currentClass) {
+                const activeEl = document.activeElement;
+                const isEditing = activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || activeEl.tagName === 'SELECT') && activeEl.closest('#tab-scores');
+                if (!isEditing) openTab(currentTab);
+            } else {
+                renderHub();
+            }
+        }, 120);
     };
 
     // Register real-time sync subscriber for 0ms cross-portal and cross-tab updates
@@ -4717,33 +4722,29 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
 });
 
-
+let _teacherUpdateDebounceTimer = null;
 function handleTeacherSyncUpdate() {
-    loadAll();
-    if (!validateCurrentTeacherSession()) return;
-    if (typeof currentTab !== 'undefined') {
-        const isTyping = document.activeElement && ['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement.tagName) && document.activeElement.closest('#tab-scores');
-        if (currentTab === 'reports') renderReports();
-        else if (currentTab === 'scores') {
-            if (!isTyping) {
-                renderScores();
-                renderStats();
+    if (_teacherUpdateDebounceTimer) clearTimeout(_teacherUpdateDebounceTimer);
+    _teacherUpdateDebounceTimer = setTimeout(() => {
+        _teacherUpdateDebounceTimer = null;
+        loadAll();
+        if (!validateCurrentTeacherSession()) return;
+        if (typeof currentTab !== 'undefined') {
+            const isTyping = document.activeElement && ['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement.tagName) && document.activeElement.closest('#tab-scores');
+            if (currentTab === 'reports') renderReports();
+            else if (currentTab === 'scores') {
+                if (!isTyping) {
+                    renderScores();
+                    renderStats();
+                }
             }
+            else if (currentTab === 'broadsheet') renderBroadsheet();
+            else if (currentTab === 'students') renderStudents();
+            else if (currentTab === 'attendance' && typeof renderAttendance === 'function') renderAttendance();
+            else if (currentTab === 'analytics' && typeof renderAnalytics === 'function') renderAnalytics();
         }
-        else if (currentTab === 'broadsheet') renderBroadsheet();
-        else if (currentTab === 'students') renderStudents();
-        else if (currentTab === 'attendance' && typeof renderAttendance === 'function') renderAttendance();
-        else if (currentTab === 'analytics' && typeof renderAnalytics === 'function') renderAnalytics();
-    }
-    fillHeaderClasses();
-    updateSidebarState();
+        fillHeaderClasses();
+        updateSidebarState();
+    }, 120);
 }
-
-window.addEventListener('storage', (e) => {
-    handleTeacherSyncUpdate();
-});
-
-window.addEventListener('onerealDataSynced', (e) => {
-    handleTeacherSyncUpdate();
-});
 

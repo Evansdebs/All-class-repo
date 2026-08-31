@@ -72,27 +72,32 @@ function logoutStudent() {
     if (mainEl) mainEl.style.display = 'none';
 }
 
+let _studentSyncDebounceTimer = null;
 function handleStudentSyncUpdate() {
-    syncStudentPortalBranding();
-    if (activeStudentData) {
-        const students = safeLocalGet('students', []);
-        const current = students.find(s => String(s.id) === String(activeStudentData.id) || (s.admissionNo && activeStudentData.admissionNo && s.admissionNo.toLowerCase() === activeStudentData.admissionNo.toLowerCase()));
-        if (!current || current.isDeleted || current.status === 'deleted' || current.status === 'inactive') {
-            logoutStudent();
-            const err = document.getElementById('studentAuthError');
-            if (err) {
-                err.textContent = 'This student record has been deactivated or removed by administration.';
-                err.style.display = 'block';
+    if (_studentSyncDebounceTimer) clearTimeout(_studentSyncDebounceTimer);
+    _studentSyncDebounceTimer = setTimeout(() => {
+        _studentSyncDebounceTimer = null;
+        syncStudentPortalBranding();
+        if (activeStudentData) {
+            const students = safeLocalGet('students', []);
+            const current = students.find(s => String(s.id) === String(activeStudentData.id) || (s.admissionNo && activeStudentData.admissionNo && s.admissionNo.toLowerCase() === activeStudentData.admissionNo.toLowerCase()));
+            if (!current || current.isDeleted || current.status === 'deleted' || current.status === 'inactive') {
+                logoutStudent();
+                const err = document.getElementById('studentAuthError');
+                if (err) {
+                    err.textContent = 'This student record has been deactivated or removed by administration.';
+                    err.style.display = 'block';
+                }
+                return;
             }
-            return;
+            activeStudentData = current;
+            renderStudentResults(activeStudentData);
+            if (typeof activeStudentTab !== 'undefined') {
+                if (activeStudentTab === 'timetable') renderStudentTimetable(activeStudentData);
+                else if (activeStudentTab === 'exams') renderStudentExams(activeStudentData);
+            }
         }
-        activeStudentData = current;
-        renderStudentResults(activeStudentData);
-        if (typeof activeStudentTab !== 'undefined') {
-            if (activeStudentTab === 'timetable') renderStudentTimetable(activeStudentData);
-            else if (activeStudentTab === 'exams') renderStudentExams(activeStudentData);
-        }
-    }
+    }, 120);
 }
 
 document.addEventListener('DOMContentLoaded', async () => {
