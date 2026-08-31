@@ -1820,3 +1820,68 @@ body {
     text-transform: uppercase;
 }
 
+/* ── Unified Report Sheet Mobile & Tablet Responsive Optimizations ───────── */
+.report-sheet-container {
+    width: 100%;
+    max-width: 800px;
+    margin: 0 auto;
+    box-sizing: border-box;
+}
+
+@media (max-width: 768px) {
+    .report-sheet-container {
+        padding: 18px 14px !important;
+    }
+    .report-meta-grid,
+    .report-perf-grid {
+        grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)) !important;
+        gap: 6px !important;
+        padding: 10px 12px !important;
+    }
+    .report-conduct-grid {
+        grid-template-columns: 1fr !important;
+        gap: 8px !important;
+    }
+}
+
+@media (max-width: 520px) {
+    .report-sheet-container {
+        padding: 14px 10px !important;
+        border-radius: 8px !important;
+    }
+    .report-header-flex {
+        flex-direction: column !important;
+        text-align: center !important;
+        gap: 6px !important;
+    }
+    .report-header-flex .report-school-logo:last-child,
+    .report-header-flex .report-school-logo-placeholder:last-child {
+        display: none !important;
+    }
+    .report-school-logo {
+        width: 52px !important;
+        height: 52px !important;
+        max-width: 52px !important;
+        max-height: 52px !important;
+        margin: 0 auto !important;
+    }
+    .report-meta-grid,
+    .report-perf-grid {
+        grid-template-columns: 1fr 1fr !important;
+        gap: 6px !important;
+        padding: 8px 10px !important;
+        font-size: 11px !important;
+    }
+    .report-signature-grid {
+        flex-direction: column !important;
+        gap: 12px !important;
+    }
+    .report-signature-grid .report-ht-sig-block {
+        text-align: left !important;
+    }
+    .report-signature-grid .report-ht-sig-block > div {
+        justify-content: flex-start !important;
+    }
+}
+
+

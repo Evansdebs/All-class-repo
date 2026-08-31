@@ -3941,6 +3941,74 @@ function buildReportPDFBlob(data) {
     return doc.output('arraybuffer');
 }
 
+function getAdminStudentReportDetails(studentId, s) {
+    const sid = String(studentId);
+    const detailsBag = JSON.parse(localStorage.getItem('studentReportDetails') || '{}');
+    const stateBag = (typeof adminState !== 'undefined' && adminState.studentReportDetails) ? adminState.studentReportDetails : {};
+    
+    let d = detailsBag[sid] || detailsBag[studentId] || stateBag[sid] || stateBag[studentId] || {};
+    if ((!d || Object.keys(d).length === 0) && s) {
+        d = detailsBag[s.id] || detailsBag[String(s.id)] || stateBag[s.id] || stateBag[String(s.id)] || {};
+    }
+    if (!d) d = {};
+    
+    // Auto calculate smart remarks fallback
+    const scoredSubs = (adminState.subjects || []).map(sub => {
+        const se = getStudentSubjectScore(studentId, sub.name || sub, sub.id);
+        if (se && se.classScore !== '' && se.examScore !== '') {
+            const cs50 = Math.round((Number(se.classScore) / 100) * 50 * 10) / 10;
+            const es50 = Math.round((Number(se.examScore) / 100) * 50 * 10) / 10;
+            const tot = se.totalScore !== undefined && se.totalScore !== '' ? Number(se.totalScore) : (cs50 + es50);
+            return { subject: sub.name || sub, total: tot };
+        }
+        return null;
+    }).filter(Boolean);
+
+    const bestScoreObj = scoredSubs.length ? scoredSubs.slice().sort((a, b) => b.total - a.total)[0] : null;
+    const bestSub = bestScoreObj ? bestScoreObj.subject : '';
+    
+    let totalScoreSum = 0;
+    scoredSubs.forEach(item => { totalScoreSum += item.total; });
+    const avg = scoredSubs.length > 0 ? (totalScoreSum / scoredSubs.length) : 60;
+    
+    let defaultTeacher = 'Satisfactory work overall. Extra diligence and active participation recommended.';
+    if (avg >= 80) {
+        defaultTeacher = `An outstanding student who demonstrates high academic excellence${bestSub ? ', especially in ' + bestSub : ''}. Keep up the brilliant performance!`;
+    } else if (avg >= 68) {
+        defaultTeacher = `Commendable academic effort and steady progress${bestSub ? ' with notable strength in ' + bestSub : ''}. Continue to work diligently!`;
+    } else if (avg < 50) {
+        defaultTeacher = `Needs significant academic improvement. Dedicated home study and teacher guidance recommended.`;
+    }
+    
+    const defaultHead = avg >= 80 ? 'An exemplary performance. High standard maintained.' : (avg >= 68 ? 'Very good progress. Commended for diligent work.' : (avg >= 50 ? 'Satisfactory achievement. Encouraged to aim higher.' : 'More effort and support required in the coming term.'));
+
+    const conduct = (d.conduct || d.conductRemark || d.conductRemarks || (avg >= 68 ? 'Very well-behaved, courteous, and exhibits excellent cooperation with teachers and peers.' : 'Generally well-behaved and cooperative.')).trim();
+    const interest = (d.interest || d.interestRemark || d.interests || (bestSub || 'Class activities')).trim();
+    const teacherRemarks = (d.teacherRemarks || d.teacherRemark || d.remarks || d.remark || d.classTeacherRemark || d.classTeacherRemarks || defaultTeacher).trim();
+    const headRemarks = (d.headRemarks || d.headRemark || d.headteacherRemark || d.headteacherRemarks || d.principalRemarks || defaultHead).trim();
+    
+    const promotionStatus = d.promotionStatus || '';
+    const promotionTarget = d.promotionTarget || d.promotedTo || '';
+    let promoText = promotionTarget;
+    if (promotionStatus && promotionTarget && !promotionTarget.toLowerCase().includes(promotionStatus.toLowerCase())) {
+        promoText = `${promotionStatus} to ${promotionTarget}`;
+    } else if (!promoText) {
+        promoText = promotionStatus || '—';
+    }
+    
+    return {
+        ...d,
+        attendance: d.attendance || '—',
+        conduct: conduct || '—',
+        interest: interest || '—',
+        teacherRemarks: teacherRemarks || '—',
+        headRemarks: headRemarks || '—',
+        promotionStatus,
+        promotionTarget,
+        promoText
+    };
+}
+
 async function bulkDownloadSelectedReports() {
     const ids = getSelectedReportIds();
     if (!ids.length) return showToast('Please select at least one report.', 'warning');
@@ -3951,7 +4019,6 @@ async function bulkDownloadSelectedReports() {
     showToast('Building ZIP for selected reports...', 'info');
 
     const zip = new JSZip();
-    const detailsBag = JSON.parse(localStorage.getItem('studentReportDetails') || '{}');
     const settings = adminState.settings || {};
     const schoolInf = getSchoolInfo();
 
@@ -3965,7 +4032,7 @@ async function bulkDownloadSelectedReports() {
             const className = resolveClass(r.classId);
             const yr = adminState.academicYears.find(y => String(y.id) === String(r.academicYearId))?.name || '';
             const tm = adminState.terms.find(t => String(t.id) === String(r.termId))?.name || '';
-            const d = detailsBag[student.id] || detailsBag[String(student.id)] || {};
+            const d = getAdminStudentReportDetails(student.id, student);
             const classRec = adminState.classes.find(c => String(c.id) === String(r.classId));
             let classSubs = adminState.subjects;
             if (classRec && Array.isArray(classRec.subjectIds) && classRec.subjectIds.length) {
@@ -4041,8 +4108,8 @@ async function bulkDownloadSelectedReports() {
                 headTeacher: htName, classTeacherName: ctName,
                 subjects: subjectsForPDF,
                 avg, overallGrade: `${overallGrade.grade} (${overallGrade.remark})`,
-                teacherRemark: d.teacherRemark || d.teacherRemarks || '',
-                headRemark: d.headRemark || '',
+                teacherRemark: d.teacherRemarks || d.teacherRemark || '',
+                headRemark: d.headRemarks || d.headRemark || '',
                 isJHS, jhsAggregate: jhsAggValue,
                 showPosition, position: posText
             };
@@ -4274,8 +4341,7 @@ function viewReport(id) {
     const yr = adminState.academicYears.find(y => String(y.id) === String(r.academicYearId))?.name || r.academicYearId || getSchoolInfo().academicYear || '2025/2026';
     const tm = adminState.terms.find(t => String(t.id) === String(r.termId))?.name || (r.termId ? ('Term ' + r.termId) : ('Term ' + (getSchoolInfo().term || '1')));
 
-    const detailsBag = JSON.parse(localStorage.getItem('studentReportDetails') || '{}');
-    const d = detailsBag[student.id] || detailsBag[String(student.id)] || {};
+    const d = getAdminStudentReportDetails(student.id, student);
     const settings = adminState.settings || {};
     const schoolInf = getSchoolInfo();
     const primaryColor = settings.primaryColor || '#4f46e5';
@@ -4338,10 +4404,14 @@ function viewReport(id) {
     const showPosition = fieldToggles.showPosition !== false;
     const showLogo = fieldToggles.showSchoolLogo !== false;
     const showNextTerm = fieldToggles.showNextTerm !== false;
+    const showAttendance = fieldToggles.showAttendance !== false;
+    const showConduct = fieldToggles.showConduct !== false;
+    const showPromotion = fieldToggles.showPromotionStatus !== false;
+    const showTeacherRemark = fieldToggles.showClassTeacherRemark !== false;
 
     const logoEl = (showLogo && logoSrc)
-        ? `<img src="${logoSrc}" style="width:70px;height:70px;object-fit:contain;border-radius:8px;" alt="Logo" crossorigin="anonymous">`
-        : (showLogo ? `<div style="width:70px;height:70px;border:2px dashed #cbd5e1;border-radius:8px;display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:11px;text-align:center;">No Logo</div>` : '');
+        ? `<img src="${logoSrc}" class="report-school-logo" style="width:70px;height:70px;max-width:70px;max-height:70px;object-fit:contain;border-radius:8px;" alt="Logo" crossorigin="anonymous">`
+        : (showLogo ? `<div class="report-school-logo-placeholder" style="width:70px;height:70px;border:2px dashed #cbd5e1;border-radius:8px;display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:11px;text-align:center;">No Logo</div>` : '');
 
     // JHS Aggregate
     let jhsAggregateHTML = '';
@@ -4389,14 +4459,14 @@ function viewReport(id) {
     if (!modalBody) return;
 
     modalBody.innerHTML = `
-        <div id="printableReportCard" style="background:#fff;color:#1e293b;padding:28px;border-radius:12px;box-shadow:0 2px 10px rgba(0,0,0,.08);font-family:'Inter',sans-serif;max-width:800px;margin:0 auto;">
-            <div style="display:flex;align-items:center;justify-content:space-between;border-bottom:2px solid ${primaryColor};padding-bottom:14px;margin-bottom:18px;">
+        <div id="printableReportCard" class="report-sheet-container" style="background:#fff;color:#1e293b;padding:24px;border-radius:12px;box-shadow:0 2px 10px rgba(0,0,0,.08);font-family:'Inter',sans-serif;max-width:800px;margin:0 auto;">
+            <div class="report-header-flex" style="display:flex;align-items:center;justify-content:space-between;border-bottom:2px solid ${primaryColor};padding-bottom:14px;margin-bottom:18px;gap:10px;">
                 ${logoEl}
-                <div style="text-align:center;flex:1;padding:0 12px;">
-                    <h2 style="font-size:20px;font-weight:800;color:#1e1b4b;margin:0 0 4px 0;letter-spacing:-0.5px;">${escHtml(settings.schoolName || schoolInf.schoolName || 'The Living Spring School')}</h2>
+                <div style="text-align:center;flex:1;min-width:0;padding:0 8px;">
+                    <h2 style="font-size:19px;font-weight:800;color:#1e1b4b;margin:0 0 4px 0;letter-spacing:-0.5px;line-height:1.2;">${escHtml(settings.schoolName || schoolInf.schoolName || 'The Living Spring School')}</h2>
                     <p style="font-size:12px;color:#64748b;margin:0 0 2px 0;">${escHtml(settings.address || '')}</p>
                     <p style="font-size:11.5px;color:${primaryColor};font-weight:600;margin:0 0 6px 0;"><em>&ldquo;${escHtml(settings.motto || 'Drink deep or taste not the spring of knowledge')}&rdquo;</em></p>
-                    <div style="display:inline-block;background:${primaryColor};color:${headerTextColor};font-size:12px;font-weight:700;padding:4px 14px;border-radius:20px;letter-spacing:0.5px;">
+                    <div style="display:inline-block;background:${primaryColor};color:${headerTextColor};font-size:11.5px;font-weight:700;padding:4px 14px;border-radius:20px;letter-spacing:0.5px;">
                         END OF ${escHtml(String(tm).toUpperCase())} REPORT SHEET
                     </div>
                 </div>
@@ -4442,25 +4512,26 @@ function viewReport(id) {
                 <div><span style="color:${primaryDark};font-size:10.5px;display:block;font-weight:600;">RECORDED SUBJECTS</span><strong style="font-size:14px;color:#1e1b4b;">${scoredCount} / ${classSubs.length}</strong></div>
             </div>
 
-            <div class="report-conduct-grid" style="display:grid;grid-template-columns:repeat(auto-fit, minmax(200px, 1fr));gap:10px;margin-bottom:14px;font-size:12px;">
+            <div class="report-conduct-grid" style="display:grid;grid-template-columns:repeat(auto-fit, minmax(220px, 1fr));gap:10px;margin-bottom:14px;font-size:12px;">
                 <div style="background:#f8fafc;padding:10px 12px;border-radius:8px;border:1px solid #e2e8f0;">
-                    <div style="margin-bottom:6px;"><span style="color:#64748b;font-weight:600;">Attendance:</span> ${escHtml(d.attendance || '—')}</div>
-                    <div style="margin-bottom:6px;"><span style="color:#64748b;font-weight:600;">Conduct:</span> ${escHtml(d.conduct || '—')}</div>
-                    <div><span style="color:#64748b;font-weight:600;">Interest:</span> ${escHtml(d.interest || '—')}</div>
+                    ${showAttendance ? `<div style="margin-bottom:6px;"><span style="color:#64748b;font-weight:600;">Attendance:</span> <strong>${escHtml(d.attendance)}</strong></div>` : ''}
+                    ${showConduct ? `<div style="margin-bottom:6px;"><span style="color:#64748b;font-weight:600;">Conduct:</span> <em>${escHtml(d.conduct)}</em></div>` : ''}
+                    ${fieldToggles.showInterest !== false ? `<div><span style="color:#64748b;font-weight:600;">Interest:</span> <strong>${escHtml(d.interest)}</strong></div>` : ''}
                 </div>
                 <div style="background:#f8fafc;padding:10px 12px;border-radius:8px;border:1px solid #e2e8f0;">
-                    <div style="margin-bottom:6px;"><span style="color:#64748b;font-weight:600;">Promoted to / In:</span> ${escHtml(d.promotionTarget || (d.promotionStatus || '—'))}</div>
-                    <div><span style="color:#64748b;font-weight:600;">Teacher Remarks:</span> <em>${escHtml(d.teacherRemarks || '—')}</em></div>
+                    ${showPromotion ? `<div style="margin-bottom:6px;"><span style="color:#64748b;font-weight:600;">Promoted to / In:</span> <strong>${escHtml(d.promoText)}</strong></div>` : ''}
+                    ${showTeacherRemark ? `<div style="margin-bottom:6px;"><span style="color:#64748b;font-weight:600;">Teacher's Remarks:</span> <em style="color:#1e293b;font-weight:500;">${escHtml(d.teacherRemarks)}</em></div>` : ''}
+                    ${fieldToggles.showHeadteacherRemark !== false ? `<div><span style="color:#64748b;font-weight:600;">Headteacher's Remarks:</span> <em style="color:#1e293b;font-weight:500;">${escHtml(d.headRemarks)}</em></div>` : ''}
                 </div>
             </div>
 
-            <div style="display:flex;justify-content:space-between;padding-top:14px;border-top:1px dashed #cbd5e1;font-size:12px;color:#475569;gap:20px;">
-                <div style="flex:1;">
+            <div class="report-signature-grid" style="display:flex;justify-content:space-between;padding-top:14px;border-top:1px dashed #cbd5e1;font-size:12px;color:#475569;gap:20px;flex-wrap:wrap;">
+                <div style="flex:1;min-width:140px;">
                     <div><strong>Class Teacher:</strong> ${escHtml(teacherName || '—')}</div>
                     ${teacherSig ? `<div style="height:28px;margin-top:2px;display:flex;align-items:flex-end;"><img src="${teacherSig}" style="max-height:26px;max-width:140px;object-fit:contain;" alt="Class Teacher Signature" crossorigin="anonymous"></div>` : '<div style="height:24px;margin-top:4px;"></div>'}
                     <div style="border-top:1px solid #94a3b8;padding-top:3px;font-size:10.5px;color:#94a3b8;">Signature</div>
                 </div>
-                <div style="flex:1;text-align:right;">
+                <div style="flex:1;min-width:140px;text-align:right;" class="report-ht-sig-block">
                     <div><strong>Headteacher:</strong> ${escHtml(htName || '—')}</div>
                     ${htSignature ? `<div style="height:28px;margin-top:2px;display:flex;justify-content:flex-end;align-items:flex-end;"><img src="${htSignature}" style="max-height:26px;max-width:140px;object-fit:contain;" alt="Headteacher Signature" crossorigin="anonymous"></div>` : '<div style="height:24px;margin-top:4px;"></div>'}
                     <div style="border-top:1px solid #94a3b8;padding-top:3px;font-size:10.5px;color:#94a3b8;">Signature</div>
