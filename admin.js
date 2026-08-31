@@ -71,65 +71,48 @@ const REPORT_FIELD_TOGGLES = [
 document.addEventListener('DOMContentLoaded', async () => {
     initFirebase();
 
-    // Check existing active local session first to persist on page refresh
-    const isUnlocked = sessionStorage.getItem('adminUnlocked') === 'true';
-    const savedEmail = sessionStorage.getItem('adminEmail');
-
-    if (isUnlocked && savedEmail) {
-        const account = findAccountByEmail(savedEmail);
-        if (account && account.status !== 'inactive' && isAdminPortalRole(account.role)) {
-            setLocalProfile(account);
-            hideAuthOverlay();
-            await initAdminApp();
-            return;
-        }
-    }
-
+    // Session is exclusively managed by Firebase Auth — no localStorage fallback
     if (typeof firebase !== 'undefined' && firebase.auth && isFirebaseActive) {
         firebase.auth().onAuthStateChanged(async (user) => {
             if (!user) {
-                if (!sessionStorage.getItem('adminUnlocked')) {
-                    currentUserProfile = null;
-                    showAuthOverlay();
-                }
-                return;
-            }
-
-            // Load the Firestore profile; if it fails, fall back to local lookup
-            try { await loadUserProfile(user.uid); } catch (e) {}
-
-            let role = getCurrentUserRole();
-
-            // If Firestore returned no useful role, try the local accounts list
-            if (!role || role === 'Guest' || role === 'Teacher') {
-                const localAccount = findAccountByEmail(user.email || '');
-                if (localAccount && isAdminPortalRole(localAccount.role)) {
-                    setLocalProfile(localAccount);
-                    role = localAccount.role;
-                }
-            }
-
-            // Block teachers from accessing the admin portal
-            if (role && ['Teacher', 'Class Teacher'].includes(role) && !isAdminPortalRole(role)) {
-                try { await firebase.auth().signOut(); } catch (e) {}
                 sessionStorage.removeItem('adminUnlocked');
                 sessionStorage.removeItem('adminEmail');
-                showAuthOverlay('You do not have admin access. Contact your system administrator.');
+                currentUserProfile = null;
+                showAuthOverlay();
                 return;
             }
 
-            if (role && isAdminPortalRole(role)) {
-                sessionStorage.setItem('adminUnlocked', 'true');
-                sessionStorage.setItem('adminEmail', user.email);
-                if (!getCurrentUserProfile()) setLocalProfile({ email: user.email, role });
-                hideAuthOverlay();
-                await initAdminApp();
+            // Validate account against Firestore
+            try {
+                await loadUserProfile(user.uid);
+            } catch (e) {
+                // Account deleted or deactivated in Firestore
+                try { await firebase.auth().signOut(); } catch (_) {}
+                sessionStorage.removeItem('adminUnlocked');
+                sessionStorage.removeItem('adminEmail');
+                currentUserProfile = null;
+                showAuthOverlay(e.message || 'Your account is no longer active.');
+                return;
             }
+
+            const role = getCurrentUserRole();
+
+            if (!role || !isAdminPortalRole(role)) {
+                try { await firebase.auth().signOut(); } catch (_) {}
+                sessionStorage.removeItem('adminUnlocked');
+                sessionStorage.removeItem('adminEmail');
+                currentUserProfile = null;
+                showAuthOverlay('This account does not have administrator access.');
+                return;
+            }
+
+            sessionStorage.setItem('adminUnlocked', 'true');
+            sessionStorage.setItem('adminEmail', user.email);
+            hideAuthOverlay();
+            await initAdminApp();
         });
     } else {
-        if (!isUnlocked) {
-            showAuthOverlay();
-        }
+        showAuthOverlay('Firebase is required. Please check your internet connection.');
     }
 });
 
@@ -188,38 +171,31 @@ function findAccountByEmail(email) {
     return getLocalTeachers().find(t => (t.email || '').toLowerCase().trim() === lc) || null;
 }
 
+// Session validation is handled exclusively by Firebase Auth onAuthStateChanged.
+// This is a no-op kept for call-site compatibility — Firebase will sign the user out
+// if their token is revoked or expired.
 function validateAdminSession(silent = false) {
-    const isUnlocked = sessionStorage.getItem('adminUnlocked') === 'true';
-    const savedEmail = sessionStorage.getItem('adminEmail');
-    if (!isUnlocked || !savedEmail) return true;
-
-    const teachers = getLocalTeachers();
-    if (!teachers.length) {
-        // Accounts are still hydrating from server/local storage - do not prematurely invalidate session
+    // Active Firestore session is the only valid session.
+    // If currentUserProfile exists and has an admin role, allow.
+    if (currentUserProfile && isAdminPortalRole(currentUserProfile.role)) {
+        const status = currentUserProfile.status || 'active';
+        const isDeleted = currentUserProfile.isDeleted || false;
+        if (status === 'inactive' || status === 'deleted' || isDeleted) {
+            if (typeof logoutFirebaseUser === 'function') {
+                try { logoutFirebaseUser(); } catch (e) {}
+            }
+            sessionStorage.removeItem('adminUnlocked');
+            sessionStorage.removeItem('adminEmail');
+            currentUserProfile = null;
+            const app = document.getElementById('adminApp');
+            if (app) app.style.display = 'none';
+            showAuthOverlay('This administrator account has been deactivated or deleted.');
+            if (!silent && typeof showToast === 'function') {
+                showToast('Admin account revoked. Signed out.', 'error');
+            }
+            return false;
+        }
         return true;
-    }
-
-    const account = findAccountByEmail(savedEmail);
-    if (!account && currentUserProfile && String(currentUserProfile.email || '').toLowerCase().trim() === String(savedEmail).toLowerCase().trim()) {
-        if (isAdminPortalRole(currentUserProfile.role)) return true;
-    }
-
-    const isInvalid = !account || account.status === 'inactive' || account.status === 'deleted' || account.isDeleted || !isAdminPortalRole(account.role);
-
-    if (isInvalid) {
-        sessionStorage.removeItem('adminUnlocked');
-        sessionStorage.removeItem('adminEmail');
-        currentUserProfile = null;
-        if (typeof logoutFirebaseUser === 'function') {
-            try { logoutFirebaseUser(); } catch (e) {}
-        }
-        const app = document.getElementById('adminApp');
-        if (app) app.style.display = 'none';
-        showAuthOverlay(account ? 'This administrator account has been deactivated or deleted.' : 'Your administrator session is no longer active.');
-        if (!silent && typeof showToast === 'function') {
-            showToast('Admin account revoked. Signed out.', 'error');
-        }
-        return false;
     }
     return true;
 }
@@ -364,57 +340,8 @@ async function handleAdminLogin() {
             }
         }
 
-        // 3. BOOTSTRAP: only if no admin-level account exists anywhere and cloud is disconnected
-        if (!hasAnyAdminLevelAccount()) {
-            if (password.length < 6) {
-                showAuthError(errorEl, 'Password must be at least 6 characters to create the first admin account.');
-                return;
-            }
-            const firstAdmin = {
-                id: 'admin_' + Date.now().toString(36),
-                name: email.split('@')[0],
-                email,
-                role: 'Super Admin',
-                status: 'active',
-                password,
-                assignedClasses: [],
-                assignedSubjects: []
-            };
-            const list = getLocalTeachers();
-            list.push(firstAdmin);
-            localStorage.setItem('teachers', JSON.stringify(list));
-            adminState.teachers = list;
-            if (typeof isFirebaseActive !== 'undefined' && isFirebaseActive && typeof registerFirebaseUser === 'function') {
-                try { await registerFirebaseUser(email, password, firstAdmin.name, 'Super Admin', firstAdmin); } catch (e) {}
-            }
-            if (typeof syncSaveCollection === 'function') { try { await syncSaveCollection('teachers', list); } catch (e) {} }
-            if (typeof pushSchoolToFirebase === 'function') { try { await pushSchoolToFirebase(); } catch (e) {} }
-            await enterAdmin(firstAdmin, 'first-run setup');
-            showToast('Super Admin account created.', 'success');
-            return;
-        }
-
-        // 4. Find the account for this email.
-        const account = findAccountByEmail(email);
-
-        // Local account check.
-        if (!account) {
-            showAuthError(errorEl, 'No admin account found for this email. Only accounts created by the school can sign in.');
-            return;
-        }
-        if (account.status === 'inactive' || account.status === 'deleted' || account.isDeleted) {
-            showAuthError(errorEl, 'This account has been deactivated / deleted by the Administrator.');
-            return;
-        }
-        if (!isAdminPortalRole(account.role)) {
-            showAuthError(errorEl, 'This account does not have admin access. Contact your system administrator.');
-            return;
-        }
-        if (!account.password || account.password !== password) {
-            showAuthError(errorEl, 'Incorrect email or password.');
-            return;
-        }
-        await enterAdmin(account, 'local');
+        // Firebase is the only authentication method — show error if we reach here
+        showAuthError(errorEl, 'Unable to sign in. Please check your internet connection and try again.');
     } catch (e) {
         showAuthError(errorEl, `Login failed: ${e.message || e}`);
     } finally {

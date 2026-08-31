@@ -1,144 +1,27 @@
-// OneReal School Management System - Service Worker
-const CACHE_NAME = 'onereal-sms-v3.2';
-const OFFLINE_URL = '/offline.html';
-
-const STATIC_ASSETS = [
-    '/',
-    '/index.html',
-    '/report.html',
-    '/admin.html',
-    '/student.html',
-    '/alumni.html',
-    '/timetable.html',
-    '/excel.html',
-    '/offline.html',
-    '/admin.css',
-    '/report.css',
-    '/font-awesome.css',
-    '/jspdf.umd.min.js',
-    '/jszip.min.js',
-    '/chart.umd.js',
-    '/manifest.json',
-    '/fa-solid-900.woff2',
-    '/fa-regular-400.woff2',
-    '/fa-brands-400.woff2'
-];
-
-// Install: pre-cache critical assets
-self.addEventListener('install', event => {
-    event.waitUntil(
-        caches.open(CACHE_NAME).then(cache => {
-            return cache.addAll(STATIC_ASSETS).catch(err => {
-                console.warn('[SW] Some static assets failed to pre-cache:', err);
-            });
-        }).then(() => self.skipWaiting())
-    );
+/* OneReal School Management System — Service Worker Retirement
+ * This service worker immediately unregisters itself and clears all caches.
+ * The app is Firebase-only and does not use offline caching.
+ */
+self.addEventListener('install', function() {
+    self.skipWaiting();
 });
 
-// Activate: cleanup ALL stale caches immediately
-self.addEventListener('activate', event => {
+self.addEventListener('activate', function(event) {
     event.waitUntil(
-        caches.keys().then(keys => {
-            return Promise.all(
-                keys.map(key => {
-                    if (key !== CACHE_NAME) {
-                        console.log('[SW] Clearing obsolete cache:', key);
-                        return caches.delete(key);
-                    }
-                })
-            );
-        }).then(() => self.clients.claim())
-    );
-});
-
-// Fetch strategy:
-// 1. JS scripts & HTML -> Network-First (so updates load instantly without executing stale code)
-// 2. API GET -> Network-First, caching successful responses for offline reading
-// 3. Static assets (fonts, images, css) -> Stale-While-Revalidate
-self.addEventListener('fetch', event => {
-    const req = event.request;
-    const url = new URL(req.url);
-
-    // Skip cross-origin non-GET requests or browser extensions
-    if (!url.protocol.startsWith('http')) return;
-
-    // Handle API requests
-    if (url.pathname.startsWith('/api/')) {
-        if (req.method === 'GET') {
-            event.respondWith(
-                fetch(req)
-                    .then(networkRes => {
-                        if (networkRes && networkRes.status === 200) {
-                            const resClone = networkRes.clone();
-                            caches.open(CACHE_NAME).then(cache => cache.put(req, resClone));
-                        }
-                        return networkRes;
-                    })
-                    .catch(() => {
-                        return caches.match(req).then(cached => {
-                            if (cached) return cached;
-                            return new Response(JSON.stringify({ offline: true, error: 'Offline cached data unavailable for this endpoint' }), {
-                                status: 503,
-                                headers: { 'Content-Type': 'application/json; charset=UTF-8' }
-                            });
-                        });
-                    })
-            );
-            return;
-        }
-        // Non-GET API calls pass through to network
-        return;
-    }
-
-    // Handle navigation & script files: Network-First so bug fixes execute immediately
-    const isScriptOrDoc = req.mode === 'navigate' || url.pathname.endsWith('.js') || url.pathname.endsWith('.html');
-    if (isScriptOrDoc) {
-        event.respondWith(
-            fetch(req)
-                .then(networkRes => {
-                    if (networkRes && networkRes.status === 200) {
-                        const resClone = networkRes.clone();
-                        caches.open(CACHE_NAME).then(cache => cache.put(req, resClone));
-                    }
-                    return networkRes;
-                })
-                .catch(async () => {
-                    const cached = await caches.match(req);
-                    if (cached) return cached;
-                    if (req.mode === 'navigate') {
-                        const offlinePage = await caches.match(OFFLINE_URL);
-                        return offlinePage || new Response('Offline - No connection available', { status: 503, headers: { 'Content-Type': 'text/plain' } });
-                    }
-                    return new Response('', { status: 408, statusText: 'Offline or asset unavailable' });
-                })
-        );
-        return;
-    }
-
-    // Static Assets: Stale-While-Revalidate
-    event.respondWith(
-        caches.match(req).then(cached => {
-            const fetchPromise = fetch(req)
-                .then(networkRes => {
-                    if (networkRes && networkRes.status === 200) {
-                        const resClone = networkRes.clone();
-                        caches.open(CACHE_NAME).then(cache => cache.put(req, resClone));
-                    }
-                    return networkRes;
-                })
-                .catch(() => {
-                    if (cached) return cached;
-                    return new Response('', { status: 408, statusText: 'Offline or asset unavailable' });
-                });
-
-            return cached || fetchPromise;
+        caches.keys().then(function(keys) {
+            return Promise.all(keys.map(function(k) {
+                return caches.delete(k);
+            }));
+        }).then(function() {
+            return self.clients.claim();
+        }).then(function() {
+            // Unregister self so this worker never runs again
+            return self.registration.unregister();
         })
     );
 });
 
-// Offline background sync event handler
-self.addEventListener('sync', event => {
-    if (event.tag === 'onereal-offline-sync') {
-        console.log('[SW] Background sync triggered');
-    }
+// Pass all fetch requests straight through — no caching at all
+self.addEventListener('fetch', function(event) {
+    event.respondWith(fetch(event.request));
 });
