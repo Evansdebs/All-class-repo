@@ -293,6 +293,62 @@ async function handleAdminLogin() {
                     return;
                 }
                 if (code === 'auth/user-not-found') {
+                    // Check if the school database has 0 teachers (first-time setup)
+                    let isFreshDb = false;
+                    try {
+                        const tSnap = await db.collection('teachers').limit(1).get();
+                        isFreshDb = tSnap.empty;
+                    } catch (e) {}
+
+                    if (isFreshDb) {
+                        if (password.length < 6) {
+                            showAuthError(errorEl, 'Password must be at least 6 characters to create the initial Super Admin account.');
+                            if (btnText) btnText.style.display = 'inline';
+                            if (btnLoader) btnLoader.style.display = 'none';
+                            if (btn) btn.disabled = false;
+                            return;
+                        }
+                        try {
+                            const newCreds = await auth.createUserWithEmailAndPassword(email, password);
+                            const uid = newCreds.user.uid;
+                            const uName = email.split('@')[0].toUpperCase();
+                            const superAdminData = {
+                                id: uid,
+                                uid: uid,
+                                email: email.toLowerCase().trim(),
+                                name: uName,
+                                displayName: uName,
+                                role: 'Super Admin',
+                                assignedClasses: [],
+                                assignedSubjects: [],
+                                status: 'active',
+                                createdAt: firebase.firestore.FieldValue.serverTimestamp()
+                            };
+                            await Promise.all([
+                                db.collection('teachers').doc(uid).set(superAdminData, { merge: true }),
+                                db.collection('users').doc(uid).set(superAdminData, { merge: true }),
+                                db.collection('schoolSettings').doc('main').set({
+                                    schoolName: 'OneReal School',
+                                    theme: 'navy',
+                                    activeTerm: 'Term 1',
+                                    currentAcademicYear: '2026/2027'
+                                }, { merge: true })
+                            ]);
+                            currentUserProfile = superAdminData;
+                            await enterAdmin(superAdminData, 'fresh-setup');
+                            if (typeof showToast === 'function') {
+                                showToast('Super Admin account created & school initialized!', 'success');
+                            }
+                            return;
+                        } catch (regErr) {
+                            showAuthError(errorEl, `Could not initialize Super Admin: ${regErr.message}`);
+                            if (btnText) btnText.style.display = 'inline';
+                            if (btnLoader) btnLoader.style.display = 'none';
+                            if (btn) btn.disabled = false;
+                            return;
+                        }
+                    }
+
                     showAuthError(errorEl, 'No account found for this email in the school database.');
                     if (btnText) btnText.style.display = 'inline';
                     if (btnLoader) btnLoader.style.display = 'none';

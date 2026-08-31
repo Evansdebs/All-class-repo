@@ -74,9 +74,8 @@ service cloud.firestore {
     // Only authenticated active accounts can read; only admins can create/update
     // ──────────────────────────────────────────────────────────────────────────
     match /users/{userId} {
-      // Allow a user to read/update their own document, or admins to read all
       allow read: if isAuthenticated() && (request.auth.uid == userId || isAdmin());
-      allow create, update: if isAdmin();
+      allow create, update: if isAdmin() || (isAuthenticated() && request.auth.uid == userId);
       allow delete: if isSuperAdmin();
     }
 
@@ -86,7 +85,7 @@ service cloud.firestore {
     // ──────────────────────────────────────────────────────────────────────────
     match /teachers/{teacherId} {
       allow read: if isAuthenticated() && (request.auth.uid == teacherId || isAdmin() || isTeacher());
-      allow create, update: if isAdmin();
+      allow create, update: if isAdmin() || (isAuthenticated() && request.auth.uid == teacherId);
       allow delete: if isAdmin();
     }
 

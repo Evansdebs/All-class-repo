@@ -163,11 +163,49 @@ async function loadUserProfile(uid) {
         }
 
         if (!profileData) {
-            if (auth && auth.currentUser) {
-                try { await auth.signOut(); } catch (e) {}
+            // Check if this is a fresh / wiped database with no teachers
+            let isFreshDb = false;
+            try {
+                const tSnap = await db.collection('teachers').limit(1).get();
+                isFreshDb = tSnap.empty;
+            } catch (err) {}
+
+            if (isFreshDb) {
+                const uEmail = (auth.currentUser?.email || '').toLowerCase().trim();
+                const uName = uEmail.split('@')[0].toUpperCase();
+                profileData = {
+                    id: uid,
+                    uid: uid,
+                    email: uEmail,
+                    name: uName,
+                    displayName: uName,
+                    role: 'Super Admin',
+                    assignedClasses: [],
+                    assignedSubjects: [],
+                    status: 'active',
+                    createdAt: firebase.firestore.FieldValue.serverTimestamp()
+                };
+                try {
+                    await Promise.all([
+                        db.collection('teachers').doc(uid).set(profileData, { merge: true }),
+                        db.collection('users').doc(uid).set(profileData, { merge: true }),
+                        db.collection('schoolSettings').doc('main').set({
+                            schoolName: 'OneReal School',
+                            theme: 'navy',
+                            activeTerm: 'Term 1',
+                            currentAcademicYear: '2026/2027'
+                        }, { merge: true })
+                    ]);
+                } catch (e) {
+                    console.warn('Initial Super Admin bootstrap notice:', e);
+                }
+            } else {
+                if (auth && auth.currentUser) {
+                    try { await auth.signOut(); } catch (e) {}
+                }
+                currentUserProfile = null;
+                throw new Error('Account record not found in the school database or has been deleted by the administrator.');
             }
-            currentUserProfile = null;
-            throw new Error('Account record not found in the school database or has been deleted by the administrator.');
         }
 
         currentUserProfile = {
