@@ -2350,8 +2350,16 @@
     </div>
 </div>
 
-<!-- Firebase & Libraries -->
-<script src="vendor/firebase-compat.js"></script>
+<!-- Firebase SDK (CDN + Local Fallback) -->
+<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-storage-compat.js"></script>
+<script>
+if (typeof firebase === 'undefined') {
+    document.write('<script src="vendor/firebase-compat.js"><\/script>');
+}
+</script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="jspdf.umd.min.js"></script>

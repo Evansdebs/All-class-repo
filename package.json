@@ -5,7 +5,7 @@
   "type": "commonjs",
   "scripts": {
     "dev": "node server.js",
-    "build": "node -e \"const fs=require('fs'); if(!fs.existsSync('public')) fs.mkdirSync('public'); const files=fs.readdirSync('.').filter(f=>/\\.(html|htm|svg|png|jpg|jpeg|ico|json|css|js|woff2|ttf|map)$/.test(f)); files.forEach(f=>{ try{ fs.copyFileSync(f, 'public/'+f); }catch(e){} }); console.log('Build complete - public assets synced:', files.length);\"",
+    "build": "node -e \"const fs=require('fs'); function copyDir(src, dest) { if(!fs.existsSync(dest)) fs.mkdirSync(dest, {recursive:true}); const entries=fs.readdirSync(src, {withFileTypes:true}); for(let e of entries){ const sPath=src+'/'+e.name; const dPath=dest+'/'+e.name; if(e.isDirectory()){ if(e.name!=='node_modules'&&e.name!=='.git'&&e.name!=='public') copyDir(sPath, dPath); } else { try{ fs.copyFileSync(sPath, dPath); }catch(_){} } } } copyDir('.', 'public'); console.log('Build complete - all public assets synced.');\"",
     "lint": "node -e \"console.log('No lint errors')\"",
     "start": "node server.js"
   },

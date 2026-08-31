@@ -1,0 +1,195 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // HELPERS
+    // ──────────────────────────────────────────────────────────────────────────
+
+    // Check if the user is authenticated
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Get the user's active profile document (teachers takes precedence over users)
+    function teacherDoc() {
+      return get(/databases/$(database)/documents/teachers/$(request.auth.uid));
+    }
+
+    function userDoc() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    function hasTeacherDoc() {
+      return exists(/databases/$(database)/documents/teachers/$(request.auth.uid));
+    }
+
+    function hasUserDoc() {
+      return exists(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    // Account must exist in Firestore and must NOT be deleted/inactive
+    function isActiveAccount() {
+      return isAuthenticated() && (
+        (hasTeacherDoc() && teacherDoc().data.isDeleted != true
+          && teacherDoc().data.status != 'deleted'
+          && teacherDoc().data.status != 'inactive') ||
+        (hasUserDoc() && userDoc().data.isDeleted != true
+          && userDoc().data.status != 'deleted'
+          && userDoc().data.status != 'inactive')
+      );
+    }
+
+    // Get role — returns null if account is deleted/inactive
+    function getUserRole() {
+      return hasTeacherDoc()
+        ? teacherDoc().data.role
+        : (hasUserDoc() ? userDoc().data.role : null);
+    }
+
+    function isSuperAdmin() {
+      return isActiveAccount() && getUserRole() in ['Super Admin', 'super admin', 'SuperAdmin'];
+    }
+
+    function isAdmin() {
+      return isActiveAccount() && getUserRole() in [
+        'Super Admin', 'super admin', 'SuperAdmin',
+        'Administrator', 'administrator', 'Admin', 'admin',
+        'Headteacher', 'headteacher', 'Head Teacher'
+      ];
+    }
+
+    function isTeacher() {
+      return isActiveAccount() && getUserRole() in [
+        'Super Admin', 'super admin', 'SuperAdmin',
+        'Administrator', 'administrator', 'Admin', 'admin',
+        'Headteacher', 'headteacher', 'Head Teacher',
+        'Class Teacher', 'class teacher',
+        'Teacher', 'teacher'
+      ];
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // USERS COLLECTION
+    // Only authenticated active accounts can read; only admins can create/update
+    // ──────────────────────────────────────────────────────────────────────────
+    match /users/{userId} {
+      allow read: if isAuthenticated() && (request.auth.uid == userId || isAdmin());
+      allow create, update: if isAdmin() || (isAuthenticated() && request.auth.uid == userId);
+      allow delete: if isSuperAdmin();
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // TEACHERS COLLECTION
+    // Active teachers can read their own doc; admins can read all
+    // ──────────────────────────────────────────────────────────────────────────
+    match /teachers/{teacherId} {
+      allow read: if isAuthenticated() && (request.auth.uid == teacherId || isAdmin() || isTeacher());
+      allow create, update: if isAdmin() || (isAuthenticated() && request.auth.uid == teacherId);
+      allow delete: if isAdmin();
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // STUDENTS COLLECTION
+    // Public read (for student portal admission number lookup); writes only by active staff
+    // ──────────────────────────────────────────────────────────────────────────
+    match /students/{studentId} {
+      allow read: if true;
+      allow create, update: if isTeacher();
+      allow delete: if isAdmin();
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // ALUMNI COLLECTION
+    // ──────────────────────────────────────────────────────────────────────────
+    match /alumni/{alumniId} {
+      allow read: if true;
+      allow create, update: if isTeacher();
+      allow delete: if isAdmin();
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // CLASSES, SUBJECTS, ACADEMIC YEARS, TERMS
+    // ──────────────────────────────────────────────────────────────────────────
+    match /classes/{classId} {
+      allow read: if true;
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /subjects/{subjectId} {
+      allow read: if true;
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /academicYears/{yearId} {
+      allow read: if true;
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /terms/{termId} {
+      allow read: if true;
+      allow create, update, delete: if isAdmin();
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // GRADING SCALES
+    // ──────────────────────────────────────────────────────────────────────────
+    match /gradingScales/{scaleId} {
+      allow read: if true;
+      allow create, update, delete: if isAdmin();
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // RESULTS & SCORES
+    // ──────────────────────────────────────────────────────────────────────────
+    match /results/{resultId} {
+      allow read: if true;
+      allow create, update: if isTeacher();
+      allow delete: if isAdmin();
+    }
+
+    match /scores/{docId} {
+      allow read: if true;
+      allow write: if isTeacher();
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // REPORTS
+    // ──────────────────────────────────────────────────────────────────────────
+    match /reports/{reportId} {
+      allow read: if true;
+      allow create, update: if isTeacher();
+      allow delete: if isAdmin();
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // SCHOOL SETTINGS
+    // ──────────────────────────────────────────────────────────────────────────
+    match /schoolSettings/{settingId} {
+      allow read: if true;
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /schoolInfo/{infoId} {
+      allow read: if true;
+      allow create, update, delete: if isAdmin();
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // AUDIT LOGS
+    // ──────────────────────────────────────────────────────────────────────────
+    match /auditLogs/{logId} {
+      allow read: if isAdmin();
+      allow create: if isTeacher();
+      allow update, delete: if isSuperAdmin();
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // LEGACY: schools/{schoolId} sub-collections (backward-compatible)
+    // ──────────────────────────────────────────────────────────────────────────
+    match /schools/{schoolId}/{collection}/{docId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+  }
+}
