@@ -789,10 +789,17 @@ async function openApp() {
         }
     };
 
+    let _refreshSyncTimer = null;
+    const debouncedRefreshFromSync = () => {
+        if (_refreshSyncTimer) clearTimeout(_refreshSyncTimer);
+        _refreshSyncTimer = setTimeout(refreshFromSync, 200);
+    };
+
     // Register real-time sync subscriber for 0ms cross-portal and cross-tab updates
-    if (typeof registerSyncSubscriber === 'function') {
+    if (typeof registerSyncSubscriber === 'function' && !window._teacherSyncSubscribed) {
+        window._teacherSyncSubscribed = true;
         registerSyncSubscriber(function (col, data) {
-            refreshFromSync();
+            debouncedRefreshFromSync();
         });
     }
 
@@ -803,14 +810,11 @@ async function openApp() {
     }
     syncJobs.push(hydrateSchoolFromServer());
     Promise.all(syncJobs).then(results => {
-        if (results.some(Boolean)) refreshFromSync();
+        if (results.some(Boolean)) debouncedRefreshFromSync();
     }).catch(() => {});
 
-    if (typeof setupRealtimeListeners === 'function') {
-        try { setupRealtimeListeners(refreshFromSync); } catch (e) {}
-    }
     if (typeof startSchoolRealtime === 'function') {
-        startSchoolRealtime(refreshFromSync);
+        startSchoolRealtime(debouncedRefreshFromSync);
     }
     if (typeof Attendance !== 'undefined' && Attendance.hydrateFromServer) Attendance.hydrateFromServer().catch(() => {});
 }
@@ -4705,18 +4709,23 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // Cross-portal real-time sync: reload data when any portal triggers an update
     window.addEventListener('onereal_data_updated', () => {
-        handleTeacherSyncUpdate();
+        debouncedHandleTeacherSyncUpdate();
     });
     window.addEventListener('onerealDataSynced', () => {
-        handleTeacherSyncUpdate();
+        debouncedHandleTeacherSyncUpdate();
     });
     window.addEventListener('storage', (e) => {
-        if (!e.key || e.key === 'results' || e.key === 'students' || e.key === 'scores' || e.key === 'reports') {
-            handleTeacherSyncUpdate();
+        if (!e.key || e.key === 'results' || e.key === 'students' || e.key === 'scores' || e.key === 'reports' || (typeof ALL_SYNC_COLLECTIONS !== 'undefined' && ALL_SYNC_COLLECTIONS.includes(e.key))) {
+            debouncedHandleTeacherSyncUpdate();
         }
     });
 });
 
+let _teacherSyncUpdateTimer = null;
+function debouncedHandleTeacherSyncUpdate() {
+    if (_teacherSyncUpdateTimer) clearTimeout(_teacherSyncUpdateTimer);
+    _teacherSyncUpdateTimer = setTimeout(handleTeacherSyncUpdate, 200);
+}
 
 function handleTeacherSyncUpdate() {
     loadAll();
@@ -4738,12 +4747,4 @@ function handleTeacherSyncUpdate() {
     fillHeaderClasses();
     updateSidebarState();
 }
-
-window.addEventListener('storage', (e) => {
-    handleTeacherSyncUpdate();
-});
-
-window.addEventListener('onerealDataSynced', (e) => {
-    handleTeacherSyncUpdate();
-});
 

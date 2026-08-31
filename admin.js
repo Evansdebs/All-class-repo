@@ -491,18 +491,18 @@ async function initAdminApp() {
     // Register instant cross-tab & cloud sync subscriber
     if (typeof registerSyncSubscriber === 'function') {
         registerSyncSubscriber((col, data) => {
-            loadAllData({ refreshForms: false });
+            debouncedLoadAllData({ refreshForms: false });
         });
     }
 
     window.addEventListener('storage', (e) => {
         if (!e.key || (typeof ALL_SYNC_COLLECTIONS !== 'undefined' && ALL_SYNC_COLLECTIONS.includes(e.key))) {
-            loadAllData({ refreshForms: false });
+            debouncedLoadAllData({ refreshForms: false });
         }
     });
 
     window.addEventListener('onerealDataSynced', () => {
-        loadAllData({ refreshForms: false });
+        debouncedLoadAllData({ refreshForms: false });
     });
 
     // Listen to BroadcastChannel updates from teacher/student portals (instant cross-portal sync)
@@ -510,7 +510,7 @@ async function initAdminApp() {
         const { collection } = (e && e.detail) || {};
         if (!collection || collection === 'results' || collection === 'scores' ||
             collection === 'teachers' || collection === 'students' || collection === 'users') {
-            loadAllData({ refreshForms: false });
+            debouncedLoadAllData({ refreshForms: false });
         }
     });
 
@@ -524,8 +524,8 @@ async function initAdminApp() {
             { name: 'users' },
             { name: 'auditLogs' }
         ], (name, data) => {
-            if (name === 'results')   { adminState.results   = data; persistResults(); renderResultsTable(); updateNavBadges(); }
-            if (name === 'scores')    { adminState.scores    = data; syncScoresIntoResults(); renderResultsTable(); updateNavBadges(); }
+            if (name === 'results')   { adminState.results   = data; localStorage.setItem('results', JSON.stringify(data)); renderResultsTable(); updateNavBadges(); }
+            if (name === 'scores')    { adminState.scores    = data; localStorage.setItem('scores', JSON.stringify(data)); syncScoresIntoResults(); renderResultsTable(); updateNavBadges(); }
             if (name === 'teachers')  { adminState.teachers  = data; renderTeachersTable(); }
             if (name === 'students')  { adminState.students  = data; renderStudentsTable(); }
             if (name === 'users')     { adminState.users     = data; }
@@ -534,13 +534,13 @@ async function initAdminApp() {
     } else if (isFirebaseActive && typeof startSchoolRealtime === 'function') {
         // Fallback: use the universal realtime engine from firebase-config.js
         startSchoolRealtime((collection, data) => {
-            loadAllData({ refreshForms: false });
+            debouncedLoadAllData({ refreshForms: false });
         });
     }
 
     // Poll data in the background, but do not rebuild open form checkboxes
     if (!isFirebaseActive) {
-        setInterval(() => loadAllData({ refreshForms: false }), 3000);
+        setInterval(() => debouncedLoadAllData({ refreshForms: false }), 8000);
     }
 }
 
@@ -606,7 +606,18 @@ function deduplicateTeachers(teacherList) {
     return Array.from(map.values());
 }
 
+let _loadAllDataTimer = null;
+function debouncedLoadAllData(opts = { refreshForms: false }) {
+    if (_loadAllDataTimer) clearTimeout(_loadAllDataTimer);
+    _loadAllDataTimer = setTimeout(() => {
+        loadAllData(opts).catch(e => console.warn('loadAllData error:', e));
+    }, 200);
+}
+
+let _isLoadingAllData = false;
 async function loadAllData(opts = {}) {
+    if (_isLoadingAllData) return;
+    _isLoadingAllData = true;
     const refreshForms = opts.refreshForms !== false;
     try {
         const [students, teachers, classes, subjects, academicYears,
@@ -673,7 +684,9 @@ async function loadAllData(opts = {}) {
         }
         renderCurrentActiveSection();
     } catch (e) {
-        console.error('Error loading admin data:', e);
+        console.error('Error loading data:', e);
+    } finally {
+        _isLoadingAllData = false;
     }
 }
 
@@ -2930,7 +2943,7 @@ function isJHSDepartment(className, department) {
     return jhs.some(k => cn.includes(k) || dep.includes(k)) || getDeptGradingType(department) === 'jhs';
 }
 
-// Get JHS stanine grade
+// JHS stanine grade
 const JHS_SCALE = [
     { min:80, max:100, grade:'1', remark:'EXCELLENT' },
     { min:70, max:79,  grade:'2', remark:'VERY GOOD' },
@@ -2991,91 +3004,33 @@ function getGradeForDept(score, isJHS, deptOrClassName = '', classId = '') {
     ].find(g => t >= g.min && t <= g.max) || { grade: 'B', remark: 'BEGINNER' };
 }
 
+let _isSyncingScores = false;
 function syncScoresIntoResults() {
+    if (_isSyncingScores) return;
+    _isSyncingScores = true;
     try {
+        const scoresBag = adminState.scores || JSON.parse(localStorage.getItem('scores') || '{}');
+        if (!scoresBag || typeof scoresBag !== 'object' || Object.keys(scoresBag).length === 0) return;
+
         let changed = false;
-        // 1. Sync from localStorage 'results'
-        const storedResults = JSON.parse(localStorage.getItem('results') || '[]');
-        storedResults.forEach(r => {
-            if (!r || !r.studentId) return;
-            const subNorm = String(r.subjectName || r.subjectId || '').toLowerCase().trim();
-            const existingIdx = adminState.results.findIndex(ar =>
-                String(ar.id) === String(r.id) ||
-                (String(ar.studentId) === String(r.studentId) &&
-                (
-                    String(ar.subjectName || '').toLowerCase().trim() === subNorm ||
-                    String(ar.subjectId || '').toLowerCase().trim() === subNorm ||
-                    ar.subjectId === r.subjectId ||
-                    ar.subjectName === r.subjectName
-                ))
-            );
-            if (existingIdx === -1) {
-                adminState.results.push(r);
-                changed = true;
-            } else {
-                const existing = adminState.results[existingIdx];
-                const hasIncomingScore = r.classScore !== undefined || r.examScore !== undefined || r.totalScore !== undefined;
-                const isApproved = existing.status === 'Approved' || r.status === 'Approved';
-                adminState.results[existingIdx] = {
-                    ...existing,
-                    ...r,
-                    status: isApproved ? 'Approved' : (r.status || existing.status || 'Submitted'),
-                    locked: isApproved ? true : (r.locked ?? existing.locked ?? false),
-                    ...(hasIncomingScore ? {
-                        classScore: r.classScore ?? existing.classScore,
-                        examScore: r.examScore ?? existing.examScore,
-                        classScore50: r.classScore50 ?? existing.classScore50,
-                        examScore50: r.examScore50 ?? existing.examScore50,
-                        totalScore: r.totalScore ?? existing.totalScore,
-                        grade: r.grade || existing.grade,
-                        remark: r.remark || existing.remark
-                    } : {})
-                };
-                changed = true;
-            }
-        });
+        const activeYear = adminState.academicYears.find(y => y.isActive) || { id: '2025/2026' };
+        const activeTerm = adminState.terms.find(t => t.isActive) || { id: '1' };
 
-        // 2. Also sync from localStorage 'scores' bag (teacher portal direct mark entries)
-        const scoresBag = JSON.parse(localStorage.getItem('scores') || '{}');
-        const activeYear = adminState.academicYears.find(y => y.isActive);
-        const activeTerm = adminState.terms.find(t => t.isActive);
-
-        if (typeof syncScoresMapToResults === 'function' && scoresBag && Object.keys(scoresBag).length > 0) {
-            // Run async bridge in background — parent function stays synchronous
-            (async () => {
-                try {
-                    const bridged = await syncScoresMapToResults(scoresBag, activeYear?.id || '2025/2026', activeTerm?.id || '1');
-                    if (bridged && bridged.length > 0) {
-                        bridged.forEach(br => {
-                            const existingIdx = adminState.results.findIndex(ar => String(ar.id) === String(br.id));
-                            if (existingIdx >= 0) adminState.results[existingIdx] = { ...adminState.results[existingIdx], ...br };
-                            else adminState.results.push(br);
-                        });
-                        persistResults();
-                        renderResultsTable();
-                        updateNavBadges();
-                    }
-                } catch (e) {}
-            })();
-        }
-
-
-        // Generic recursive walker for both 2-level scores[subject][student] and 3-level scores[class][subject][student]
-        function processScoreEntry(studentId, classId, resolvedSubName, resolvedSubId, se) {
+        function processScoreEntry(studentId, cId, resolvedSubName, resolvedSubId, se) {
             if (!se || (se.classScore === '' && se.examScore === '' && (se.totalScore == null || se.totalScore === ''))) return;
-            const student = adminState.students.find(s => String(s.id) === String(studentId));
-            const cId = classId || student?.classId || student?.class || '';
 
-            const subNameN = String(resolvedSubName).toLowerCase().trim();
-            const subIdN   = String(resolvedSubId).toLowerCase().trim();
+            const student = adminState.students.find(s => String(s.id) === String(studentId) || (s.admissionNo && String(s.admissionNo) === String(studentId)));
+            if (!cId && student?.class) cId = student.class;
 
-            const existingIdx = adminState.results.findIndex(ar =>
-                String(ar.studentId) === String(studentId) &&
+            const subKey = resolvedSubName.toLowerCase().trim();
+            const subIdKey = String(resolvedSubId || '').toLowerCase().trim();
+
+            const existingIdx = adminState.results.findIndex(r =>
+                String(r.studentId) === String(studentId) &&
                 (
-                    String(ar.subjectName || '').toLowerCase().trim() === subNameN ||
-                    String(ar.subjectId   || '').toLowerCase().trim() === subIdN   ||
-                    String(ar.subjectId   || '').toLowerCase().trim() === subNameN ||
-                    String(ar.subjectName || '').toLowerCase().trim() === subIdN
+                    (r.subjectName && r.subjectName.toLowerCase().trim() === subKey) ||
+                    (r.subjectId && String(r.subjectId).toLowerCase().trim() === subIdKey) ||
+                    (r.subjectId && String(r.subjectId).toLowerCase().trim() === subKey)
                 )
             );
 
@@ -3091,26 +3046,42 @@ function syncScoresIntoResults() {
             if (existingIdx >= 0) {
                 const existing = adminState.results[existingIdx];
                 const isApproved = existing.status === 'Approved' || se.status === 'Approved';
-                adminState.results[existingIdx] = {
-                    ...existing,
-                    studentName: student?.name || existing.studentName || '',
-                    classId: cId || existing.classId,
-                    subjectId: resolvedSubId,
-                    subjectName: resolvedSubName,
-                    classScore: csVal,
-                    examScore: esVal,
-                    classScore50: cs50,
-                    examScore50: es50,
-                    totalScore: totVal,
-                    grade: g.grade,
-                    remark: g.remark,
-                    status: isApproved ? 'Approved' : (existing.status || se.status || 'Submitted'),
-                    locked: isApproved ? true : (existing.locked ?? se.locked ?? false),
-                    academicYearId: existing.academicYearId || activeYear?.id || '',
-                    termId: existing.termId || activeTerm?.id || '',
-                    updatedAt: new Date().toISOString()
-                };
-                changed = true;
+                const targetStatus = isApproved ? 'Approved' : (existing.status || se.status || 'Submitted');
+                const targetLocked = isApproved ? true : (existing.locked ?? se.locked ?? false);
+
+                const isDifferent =
+                    String(existing.classScore ?? '') !== String(csVal ?? '') ||
+                    String(existing.examScore ?? '') !== String(esVal ?? '') ||
+                    String(existing.totalScore ?? '') !== String(totVal ?? '') ||
+                    String(existing.grade ?? '') !== String(g.grade ?? '') ||
+                    String(existing.remark ?? '') !== String(g.remark ?? '') ||
+                    String(existing.status ?? '') !== String(targetStatus ?? '') ||
+                    Boolean(existing.locked) !== Boolean(targetLocked) ||
+                    String(existing.classId ?? '') !== String(cId ?? '') ||
+                    String(existing.subjectId ?? '') !== String(resolvedSubId ?? '');
+
+                if (isDifferent) {
+                    adminState.results[existingIdx] = {
+                        ...existing,
+                        studentName: student?.name || existing.studentName || '',
+                        classId: cId || existing.classId,
+                        subjectId: resolvedSubId,
+                        subjectName: resolvedSubName,
+                        classScore: csVal,
+                        examScore: esVal,
+                        classScore50: cs50,
+                        examScore50: es50,
+                        totalScore: totVal,
+                        grade: g.grade,
+                        remark: g.remark,
+                        status: targetStatus,
+                        locked: targetLocked,
+                        academicYearId: existing.academicYearId || activeYear?.id || '',
+                        termId: existing.termId || activeTerm?.id || '',
+                        updatedAt: new Date().toISOString()
+                    };
+                    changed = true;
+                }
             } else {
                 const newRes = {
                     id: 'res_' + String(studentId) + '_' + String(cId) + '_' + String(resolvedSubId) + '_' + String(activeYear?.id || '2025/2026') + '_' + String(activeTerm?.id || '1'),
@@ -3143,10 +3114,8 @@ function syncScoresIntoResults() {
             const val1 = scoresBag[key1];
             if (!val1 || typeof val1 !== 'object') return;
 
-            // Check if key1 is classId/className (3-level map) or subjectName (2-level map)
             const isClassLevel = adminState.classes.some(c => c.id === key1 || c.name === key1);
             if (isClassLevel) {
-                // key1 is Class -> val1 is { subjectName: { studentId: entry } }
                 Object.keys(val1).forEach(subKey => {
                     const studentMap = val1[subKey];
                     if (!studentMap || typeof studentMap !== 'object') return;
@@ -3158,7 +3127,6 @@ function syncScoresIntoResults() {
                     });
                 });
             } else {
-                // key1 is Subject -> val1 is { studentId: entry } OR might be another dictionary
                 const subObj = subjectsList.find(s => s.name === key1 || String(s.id) === key1 || s.code === key1);
                 const resSubName = subObj?.name || key1;
                 const resSubId   = subObj?.id   || key1;
@@ -3167,7 +3135,6 @@ function syncScoresIntoResults() {
                     if (possibleEntry && typeof possibleEntry === 'object' && (possibleEntry.classScore !== undefined || possibleEntry.examScore !== undefined || possibleEntry.totalScore !== undefined)) {
                         processScoreEntry(studentOrSub, '', resSubName, resSubId, possibleEntry);
                     } else if (possibleEntry && typeof possibleEntry === 'object') {
-                        // 3-level fallback: key1 is unknown class -> studentOrSub is subject -> possibleEntry is studentMap
                         Object.keys(possibleEntry).forEach(studentId => {
                             const subO = subjectsList.find(s => s.name === studentOrSub || String(s.id) === studentOrSub);
                             processScoreEntry(studentId, key1, subO?.name || studentOrSub, subO?.id || studentOrSub, possibleEntry[studentId]);
@@ -3177,7 +3144,6 @@ function syncScoresIntoResults() {
             }
         });
 
-        // Deduplicate adminState.results
         adminState.results = deduplicateAdminResults(adminState.results);
 
         if (changed) {
@@ -3188,6 +3154,8 @@ function syncScoresIntoResults() {
         }
     } catch(e) {
         console.warn('syncScoresIntoResults error:', e);
+    } finally {
+        _isSyncingScores = false;
     }
 }
 

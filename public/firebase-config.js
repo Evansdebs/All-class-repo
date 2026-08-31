@@ -1044,6 +1044,7 @@ const ALL_SYNC_COLLECTIONS = [
 // Cross-tab broadcast channel for instantaneous zero-latency synchronization across open tabs/portals
 const _syncBroadcastChannel = (typeof BroadcastChannel !== 'undefined') ? new BroadcastChannel('onereal_cross_portal_sync') : null;
 const _onerealSyncSubscribers = new Set();
+let _isNotifyingSyncSubscribers = false;
 
 function registerSyncSubscriber(callback) {
     if (typeof callback === 'function') _onerealSyncSubscribers.add(callback);
@@ -1051,11 +1052,17 @@ function registerSyncSubscriber(callback) {
 }
 
 function notifySyncSubscribers(collection, data) {
-    _onerealSyncSubscribers.forEach(cb => {
-        try { cb(collection, data); } catch (e) { console.warn('Sync subscriber notification error:', e); }
-    });
-    if (typeof window !== 'undefined') {
-        window.dispatchEvent(new CustomEvent('onerealDataSynced', { detail: { collection, data } }));
+    if (_isNotifyingSyncSubscribers) return;
+    _isNotifyingSyncSubscribers = true;
+    try {
+        _onerealSyncSubscribers.forEach(cb => {
+            try { cb(collection, data); } catch (e) { console.warn('Sync subscriber notification error:', e); }
+        });
+        if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('onerealDataSynced', { detail: { collection, data } }));
+        }
+    } finally {
+        _isNotifyingSyncSubscribers = false;
     }
 }
 
@@ -1066,24 +1073,17 @@ if (_syncBroadcastChannel) {
             try {
                 if (msg.data !== undefined) {
                     try {
-                        localStorage.setItem(msg.collection, JSON.stringify(msg.data));
+                        const localRaw = localStorage.getItem(msg.collection);
+                        const newRaw = JSON.stringify(msg.data);
+                        if (localRaw !== newRaw) {
+                            localStorage.setItem(msg.collection, newRaw);
+                        }
                     } catch (err) {}
                 }
                 notifySyncSubscribers(msg.collection, msg.data);
             } catch (e) {}
         }
     };
-}
-
-if (typeof window !== 'undefined') {
-    window.addEventListener('storage', (e) => {
-        if (e.key && ALL_SYNC_COLLECTIONS.includes(e.key) && e.newValue) {
-            try {
-                const parsed = JSON.parse(e.newValue);
-                notifySyncSubscribers(e.key, parsed);
-            } catch (err) {}
-        }
-    });
 }
 
 // Fire-and-forget mirror of a collection to the local Node server so other
@@ -1510,6 +1510,17 @@ async function pullSchoolFromFirebase() {
     return results.some(r => r.status === 'fulfilled' && r.value === true);
 }
 
+function getEntityKey(item) {
+    if (!item) return '';
+    if (typeof item !== 'object') return String(item);
+    if (item.id) return String(item.id);
+    if (item.uid) return String(item.uid);
+    if (item.email) return String(item.email).toLowerCase().trim();
+    if (item.code) return String(item.code).toLowerCase().trim();
+    if (item.name) return String(item.name).toLowerCase().trim();
+    try { return JSON.stringify(item); } catch (e) { return String(item); }
+}
+
 // Hydrate from server endpoint fast and seamlessly
 async function hydrateSchoolFromServer() {
     try {
@@ -1540,18 +1551,16 @@ async function hydrateSchoolFromServer() {
                     const map = new Map();
                     local.forEach(item => {
                         if (item) {
-                            const id = String(item.id || item.uid || item.email || '');
+                            const id = getEntityKey(item);
                             if (id) map.set(id, item);
                         }
                     });
                     remote.forEach(item => {
                         if (item) {
-                            const id = String(item.id || item.uid || item.email || '');
+                            const id = getEntityKey(item);
                             if (id) {
                                 const existing = map.get(id);
                                 map.set(id, existing ? { ...existing, ...item } : item);
-                            } else {
-                                map.set('idx_' + Math.random(), item);
                             }
                         }
                     });
@@ -1629,41 +1638,18 @@ async function provisionStaffFromLocal() {
 // CROSS-PORTAL & MULTI-DEVICE REALTIME SYNC ENGINE
 // ──────────────────────────────────────────────────────────────────────────────
 
-let schoolSyncChannel = null;
-try {
-    if (typeof BroadcastChannel !== 'undefined') {
-        schoolSyncChannel = new BroadcastChannel('onereal_school_sync');
-        schoolSyncChannel.onmessage = (event) => {
-            if (event && event.data && event.data.collection) {
-                const { collection, data } = event.data;
-                try {
-                    localStorage.setItem(collection, typeof data === 'string' ? data : JSON.stringify(data));
-                } catch (e) {}
-                window.dispatchEvent(new CustomEvent('onereal_data_updated', {
-                    detail: { collection, data }
-                }));
-            }
-        };
-    }
-} catch (e) {}
-
-window.addEventListener('storage', (e) => {
-    if (e.key && e.newValue) {
-        try {
-            const parsed = JSON.parse(e.newValue);
-            window.dispatchEvent(new CustomEvent('onereal_data_updated', {
-                detail: { collection: e.key, data: parsed }
-            }));
-        } catch (err) {}
-    }
-});
-
 function broadcastDataChange(collection, data) {
     if (!collection) return;
     try {
-        if (schoolSyncChannel) {
-            schoolSyncChannel.postMessage({ collection, data, timestamp: Date.now() });
+        if (_syncBroadcastChannel) {
+            _syncBroadcastChannel.postMessage({
+                type: 'ONEREAL_SYNC',
+                collection,
+                data,
+                timestamp: Date.now()
+            });
         }
+        notifySyncSubscribers(collection, data);
         window.dispatchEvent(new CustomEvent('onereal_data_updated', {
             detail: { collection, data }
         }));
@@ -1886,24 +1872,20 @@ async function deleteUserCascade(identifier) {
     return true;
 }
 
+let _schoolRealtimeInitialized = false;
 function startSchoolRealtime(onChange) {
-    if (!isFirebaseConnected()) return;
+    if (!isFirebaseConnected() || _schoolRealtimeInitialized) return;
+    _schoolRealtimeInitialized = true;
     const collectionsToListen = [
         'students', 'teachers', 'classes', 'subjects', 'reports',
         'results', 'academicYears', 'terms', 'users', 'gradingScales',
         'scores', 'schoolSettings', 'schoolInfo', 'parentContacts', 'studentReportDetails'
     ];
 
-    setupRealtimeListeners(function (name, data) {
-        if (typeof onChange === 'function') onChange(name, data);
-        broadcastDataChange(name, data);
-    });
-
     setupAdminRealtimeListeners(
         collectionsToListen.map(name => ({ name })),
         function (name, data) {
             if (typeof onChange === 'function') onChange(name, data);
-            broadcastDataChange(name, data);
         }
     );
 }

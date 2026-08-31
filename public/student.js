@@ -110,9 +110,15 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
     }
 
+    let _studentSyncTimer = null;
+    const debouncedStudentSync = () => {
+        if (_studentSyncTimer) clearTimeout(_studentSyncTimer);
+        _studentSyncTimer = setTimeout(handleStudentSyncUpdate, 200);
+    };
+
     if (typeof registerSyncSubscriber === 'function') {
         registerSyncSubscriber((col, data) => {
-            handleStudentSyncUpdate();
+            debouncedStudentSync();
         });
     }
 });
@@ -120,17 +126,20 @@ document.addEventListener('DOMContentLoaded', async () => {
 window.addEventListener('storage', (e) => {
     if (!e.key || e.key === 'schoolSettings' || e.key === 'schoolInfo' || (typeof ALL_SYNC_COLLECTIONS !== 'undefined' && ALL_SYNC_COLLECTIONS.includes(e.key))) {
         try {
-            handleStudentSyncUpdate();
+            if (_studentSyncTimer) clearTimeout(_studentSyncTimer);
+            _studentSyncTimer = setTimeout(handleStudentSyncUpdate, 200);
         } catch (err) {}
     }
 });
 
 window.addEventListener('onerealDataSynced', () => {
-    handleStudentSyncUpdate();
+    if (_studentSyncTimer) clearTimeout(_studentSyncTimer);
+    _studentSyncTimer = setTimeout(handleStudentSyncUpdate, 200);
 });
 
 window.addEventListener('onereal_data_updated', () => {
-    handleStudentSyncUpdate();
+    if (_studentSyncTimer) clearTimeout(_studentSyncTimer);
+    _studentSyncTimer = setTimeout(handleStudentSyncUpdate, 200);
 });
 
 
