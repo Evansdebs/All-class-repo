@@ -138,48 +138,63 @@ function initFirebase(config = getStoredFirebaseConfig()) {
 async function loadUserProfile(uid) {
     if (!db) return null;
     try {
+        let profileData = null;
         let doc = await db.collection('teachers').doc(uid).get();
         if (doc.exists) {
-            currentUserProfile = { uid, ...doc.data(), displayName: doc.data().name || doc.data().displayName };
+            profileData = { uid, id: doc.id, ...doc.data() };
         } else {
-            const email = auth.currentUser?.email || '';
-            let foundByEmail = null;
-            if (email) {
-                const snap = await db.collection('teachers')
-                    .where('email', '==', email)
-                    .limit(1).get();
-                if (!snap.empty) {
-                    foundByEmail = { uid, ...snap.docs[0].data(), id: snap.docs[0].id, displayName: snap.docs[0].data().name || snap.docs[0].data().displayName };
-                }
-            }
-            if (foundByEmail) {
-                currentUserProfile = foundByEmail;
-                try { await db.collection('teachers').doc(uid).set({ ...foundByEmail, uid }, { merge: true }); } catch (e) {}
+            let uDoc = await db.collection('users').doc(uid).get();
+            if (uDoc.exists) {
+                profileData = { uid, id: uDoc.id, ...uDoc.data() };
             } else {
-                currentUserProfile = {
-                    uid,
-                    email: auth.currentUser?.email || '',
-                    displayName: auth.currentUser?.displayName || '',
-                    role: 'Teacher',
-                    assignedClasses: [],
-                    assignedSubjects: [],
-                    status: 'active'
-                };
+                const email = (auth.currentUser?.email || '').toLowerCase().trim();
+                if (email) {
+                    const snap = await db.collection('teachers').where('email', '==', email).limit(1).get();
+                    if (!snap.empty) {
+                        profileData = { uid, id: snap.docs[0].id, ...snap.docs[0].data() };
+                    } else {
+                        const uSnap = await db.collection('users').where('email', '==', email).limit(1).get();
+                        if (!uSnap.empty) {
+                            profileData = { uid, id: uSnap.docs[0].id, ...uSnap.docs[0].data() };
+                        }
+                    }
+                }
             }
         }
 
-        // Check if account has been deactivated or deleted by administrator
-        if (currentUserProfile.status === 'inactive' || currentUserProfile.status === 'deleted' || currentUserProfile.isDeleted) {
-            await auth.signOut();
+        if (!profileData) {
+            if (auth && auth.currentUser) {
+                try { await auth.signOut(); } catch (e) {}
+            }
             currentUserProfile = null;
-            throw new Error('Your account has been deactivated / deleted by the Administrator. Please contact your school administrator.');
+            throw new Error('Account record not found in the school database or has been deleted by the administrator.');
+        }
+
+        currentUserProfile = {
+            uid,
+            id: profileData.id || uid,
+            email: profileData.email || auth.currentUser?.email || '',
+            name: profileData.name || profileData.displayName || '',
+            displayName: profileData.displayName || profileData.name || '',
+            role: profileData.role || 'Teacher',
+            assignedClasses: profileData.assignedClasses || [],
+            assignedSubjects: profileData.assignedSubjects || [],
+            status: profileData.status || 'active',
+            isDeleted: profileData.isDeleted || false
+        };
+
+        if (currentUserProfile.status === 'inactive' || currentUserProfile.status === 'deleted' || currentUserProfile.isDeleted) {
+            if (auth && auth.currentUser) {
+                try { await auth.signOut(); } catch (e) {}
+            }
+            currentUserProfile = null;
+            throw new Error('Your account has been deactivated / deleted by the Administrator.');
         }
 
         return currentUserProfile;
     } catch (e) {
-        if (e.message.includes('deactivated') || e.message.includes('deleted')) throw e;
-        console.warn('Could not load user profile:', e);
-        return null;
+        currentUserProfile = null;
+        throw e;
     }
 }
 
@@ -913,15 +928,13 @@ async function getCollection(collectionName) {
     }
     try {
         const snap = await db.collection(collectionName).get();
-        if (!snap.empty) {
-            const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-            localStorage.setItem(collectionName, JSON.stringify(data));
-            return data;
-        }
+        const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        localStorage.setItem(collectionName, JSON.stringify(data));
+        return data;
     } catch (e) {
-        console.warn(`Could not get collection ${collectionName} directly:`, e);
+        console.warn(`Could not get collection ${collectionName} directly from Firestore:`, e);
+        return JSON.parse(localStorage.getItem(collectionName) || '[]');
     }
-    return JSON.parse(localStorage.getItem(collectionName) || '[]');
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -1468,24 +1481,22 @@ async function pullSchoolFromFirebase() {
 
     const jobs = [];
 
+    const arrays = ['students', 'teachers', 'classes', 'subjects', 'academicYears', 'terms', 'results', 'reports', 'gradingScales', 'users', 'alumni'];
+    arrays.forEach(col => {
+        jobs.push((async () => {
+            const snap = await db.collection(col).get();
+            const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+            localStorage.setItem(col, JSON.stringify(data));
+            notifySyncSubscribers(col, data);
+            return true;
+        })().catch(() => false));
+    });
+
     SCHOOL_PAYLOAD_KEYS.forEach(key => {
         jobs.push((async () => {
             const doc = await db.collection('schools').doc(schoolId).collection(key).doc('main_data').get();
             if (doc.exists && doc.data().payload) {
                 localStorage.setItem(key, doc.data().payload);
-                return true;
-            }
-            return false;
-        })().catch(() => false));
-    });
-
-    const arrays = ['students', 'teachers', 'classes', 'subjects', 'academicYears', 'terms', 'results', 'reports', 'gradingScales'];
-    arrays.forEach(col => {
-        jobs.push((async () => {
-            const snap = await db.collection(col).get();
-            if (!snap.empty) {
-                const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-                localStorage.setItem(col, JSON.stringify(data));
                 return true;
             }
             return false;
@@ -1501,10 +1512,9 @@ async function pullSchoolFromFirebase() {
         return false;
     })().catch(() => false));
 
-    // Cap cloud pull to 3s max so a slow Firebase query never stalls login/actions
     const results = await Promise.race([
         Promise.allSettled(jobs),
-        new Promise(resolve => setTimeout(() => resolve(null), 3000))
+        new Promise(resolve => setTimeout(() => resolve(null), 5000))
     ]);
     if (!results) return false;
     return results.some(r => r.status === 'fulfilled' && r.value === true);

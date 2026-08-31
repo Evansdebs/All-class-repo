@@ -606,57 +606,35 @@ async function teacherLogin() {
 
     let ok = false;
     let authUser = null;
+    let teacherRecord = null;
 
-    // 1. Check local cached accounts first for instant 0ms login
-    loadAll();
-    let teachers = loadJSON('teachers', []);
-    let users = loadJSON('users', []);
-    let t = teachers.find(x => (x.email || '').toLowerCase() === email.toLowerCase());
-    let u = users.find(x => (x.email || '').toLowerCase() === email.toLowerCase());
-
-    if (t?.status === 'inactive' || u?.status === 'inactive' || t?.status === 'deleted' || u?.status === 'deleted' || t?.isDeleted || u?.isDeleted) {
-        err.textContent = 'This account has been deactivated / deleted by the administrator.';
-        err.style.display = 'block';
-        setTeacherLoginLoading(false);
-        return;
-    }
-
-    let stored = u?.password || t?.password || '';
-    if (stored && password === stored) {
-        ok = true;
-    }
-
-    // 2. If not found locally, fast hydrate from REST sync (< 50ms) to immediately get accounts created on other devices
-    if (!ok && typeof hydrateSchoolFromServer === 'function') {
+    // 1. When Firebase is connected, authenticate directly with Firebase Auth + Firestore
+    if (typeof isFirebaseActive !== 'undefined' && isFirebaseActive && db && typeof loginFirebaseUser === 'function') {
         try {
-            await hydrateSchoolFromServer();
-            loadAll();
-            teachers = loadJSON('teachers', []);
-            users = loadJSON('users', []);
-            t = teachers.find(x => (x.email || '').toLowerCase() === email.toLowerCase());
-            u = users.find(x => (x.email || '').toLowerCase() === email.toLowerCase());
-
-            if (t?.status === 'inactive' || u?.status === 'inactive' || t?.status === 'deleted' || u?.status === 'deleted' || t?.isDeleted || u?.isDeleted) {
-                err.textContent = 'This account has been deactivated / deleted by the administrator.';
+            const creds = await withTimeout(loginFirebaseUser(email, password), 5000, 'Sign-in');
+            authUser = creds?.user || null;
+            teacherRecord = typeof getCurrentUserProfile === 'function' ? getCurrentUserProfile() : null;
+            ok = true;
+            if (typeof pullSchoolFromFirebase === 'function') {
+                try { await pullSchoolFromFirebase(); } catch (e) {}
+            }
+        } catch (e) {
+            console.warn('Firebase teacher login attempt:', e.message);
+            const msg = e.message || '';
+            if (msg.includes('deactivated') || msg.includes('deleted') || msg.includes('not found') || msg.includes('removed')) {
+                err.textContent = msg;
                 err.style.display = 'block';
                 setTeacherLoginLoading(false);
                 return;
             }
-            stored = u?.password || t?.password || '';
-            if (stored && password === stored) ok = true;
-        } catch (e) {}
-    }
-
-    // 3. If still not authenticated, try Firebase Authentication with quick 3s timeout
-    if (!ok && typeof isFirebaseActive !== 'undefined' && isFirebaseActive && typeof loginFirebaseUser === 'function') {
-        try {
-            const creds = await withTimeout(loginFirebaseUser(email, password), 3000, 'Sign-in');
-            authUser = creds?.user || null;
-            ok = true;
-        } catch (e) {
-            console.warn('Firebase login attempt notice:', e.message);
-            if (e.message && (e.message.includes('deactivated') || e.message.includes('deleted'))) {
-                err.textContent = e.message;
+            if (e.code === 'auth/wrong-password' || e.code === 'auth/invalid-credential') {
+                err.textContent = 'Incorrect password.';
+                err.style.display = 'block';
+                setTeacherLoginLoading(false);
+                return;
+            }
+            if (e.code === 'auth/user-not-found') {
+                err.textContent = 'No account found for this email in the school database.';
                 err.style.display = 'block';
                 setTeacherLoginLoading(false);
                 return;
@@ -664,17 +642,30 @@ async function teacherLogin() {
         }
     }
 
-    // Background cloud sync pull (non-blocking if already logged in)
-    if (typeof pullSchoolFromFirebase === 'function') {
-        pullSchoolFromFirebase().catch(() => {});
+    // 2. Offline / Local fallback only when Firebase is not connected
+    if (!ok && (!isFirebaseActive || !db)) {
+        loadAll();
+        const teachers = loadJSON('teachers', []);
+        const users = loadJSON('users', []);
+        const t = teachers.find(x => (x.email || '').toLowerCase().trim() === email.toLowerCase());
+        const u = users.find(x => (x.email || '').toLowerCase().trim() === email.toLowerCase());
+
+        if (t?.status === 'inactive' || u?.status === 'inactive' || t?.status === 'deleted' || u?.status === 'deleted' || t?.isDeleted || u?.isDeleted) {
+            err.textContent = 'This account has been deactivated / deleted by the administrator.';
+            err.style.display = 'block';
+            setTeacherLoginLoading(false);
+            return;
+        }
+
+        const stored = u?.password || t?.password || '';
+        if (stored && password === stored) {
+            ok = true;
+            teacherRecord = t || u;
+        }
     }
 
     if (!ok) {
-        if (!t && !u && !authUser) {
-            err.textContent = 'No account found for this email. Accounts are created by the school administrator.';
-        } else {
-            err.textContent = 'Incorrect email or password. Use the credentials the administrator created for you.';
-        }
+        err.textContent = 'Invalid email or password, or account is not registered in the school database.';
         err.style.display = 'block';
         setTeacherLoginLoading(false);
         return;
@@ -682,11 +673,12 @@ async function teacherLogin() {
 
     sessionStorage.setItem('teacherUnlocked', 'true');
     sessionStorage.setItem('teacherEmail', email);
-    const teacherName = (typeof getCurrentUserProfile === 'function' ? getCurrentUserProfile()?.displayName : null) || u?.displayName || t?.name || email.split('@')[0];
+    const teacherName = (typeof getCurrentUserProfile === 'function' ? getCurrentUserProfile()?.displayName : null) || teacherRecord?.displayName || teacherRecord?.name || email.split('@')[0];
     sessionStorage.setItem('teacherName', teacherName);
 
     await openApp();
 }
+
 
 function validateCurrentTeacherSession(silent = false) {
     const isUnlocked = sessionStorage.getItem('teacherUnlocked') === 'true';

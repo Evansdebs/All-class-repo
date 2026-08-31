@@ -276,90 +276,48 @@ async function handleAdminLogin() {
     try {
         if (typeof initFirebase === 'function') initFirebase();
 
-        // 1. First check if we can authenticate immediately against local / already synced accounts
-        const localAccount = findAccountByEmail(email);
-        if (localAccount && localAccount.password && localAccount.password === password) {
-            if (localAccount.status === 'inactive' || localAccount.status === 'deleted' || localAccount.isDeleted) {
-                showAuthError(errorEl, 'This account has been deactivated / deleted by the administrator.');
-                if (btnText) btnText.style.display = 'inline';
-                if (btnLoader) btnLoader.style.display = 'none';
-                if (btn) btn.disabled = false;
-                return;
-            }
-            const role = localAccount.role || 'Administrator';
-            if (!isAdminPortalRole(role)) {
-                showAuthError(errorEl, 'This account does not have admin access. Contact your system administrator.');
-                if (btnText) btnText.style.display = 'inline';
-                if (btnLoader) btnLoader.style.display = 'none';
-                if (btn) btn.disabled = false;
-                return;
-            }
-            // Fire background Firebase sign-in if connected without blocking UI
-            if (typeof isFirebaseActive !== 'undefined' && isFirebaseActive && typeof loginFirebaseUser === 'function') {
-                loginFirebaseUser(email, password).catch(() => {});
-            }
-            await enterAdmin(localAccount, 'local');
-            return;
-        }
-
-        // 2. Fetch fresh accounts from server fast (< 50ms) to ensure accounts created on other devices are present
-        if (typeof hydrateSchoolFromServer === 'function') {
-            try { await hydrateSchoolFromServer(); } catch (e) {}
-        }
-
-        const freshAccount = findAccountByEmail(email);
-        if (freshAccount && freshAccount.password && freshAccount.password === password) {
-            if (freshAccount.status === 'inactive' || freshAccount.status === 'deleted' || freshAccount.isDeleted) {
-                showAuthError(errorEl, 'This account has been deactivated / deleted by the administrator.');
-                if (btnText) btnText.style.display = 'inline';
-                if (btnLoader) btnLoader.style.display = 'none';
-                if (btn) btn.disabled = false;
-                return;
-            }
-            const role = freshAccount.role || 'Administrator';
-            if (!isAdminPortalRole(role)) {
-                showAuthError(errorEl, 'This account does not have admin access. Contact your system administrator.');
-                if (btnText) btnText.style.display = 'inline';
-                if (btnLoader) btnLoader.style.display = 'none';
-                if (btn) btn.disabled = false;
-                return;
-            }
-            if (typeof isFirebaseActive !== 'undefined' && isFirebaseActive && typeof loginFirebaseUser === 'function') {
-                loginFirebaseUser(email, password).catch(() => {});
-            }
-            await enterAdmin(freshAccount, 'server');
-            return;
-        }
-
-        // 3. Try Firebase sign-in with quick 3.5s timeout
-        if (typeof isFirebaseActive !== 'undefined' && isFirebaseActive && typeof loginFirebaseUser === 'function') {
+        // 1. When Firebase is active, authenticate directly with Firebase Auth + Firestore
+        if (typeof isFirebaseActive !== 'undefined' && isFirebaseActive && db && typeof loginFirebaseUser === 'function') {
             try {
-                await Promise.race([
+                const creds = await Promise.race([
                     loginFirebaseUser(email, password),
-                    new Promise((_, reject) => setTimeout(() => reject(new Error('Firebase sign-in timeout')), 3500))
+                    new Promise((_, reject) => setTimeout(() => reject(new Error('Firebase sign-in timeout')), 5000))
                 ]);
-                if (typeof pullSchoolFromFirebase === 'function') {
-                    try { await pullSchoolFromFirebase(); } catch (e) {}
-                }
                 const profile = typeof getCurrentUserProfile === 'function' ? getCurrentUserProfile() : null;
-                const account = findAccountByEmail(email);
-                const role = profile?.role || account?.role || '';
-                if (role && !isAdminPortalRole(role)) {
+                const role = profile?.role || '';
+                if (!isAdminPortalRole(role)) {
                     try { await logoutFirebaseUser(); } catch (e) {}
                     currentUserProfile = null;
-                    showAuthError(errorEl, 'This account does not have admin access. Contact your system administrator.');
+                    showAuthError(errorEl, 'This account does not have administrator access.');
                     if (btnText) btnText.style.display = 'inline';
                     if (btnLoader) btnLoader.style.display = 'none';
                     if (btn) btn.disabled = false;
                     return;
                 }
-                await enterAdmin(profile || account || { email, role: role || 'Administrator' }, 'cloud');
+                if (typeof pullSchoolFromFirebase === 'function') {
+                    try { await pullSchoolFromFirebase(); } catch (e) {}
+                }
+                await enterAdmin(profile || { email, role: role || 'Administrator' }, 'cloud');
                 return;
             } catch (e) {
                 const code = e.code || '';
                 const msg  = e.message || '';
-                if (/deactivated/i.test(msg) || /deleted/i.test(msg)) {
+                if (/deactivated/i.test(msg) || /deleted/i.test(msg) || /not found/i.test(msg) || /removed/i.test(msg)) {
                     showAuthError(errorEl, msg);
+                    if (btnText) btnText.style.display = 'inline';
+                    if (btnLoader) btnLoader.style.display = 'none';
+                    if (btn) btn.disabled = false;
+                    return;
+                }
+                if (code === 'auth/wrong-password' || code === 'auth/invalid-credential') {
+                    showAuthError(errorEl, 'Incorrect password.');
+                    if (btnText) btnText.style.display = 'inline';
+                    if (btnLoader) btnLoader.style.display = 'none';
+                    if (btn) btn.disabled = false;
+                    return;
+                }
+                if (code === 'auth/user-not-found') {
+                    showAuthError(errorEl, 'No account found for this email in the school database.');
                     if (btnText) btnText.style.display = 'inline';
                     if (btnLoader) btnLoader.style.display = 'none';
                     if (btn) btn.disabled = false;
@@ -379,6 +337,30 @@ async function handleAdminLogin() {
                     if (btn) btn.disabled = false;
                     return;
                 }
+            }
+        }
+
+        // 2. Offline / Local fallback only when Firebase is not connected
+        if (!isFirebaseActive || !db) {
+            const localAccount = findAccountByEmail(email);
+            if (localAccount && localAccount.password && localAccount.password === password) {
+                if (localAccount.status === 'inactive' || localAccount.status === 'deleted' || localAccount.isDeleted) {
+                    showAuthError(errorEl, 'This account has been deactivated / deleted by the administrator.');
+                    if (btnText) btnText.style.display = 'inline';
+                    if (btnLoader) btnLoader.style.display = 'none';
+                    if (btn) btn.disabled = false;
+                    return;
+                }
+                const role = localAccount.role || 'Administrator';
+                if (!isAdminPortalRole(role)) {
+                    showAuthError(errorEl, 'This account does not have admin access.');
+                    if (btnText) btnText.style.display = 'inline';
+                    if (btnLoader) btnLoader.style.display = 'none';
+                    if (btn) btn.disabled = false;
+                    return;
+                }
+                await enterAdmin(localAccount, 'local');
+                return;
             }
         }
 
@@ -533,25 +515,40 @@ async function initAdminApp() {
         }
     });
 
-    // Real-time Firestore listeners for key collections (instant push from cloud)
+    // Real-time Firestore listeners for all collections (instant push from cloud across all devices)
     if (isFirebaseActive && typeof setupAdminRealtimeListeners === 'function') {
         setupAdminRealtimeListeners([
             { name: 'results' },
             { name: 'scores' },
             { name: 'teachers' },
             { name: 'students' },
+            { name: 'classes' },
+            { name: 'subjects' },
+            { name: 'academicYears' },
+            { name: 'terms' },
+            { name: 'reports' },
+            { name: 'gradingScales' },
+            { name: 'schoolSettings' },
+            { name: 'schoolInfo' },
             { name: 'users' },
             { name: 'auditLogs' }
         ], (name, data) => {
             if (name === 'results')   { adminState.results   = data; localStorage.setItem('results', JSON.stringify(data)); renderResultsTable(); updateNavBadges(); }
-            if (name === 'scores')    { adminState.scores    = data; localStorage.setItem('scores', JSON.stringify(data)); syncScoresIntoResults(); renderResultsTable(); updateNavBadges(); }
-            if (name === 'teachers')  { adminState.teachers  = data; renderTeachersTable(); }
-            if (name === 'students')  { adminState.students  = data; renderStudentsTable(); }
-            if (name === 'users')     { adminState.users     = data; }
-            if (name === 'auditLogs') { adminState.auditLogs = data; renderAuditLogs(); }
+            else if (name === 'scores')    { adminState.scores    = data; localStorage.setItem('scores', JSON.stringify(data)); syncScoresIntoResults(); renderResultsTable(); updateNavBadges(); }
+            else if (name === 'teachers')  { adminState.teachers  = deduplicateTeachers(data); localStorage.setItem('teachers', JSON.stringify(adminState.teachers)); renderTeachersTable(); }
+            else if (name === 'students')  { adminState.students  = data; localStorage.setItem('students', JSON.stringify(data)); renderStudentsTable(); }
+            else if (name === 'classes')   { adminState.classes   = data; localStorage.setItem('classes', JSON.stringify(data)); }
+            else if (name === 'subjects')  { adminState.subjects  = data; localStorage.setItem('subjects', JSON.stringify(data)); }
+            else if (name === 'academicYears') { adminState.academicYears = data; localStorage.setItem('academicYears', JSON.stringify(data)); }
+            else if (name === 'terms')     { adminState.terms     = data; localStorage.setItem('terms', JSON.stringify(data)); }
+            else if (name === 'reports')   { adminState.reports   = data; localStorage.setItem('reports', JSON.stringify(data)); renderReportsTable(); }
+            else if (name === 'gradingScales') { adminState.gradingScales = data; localStorage.setItem('gradingScales', JSON.stringify(data)); }
+            else if (name === 'schoolSettings') { if (data) { adminState.settings = data; applySystemTheme(data); } }
+            else if (name === 'users')     { adminState.users     = data; localStorage.setItem('users', JSON.stringify(data)); }
+            else if (name === 'auditLogs') { adminState.auditLogs = data; renderAuditLogs(); }
+            debouncedLoadAllData({ refreshForms: false });
         });
     } else if (isFirebaseActive && typeof startSchoolRealtime === 'function') {
-        // Fallback: use the universal realtime engine from firebase-config.js
         startSchoolRealtime((collection, data) => {
             debouncedLoadAllData({ refreshForms: false });
         });
@@ -710,19 +707,17 @@ async function loadAllData(opts = {}) {
 }
 
 async function safeGetCollection(name) {
-    try {
-        const cached = JSON.parse(localStorage.getItem(name) || '[]');
-        if (cached && (Array.isArray(cached) ? cached.length > 0 : Object.keys(cached).length > 0)) {
-            return cached;
-        }
-        if (isFirebaseActive && typeof getCollection === 'function') {
+    if (isFirebaseActive && db && typeof getCollection === 'function') {
+        try {
             const fresh = await getCollection(name);
-            if (fresh) return fresh;
+            if (Array.isArray(fresh) || (fresh && typeof fresh === 'object')) {
+                return fresh;
+            }
+        } catch (err) {
+            console.warn(`Error fetching ${name} from Firestore, using cache:`, err);
         }
-        return cached;
-    } catch (e) {
-        return JSON.parse(localStorage.getItem(name) || '[]');
     }
+    return JSON.parse(localStorage.getItem(name) || (name === 'scores' || name.endsWith('Settings') || name.includes('Info') ? '{}' : '[]'));
 }
 
 // ─── Sidebar User ────────────────────────────────────────────────────────────

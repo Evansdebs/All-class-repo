@@ -4,7 +4,27 @@
 (function initStorageSanitizer() {
     'use strict';
     try {
-        // 1. Prune bloated schoolDepartments if present in localStorage
+        // 1. Purge legacy hardcoded dummy accounts from localStorage on all devices
+        const legacyEmails = [
+            'kofi@school.com', 'kwame1@school.com', 'admin123@school.com',
+            'winie@school.com', 'george@school.com', 'kwame@school.com',
+            'admin@test.com', 'teacher@test.com'
+        ];
+        const rawTeachers = localStorage.getItem('teachers');
+        if (rawTeachers) {
+            try {
+                const teachers = JSON.parse(rawTeachers);
+                if (Array.isArray(teachers)) {
+                    const cleaned = teachers.filter(t => !legacyEmails.includes((t.email || '').toLowerCase().trim()));
+                    if (cleaned.length !== teachers.length) {
+                        localStorage.setItem('teachers', JSON.stringify(cleaned));
+                        console.log('[OneReal] Purged legacy sample accounts from local storage.');
+                    }
+                }
+            } catch (e) {}
+        }
+
+        // 2. Prune bloated schoolDepartments if present in localStorage
         const rawDepts = localStorage.getItem('schoolDepartments');
         if (rawDepts) {
             try {
@@ -13,7 +33,7 @@
                     const unique = [];
                     const seen = new Set();
                     depts.forEach(d => {
-                        const name = (d && (d.name || d.id || '')) .trim();
+                        const name = (d && (d.name || d.id || '')).trim();
                         if (name && !seen.has(name.toLowerCase())) {
                             seen.add(name.toLowerCase());
                             unique.push({
@@ -34,7 +54,7 @@
             }
         }
 
-        // 2. Clear obsolete Service Worker caches on clients
+        // 3. Clear obsolete Service Worker caches on clients
         if (typeof caches !== 'undefined' && caches.keys) {
             caches.keys().then(keys => {
                 keys.forEach(k => {

@@ -2,133 +2,160 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Helper: get the requesting user's role from the users or teachers collection
-    function getUserRole() {
-      return exists(/databases/$(database)/documents/users/$(request.auth.uid))
-        ? get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role
-        : (exists(/databases/$(database)/documents/teachers/$(request.auth.uid))
-            ? get(/databases/$(database)/documents/teachers/$(request.auth.uid)).data.role
-            : 'Teacher');
-    }
+    // ──────────────────────────────────────────────────────────────────────────
+    // HELPERS
+    // ──────────────────────────────────────────────────────────────────────────
 
-    // Helper: check if user is authenticated
+    // Check if the user is authenticated
     function isAuthenticated() {
       return request.auth != null;
     }
 
-    // Helper: role checkers
+    // Get the user's active profile document (teachers takes precedence over users)
+    function teacherDoc() {
+      return get(/databases/$(database)/documents/teachers/$(request.auth.uid));
+    }
+
+    function userDoc() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    function hasTeacherDoc() {
+      return exists(/databases/$(database)/documents/teachers/$(request.auth.uid));
+    }
+
+    function hasUserDoc() {
+      return exists(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    // Account must exist in Firestore and must NOT be deleted/inactive
+    function isActiveAccount() {
+      return isAuthenticated() && (
+        (hasTeacherDoc() && teacherDoc().data.isDeleted != true
+          && teacherDoc().data.status != 'deleted'
+          && teacherDoc().data.status != 'inactive') ||
+        (hasUserDoc() && userDoc().data.isDeleted != true
+          && userDoc().data.status != 'deleted'
+          && userDoc().data.status != 'inactive')
+      );
+    }
+
+    // Get role — returns null if account is deleted/inactive
+    function getUserRole() {
+      return hasTeacherDoc()
+        ? teacherDoc().data.role
+        : (hasUserDoc() ? userDoc().data.role : null);
+    }
+
     function isSuperAdmin() {
-      return isAuthenticated() && getUserRole() == 'Super Admin';
+      return isActiveAccount() && getUserRole() in ['Super Admin', 'super admin', 'SuperAdmin'];
     }
 
     function isAdmin() {
-      return isAuthenticated() && (getUserRole() == 'Super Admin' || getUserRole() == 'Administrator');
-    }
-
-    function isHeadteacher() {
-      return isAuthenticated() && (getUserRole() == 'Super Admin' || getUserRole() == 'Administrator' || getUserRole() == 'Headteacher');
+      return isActiveAccount() && getUserRole() in [
+        'Super Admin', 'super admin', 'SuperAdmin',
+        'Administrator', 'administrator', 'Admin', 'admin',
+        'Headteacher', 'headteacher', 'Head Teacher'
+      ];
     }
 
     function isTeacher() {
-      return isAuthenticated() && getUserRole() in ['Super Admin', 'Administrator', 'Headteacher', 'Class Teacher', 'Teacher'];
-    }
-
-    // Helper: check if teacher is assigned to a class
-    function isAssignedToClass(classId) {
-      return isAuthenticated() && (
-        isAdmin() ||
-        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && classId in get(/databases/$(database)/documents/users/$(request.auth.uid)).data.assignedClasses) ||
-        (exists(/databases/$(database)/documents/teachers/$(request.auth.uid)) && classId in get(/databases/$(database)/documents/teachers/$(request.auth.uid)).data.assignedClasses)
-      );
-    }
-
-    // Helper: check if teacher is assigned to a subject
-    function isAssignedToSubject(subjectId) {
-      return isAuthenticated() && (
-        isAdmin() ||
-        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && subjectId in get(/databases/$(database)/documents/users/$(request.auth.uid)).data.assignedSubjects) ||
-        (exists(/databases/$(database)/documents/teachers/$(request.auth.uid)) && subjectId in get(/databases/$(database)/documents/teachers/$(request.auth.uid)).data.assignedSubjects)
-      );
+      return isActiveAccount() && getUserRole() in [
+        'Super Admin', 'super admin', 'SuperAdmin',
+        'Administrator', 'administrator', 'Admin', 'admin',
+        'Headteacher', 'headteacher', 'Head Teacher',
+        'Class Teacher', 'class teacher',
+        'Teacher', 'teacher'
+      ];
     }
 
     // ──────────────────────────────────────────────────────────────────────────
-    // USERS & TEACHERS COLLECTIONS
+    // USERS COLLECTION
+    // Only authenticated active accounts can read; only admins can create/update
     // ──────────────────────────────────────────────────────────────────────────
     match /users/{userId} {
-      allow read: if isAuthenticated();
-      allow create, update: if isAuthenticated();
+      // Allow a user to read/update their own document, or admins to read all
+      allow read: if isAuthenticated() && (request.auth.uid == userId || isAdmin());
+      allow create, update: if isAdmin();
       allow delete: if isSuperAdmin();
     }
 
     // ──────────────────────────────────────────────────────────────────────────
     // TEACHERS COLLECTION
+    // Active teachers can read their own doc; admins can read all
     // ──────────────────────────────────────────────────────────────────────────
     match /teachers/{teacherId} {
-      allow read: if true;
-      allow create, update: if isAuthenticated();
+      allow read: if isAuthenticated() && (request.auth.uid == teacherId || isAdmin() || isTeacher());
+      allow create, update: if isAdmin();
       allow delete: if isAdmin();
     }
 
     // ──────────────────────────────────────────────────────────────────────────
     // STUDENTS COLLECTION
+    // Public read (for student portal admission number lookup); writes only by active staff
     // ──────────────────────────────────────────────────────────────────────────
     match /students/{studentId} {
       allow read: if true;
-      allow create, update: if isAdmin() || isTeacher() || isAuthenticated();
+      allow create, update: if isTeacher();
       allow delete: if isAdmin();
     }
 
     // ──────────────────────────────────────────────────────────────────────────
-    // CLASSES COLLECTION
+    // ALUMNI COLLECTION
+    // ──────────────────────────────────────────────────────────────────────────
+    match /alumni/{alumniId} {
+      allow read: if true;
+      allow create, update: if isTeacher();
+      allow delete: if isAdmin();
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // CLASSES, SUBJECTS, ACADEMIC YEARS, TERMS
     // ──────────────────────────────────────────────────────────────────────────
     match /classes/{classId} {
       allow read: if true;
-      allow create, update, delete: if isAdmin() || isAuthenticated();
+      allow create, update, delete: if isAdmin();
     }
 
-    // ──────────────────────────────────────────────────────────────────────────
-    // SUBJECTS COLLECTION
-    // ──────────────────────────────────────────────────────────────────────────
     match /subjects/{subjectId} {
       allow read: if true;
-      allow create, update, delete: if isAdmin() || isAuthenticated();
+      allow create, update, delete: if isAdmin();
     }
 
-    // ──────────────────────────────────────────────────────────────────────────
-    // ACADEMIC YEARS COLLECTION
-    // ──────────────────────────────────────────────────────────────────────────
     match /academicYears/{yearId} {
       allow read: if true;
-      allow create, update, delete: if isAdmin() || isAuthenticated();
+      allow create, update, delete: if isAdmin();
     }
 
-    // ──────────────────────────────────────────────────────────────────────────
-    // TERMS COLLECTION
-    // ──────────────────────────────────────────────────────────────────────────
     match /terms/{termId} {
       allow read: if true;
-      allow create, update, delete: if isAdmin() || isAuthenticated();
+      allow create, update, delete: if isAdmin();
     }
 
     // ──────────────────────────────────────────────────────────────────────────
-    // GRADING SCALES COLLECTION
+    // GRADING SCALES
     // ──────────────────────────────────────────────────────────────────────────
     match /gradingScales/{scaleId} {
       allow read: if true;
-      allow create, update, delete: if isAdmin() || isAuthenticated();
+      allow create, update, delete: if isAdmin();
     }
 
     // ──────────────────────────────────────────────────────────────────────────
-    // RESULTS COLLECTION
+    // RESULTS & SCORES
     // ──────────────────────────────────────────────────────────────────────────
     match /results/{resultId} {
       allow read: if true;
-      allow create, update: if isAuthenticated();
+      allow create, update: if isTeacher();
       allow delete: if isAdmin();
     }
 
+    match /scores/{docId} {
+      allow read: if true;
+      allow write: if isTeacher();
+    }
+
     // ──────────────────────────────────────────────────────────────────────────
-    // REPORTS COLLECTION
+    // REPORTS
     // ──────────────────────────────────────────────────────────────────────────
     match /reports/{reportId} {
       allow read: if true;
@@ -144,9 +171,9 @@ service cloud.firestore {
       allow create, update, delete: if isAdmin();
     }
 
-    match /scores/{docId} {
+    match /schoolInfo/{infoId} {
       allow read: if true;
-      allow write: if isTeacher();
+      allow create, update, delete: if isAdmin();
     }
 
     // ──────────────────────────────────────────────────────────────────────────
@@ -163,7 +190,7 @@ service cloud.firestore {
     // ──────────────────────────────────────────────────────────────────────────
     match /schools/{schoolId}/{collection}/{docId} {
       allow read: if true;
-      allow write: if true;
+      allow write: if isAdmin();
     }
   }
 }
