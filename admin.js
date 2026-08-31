@@ -250,154 +250,136 @@ async function handleAdminLogin() {
     }
 
     try {
+        // 1. Ensure Firebase is initialized
         if (typeof initFirebase === 'function') initFirebase();
 
-        // 1. When Firebase is active, authenticate directly with Firebase Auth + Firestore
-        if (typeof isFirebaseActive !== 'undefined' && isFirebaseActive && db && typeof loginFirebaseUser === 'function') {
-            try {
-                const creds = await Promise.race([
-                    loginFirebaseUser(email, password),
-                    new Promise((_, reject) => setTimeout(() => reject(new Error('Firebase sign-in timeout')), 5000))
-                ]);
-                const profile = typeof getCurrentUserProfile === 'function' ? getCurrentUserProfile() : null;
-                const role = profile?.role || '';
-                if (!isAdminPortalRole(role)) {
-                    try { await logoutFirebaseUser(); } catch (e) {}
-                    currentUserProfile = null;
-                    showAuthError(errorEl, 'This account does not have administrator access.');
-                    if (btnText) btnText.style.display = 'inline';
-                    if (btnLoader) btnLoader.style.display = 'none';
-                    if (btn) btn.disabled = false;
-                    return;
-                }
-                if (typeof pullSchoolFromFirebase === 'function') {
-                    try { await pullSchoolFromFirebase(); } catch (e) {}
-                }
-                await enterAdmin(profile || { email, role: role || 'Administrator' }, 'cloud');
-                return;
-            } catch (e) {
-                const code = e.code || '';
-                const msg  = e.message || '';
-                if (/deactivated/i.test(msg) || /deleted/i.test(msg) || /not found/i.test(msg) || /removed/i.test(msg)) {
-                    showAuthError(errorEl, msg);
-                    if (btnText) btnText.style.display = 'inline';
-                    if (btnLoader) btnLoader.style.display = 'none';
-                    if (btn) btn.disabled = false;
-                    return;
-                }
-                if (code === 'auth/wrong-password' || code === 'auth/invalid-credential') {
-                    showAuthError(errorEl, 'Incorrect password.');
-                    if (btnText) btnText.style.display = 'inline';
-                    if (btnLoader) btnLoader.style.display = 'none';
-                    if (btn) btn.disabled = false;
-                    return;
-                }
-                if (code === 'auth/user-not-found') {
-                    // Check if the school database has 0 teachers (first-time setup)
-                    let isFreshDb = false;
-                    try {
-                        const tSnap = await db.collection('teachers').limit(1).get();
-                        isFreshDb = tSnap.empty;
-                    } catch (e) {}
+        if (!isFirebaseActive || !auth || !db) {
+            const errReason = (typeof getLastFirebaseError === 'function' ? getLastFirebaseError() : '') || 'Connecting to Firebase cloud... please click Sign In again in a moment.';
+            showAuthError(errorEl, errReason);
+            return;
+        }
 
-                    if (isFreshDb) {
-                        if (password.length < 6) {
-                            showAuthError(errorEl, 'Password must be at least 6 characters to create the initial Super Admin account.');
-                            if (btnText) btnText.style.display = 'inline';
-                            if (btnLoader) btnLoader.style.display = 'none';
-                            if (btn) btn.disabled = false;
-                            return;
-                        }
+        try {
+            // Attempt direct Firebase login
+            const creds = await Promise.race([
+                loginFirebaseUser(email, password),
+                new Promise((_, reject) => setTimeout(() => reject(new Error('Sign-in request timed out. Please check your network.')), 15000))
+            ]);
+
+            const profile = typeof getCurrentUserProfile === 'function' ? getCurrentUserProfile() : null;
+            const role = profile?.role || '';
+            if (!isAdminPortalRole(role)) {
+                try { await logoutFirebaseUser(); } catch (e) {}
+                currentUserProfile = null;
+                showAuthError(errorEl, 'This account does not have administrator access.');
+                return;
+            }
+
+            if (typeof pullSchoolFromFirebase === 'function') {
+                try { await pullSchoolFromFirebase(); } catch (e) {}
+            }
+            await enterAdmin(profile || { email, role: role || 'Administrator' }, 'cloud');
+            return;
+        } catch (e) {
+            const code = e.code || '';
+            const msg  = e.message || '';
+
+            if (/deactivated/i.test(msg) || /deleted/i.test(msg) || /removed/i.test(msg)) {
+                showAuthError(errorEl, msg);
+                return;
+            }
+
+            // In modern Firebase SDKs, invalid-credential is returned for BOTH non-existent accounts and wrong passwords
+            if (code === 'auth/user-not-found' || code === 'auth/invalid-credential') {
+                // Check if this is a fresh / wiped school with no teachers in Firestore
+                let isFreshDb = false;
+                try {
+                    const tSnap = await db.collection('teachers').limit(1).get();
+                    isFreshDb = tSnap.empty;
+                } catch (err) {}
+
+                if (isFreshDb) {
+                    if (password.length < 6) {
+                        showAuthError(errorEl, 'Fresh Database: Password must be at least 6 characters to create the initial Super Admin account.');
+                        return;
+                    }
+                    try {
+                        let uid = null;
                         try {
                             const newCreds = await auth.createUserWithEmailAndPassword(email, password);
-                            const uid = newCreds.user.uid;
-                            const uName = email.split('@')[0].toUpperCase();
-                            const superAdminData = {
-                                id: uid,
-                                uid: uid,
-                                email: email.toLowerCase().trim(),
-                                name: uName,
-                                displayName: uName,
-                                role: 'Super Admin',
-                                assignedClasses: [],
-                                assignedSubjects: [],
-                                status: 'active',
-                                createdAt: firebase.firestore.FieldValue.serverTimestamp()
-                            };
-                            await Promise.all([
-                                db.collection('teachers').doc(uid).set(superAdminData, { merge: true }),
-                                db.collection('users').doc(uid).set(superAdminData, { merge: true }),
-                                db.collection('schoolSettings').doc('main').set({
-                                    schoolName: 'OneReal School',
-                                    theme: 'navy',
-                                    activeTerm: 'Term 1',
-                                    currentAcademicYear: '2026/2027'
-                                }, { merge: true })
-                            ]);
-                            currentUserProfile = superAdminData;
-                            await enterAdmin(superAdminData, 'fresh-setup');
-                            if (typeof showToast === 'function') {
-                                showToast('Super Admin account created & school initialized!', 'success');
+                            uid = newCreds.user.uid;
+                        } catch (createErr) {
+                            if (createErr.code === 'auth/email-already-in-use') {
+                                // User already exists in Firebase Auth with a different password
+                                showAuthError(errorEl, 'An administrator account with this email already exists in Firebase. Please enter the correct password.');
+                                return;
                             }
-                            return;
-                        } catch (regErr) {
-                            showAuthError(errorEl, `Could not initialize Super Admin: ${regErr.message}`);
-                            if (btnText) btnText.style.display = 'inline';
-                            if (btnLoader) btnLoader.style.display = 'none';
-                            if (btn) btn.disabled = false;
-                            return;
+                            throw createErr;
                         }
+
+                        const uName = email.split('@')[0].toUpperCase();
+                        const superAdminData = {
+                            id: uid,
+                            uid: uid,
+                            email: email.toLowerCase().trim(),
+                            name: uName,
+                            displayName: uName,
+                            role: 'Super Admin',
+                            assignedClasses: [],
+                            assignedSubjects: [],
+                            status: 'active',
+                            createdAt: firebase.firestore.FieldValue.serverTimestamp()
+                        };
+
+                        await Promise.all([
+                            db.collection('teachers').doc(uid).set(superAdminData, { merge: true }),
+                            db.collection('users').doc(uid).set(superAdminData, { merge: true }),
+                            db.collection('schoolSettings').doc('main').set({
+                                schoolName: 'OneReal School',
+                                theme: 'navy',
+                                activeTerm: 'Term 1',
+                                currentAcademicYear: '2026/2027'
+                            }, { merge: true })
+                        ]);
+
+                        currentUserProfile = superAdminData;
+                        await enterAdmin(superAdminData, 'fresh-setup');
+                        if (typeof showToast === 'function') {
+                            showToast('Super Admin account created & school initialized!', 'success');
+                        }
+                        return;
+                    } catch (regErr) {
+                        showAuthError(errorEl, `Could not initialize Super Admin: ${regErr.message || regErr}`);
+                        return;
                     }
+                }
 
-                    showAuthError(errorEl, 'No account found for this email in the school database.');
-                    if (btnText) btnText.style.display = 'inline';
-                    if (btnLoader) btnLoader.style.display = 'none';
-                    if (btn) btn.disabled = false;
-                    return;
-                }
-                if (code === 'auth/invalid-email') {
-                    showAuthError(errorEl, 'Invalid email address.');
-                    if (btnText) btnText.style.display = 'inline';
-                    if (btnLoader) btnLoader.style.display = 'none';
-                    if (btn) btn.disabled = false;
-                    return;
-                }
-                if (code === 'auth/too-many-requests') {
-                    showAuthError(errorEl, 'Too many attempts. Try again later.');
-                    if (btnText) btnText.style.display = 'inline';
-                    if (btnLoader) btnLoader.style.display = 'none';
-                    if (btn) btn.disabled = false;
-                    return;
-                }
-            }
-        }
-
-        // 2. Offline / Local fallback only when Firebase is not connected
-        if (!isFirebaseActive || !db) {
-            const localAccount = findAccountByEmail(email);
-            if (localAccount && localAccount.password && localAccount.password === password) {
-                if (localAccount.status === 'inactive' || localAccount.status === 'deleted' || localAccount.isDeleted) {
-                    showAuthError(errorEl, 'This account has been deactivated / deleted by the administrator.');
-                    if (btnText) btnText.style.display = 'inline';
-                    if (btnLoader) btnLoader.style.display = 'none';
-                    if (btn) btn.disabled = false;
-                    return;
-                }
-                const role = localAccount.role || 'Administrator';
-                if (!isAdminPortalRole(role)) {
-                    showAuthError(errorEl, 'This account does not have admin access.');
-                    if (btnText) btnText.style.display = 'inline';
-                    if (btnLoader) btnLoader.style.display = 'none';
-                    if (btn) btn.disabled = false;
-                    return;
-                }
-                await enterAdmin(localAccount, 'local');
+                showAuthError(errorEl, 'Invalid email or password.');
                 return;
             }
-        }
 
-        // Firebase is the only authentication method — show error if we reach here
-        showAuthError(errorEl, 'Unable to sign in. Please check your internet connection and try again.');
+            if (code === 'auth/wrong-password') {
+                showAuthError(errorEl, 'Incorrect password.');
+                return;
+            }
+
+            if (code === 'auth/invalid-email') {
+                showAuthError(errorEl, 'Invalid email address format.');
+                return;
+            }
+
+            if (code === 'auth/too-many-requests') {
+                showAuthError(errorEl, 'Too many failed sign-in attempts. Please wait a few minutes and try again.');
+                return;
+            }
+
+            if (code === 'auth/network-request-failed') {
+                showAuthError(errorEl, 'Network connection issue. Please check your internet connection.');
+                return;
+            }
+
+            showAuthError(errorEl, msg || 'Sign-in failed. Please try again.');
+        }
     } catch (e) {
         showAuthError(errorEl, `Login failed: ${e.message || e}`);
     } finally {
