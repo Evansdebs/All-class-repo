@@ -695,15 +695,16 @@ function validateCurrentTeacherSession(silent = false) {
 
     const teachers = loadJSON('teachers', []);
     const users = loadJSON('users', []);
+    if (!teachers.length && !users.length) return true;
+
     const normEmail = (email || '').trim().toLowerCase();
     const t = teachers.find(x => (x.email || '').trim().toLowerCase() === normEmail);
     const u = users.find(x => (x.email || '').trim().toLowerCase() === normEmail);
 
     const isDeactivated = (t && t.status === 'inactive') || (u && u.status === 'inactive');
     const isDeleted = (t && (t.status === 'deleted' || t.isDeleted)) || (u && (u.status === 'deleted' || u.isDeleted));
-    const isNotFound = (teachers.length > 0) && !t && !u;
 
-    if (isDeactivated || isDeleted || isNotFound) {
+    if (isDeactivated || isDeleted) {
         sessionStorage.removeItem('teacherUnlocked');
         sessionStorage.removeItem('teacherEmail');
         sessionStorage.removeItem('teacherName');

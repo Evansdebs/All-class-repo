@@ -158,14 +158,22 @@ function hideAuthOverlay() {
 
 // ─── Strict admin access ─────────────────────────────────────────────────────
 // Roles allowed into the Admin Dashboard.
-const ADMIN_PORTAL_ROLES = ['Super Admin', 'Administrator', 'Headteacher'];
+const ADMIN_PORTAL_ROLES = ['super admin', 'administrator', 'headteacher', 'head teacher', 'admin'];
 
 function getLocalTeachers() {
-    try { return JSON.parse(localStorage.getItem('teachers') || '[]'); } catch (e) { return []; }
+    try {
+        const cached = JSON.parse(localStorage.getItem('teachers') || '[]');
+        if (Array.isArray(cached) && cached.length) return cached;
+    } catch (e) {}
+    if (typeof adminState !== 'undefined' && Array.isArray(adminState.teachers) && adminState.teachers.length) {
+        return adminState.teachers;
+    }
+    return [];
 }
 
 function isAdminPortalRole(role) {
-    return ADMIN_PORTAL_ROLES.includes(role);
+    if (!role) return false;
+    return ADMIN_PORTAL_ROLES.includes(String(role).trim().toLowerCase());
 }
 
 // True when at least one admin-level account exists in the teachers list.
@@ -175,8 +183,9 @@ function hasAnyAdminLevelAccount() {
 
 // Find any staff account matching the email.
 function findAccountByEmail(email) {
-    const lc = String(email || '').toLowerCase();
-    return getLocalTeachers().find(t => (t.email || '').toLowerCase() === lc) || null;
+    const lc = String(email || '').toLowerCase().trim();
+    if (!lc) return null;
+    return getLocalTeachers().find(t => (t.email || '').toLowerCase().trim() === lc) || null;
 }
 
 function validateAdminSession(silent = false) {
@@ -184,7 +193,17 @@ function validateAdminSession(silent = false) {
     const savedEmail = sessionStorage.getItem('adminEmail');
     if (!isUnlocked || !savedEmail) return true;
 
+    const teachers = getLocalTeachers();
+    if (!teachers.length) {
+        // Accounts are still hydrating from server/local storage - do not prematurely invalidate session
+        return true;
+    }
+
     const account = findAccountByEmail(savedEmail);
+    if (!account && currentUserProfile && String(currentUserProfile.email || '').toLowerCase().trim() === String(savedEmail).toLowerCase().trim()) {
+        if (isAdminPortalRole(currentUserProfile.role)) return true;
+    }
+
     const isInvalid = !account || account.status === 'inactive' || account.status === 'deleted' || account.isDeleted || !isAdminPortalRole(account.role);
 
     if (isInvalid) {
