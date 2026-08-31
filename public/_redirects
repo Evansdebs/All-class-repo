@@ -1,0 +1,13 @@
+/api/db /database.json 200
+/api/status /metadata.json 200
+/ /report.html 200
+/teacher /report.html 200
+/report /report.html 200
+/admin /admin.html 200
+/student /student.html 200
+/alumni /alumni.html 200
+/excel /excel.html 200
+/timetable /timetable.html 200
+/timetables /timetable.html 200
+/files /sheet.html 200
+/files.html /sheet.html 200

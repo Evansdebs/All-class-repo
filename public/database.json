@@ -483,24 +483,24 @@
   "results": [
     {
       "id": "res_mt7h80xy1sa",
-      "examScore50": 28,
+      "examScore50": 38,
       "subjectId": "7IaKzwCfG5T9al0tOuwK",
       "subjectName": "CAD",
-      "examScore": 56,
+      "examScore": 76,
       "status": "Approved",
       "approvedAt": "2026-08-27T12:26:45.483Z",
       "studentName": "ESTHER",
-      "grade": "4",
-      "classScore50": 22.5,
+      "grade": "3",
+      "classScore50": 28,
       "studentId": "D8X5RCgfRORZxlcSa2CR",
-      "remark": "DEVELOPING",
+      "remark": "APPROACHING PROFICIENCY",
       "termId": "dgvfBudOtgScohlrQGmO",
       "academicYearId": "mpFWQQVuxPNLr0tDQyN9",
-      "totalScore": 50.5,
-      "classScore": 45,
+      "totalScore": 66,
+      "classScore": 56,
       "locked": true,
-      "classId": "BASIC 9",
-      "updatedAt": "2026-08-31T07:10:30.859Z"
+      "classId": "iPooVjMkWOUvEpY1UYDu",
+      "updatedAt": "2026-08-27T12:11:12.461Z"
     },
     {
       "id": "res_mt7h86qln8s",
@@ -515,12 +515,12 @@
       "studentName": "ESTHER",
       "classScore50": 25,
       "termId": "dgvfBudOtgScohlrQGmO",
-      "classId": "BASIC 9",
+      "classId": "iPooVjMkWOUvEpY1UYDu",
       "grade": "3",
       "totalScore": 64,
       "subjectName": "MATHEMATICS",
       "remark": "APPROACHING PROFICIENCY",
-      "updatedAt": "2026-08-31T07:10:30.859Z",
+      "updatedAt": "2026-08-27T12:11:12.461Z",
       "examScore50": 39
     },
     {
@@ -528,7 +528,7 @@
       "remark": "APPROACHING PROFICIENCY",
       "termId": "dgvfBudOtgScohlrQGmO",
       "classScore": 67,
-      "updatedAt": "2026-08-31T07:10:30.859Z",
+      "updatedAt": "2026-08-27T12:11:12.461Z",
       "totalScore": 62,
       "classScore50": 33.5,
       "status": "Approved",
@@ -540,7 +540,7 @@
       "subjectId": "hQUyb6MuBXwarz7ULmT5",
       "approvedAt": "2026-08-27T10:20:30.929Z",
       "studentId": "D8X5RCgfRORZxlcSa2CR",
-      "classId": "BASIC 9",
+      "classId": "iPooVjMkWOUvEpY1UYDu",
       "examScore50": 28.5,
       "subjectName": "SCIENCE"
     },
@@ -551,11 +551,11 @@
       "studentName": "ESTHER",
       "totalScore": 71.5,
       "classScore": 87,
-      "updatedAt": "2026-08-31T07:10:30.859Z",
+      "updatedAt": "2026-08-27T12:11:12.461Z",
       "subjectName": "CAT",
       "examScore50": 28,
       "examScore": 56,
-      "classId": "BASIC 9",
+      "classId": "iPooVjMkWOUvEpY1UYDu",
       "approvedAt": "2026-08-27T10:20:30.929Z",
       "subjectId": "jWYE4s2vcfrEHoCFnPzd",
       "remark": "PROFICIENCY",
@@ -568,7 +568,7 @@
     {
       "id": "res_mt7hiqxgrpj",
       "approvedAt": "2026-08-27T10:20:30.929Z",
-      "updatedAt": "2026-08-31T07:10:30.860Z",
+      "updatedAt": "2026-08-27T12:11:12.461Z",
       "studentName": "ESTHER",
       "remark": "ADVANCE",
       "academicYearId": "mpFWQQVuxPNLr0tDQyN9",
@@ -580,7 +580,7 @@
       "totalScore": 84,
       "locked": true,
       "studentId": "D8X5RCgfRORZxlcSa2CR",
-      "classId": "BASIC 9",
+      "classId": "iPooVjMkWOUvEpY1UYDu",
       "classScore50": 39,
       "subjectId": "QEdtA5Hwjy7pU7F1ulyX",
       "examScore": 90,
@@ -589,20 +589,20 @@
     {
       "id": "res_mt97jqx1d1y",
       "classScore50": 45,
-      "updatedAt": "2026-08-31T07:10:30.859Z",
+      "updatedAt": "2026-08-27T12:11:12.461Z",
       "approvedAt": "2026-08-27T10:20:30.929Z",
-      "classId": "BASIC 9",
+      "classId": "iPooVjMkWOUvEpY1UYDu",
       "locked": true,
       "grade": "1",
       "studentName": "ESTHER",
       "academicYearId": "mpFWQQVuxPNLr0tDQyN9",
       "studentId": "D8X5RCgfRORZxlcSa2CR",
       "status": "Approved",
-      "totalScore": 85,
+      "totalScore": 95,
       "subjectName": "ENGLISH",
       "classScore": 90,
-      "examScore": 80,
-      "examScore50": 40,
+      "examScore": 100,
+      "examScore50": 50,
       "subjectId": "352qeuD45VdoqFGBYqrc",
       "remark": "ADVANCE",
       "termId": "dgvfBudOtgScohlrQGmO"
@@ -703,7 +703,9 @@
       "academicYearId": "",
       "generatedAt": "2026-08-27T17:03:59.544Z",
       "status": "Pending",
-      "classId": "BASIC 9"
+      "classId": "BASIC 9",
+      "approvedAt": "2026-08-31T07:18:28.281Z",
+      "updatedAt": "2026-08-31T07:15:47.060Z"
     }
   ],
   "gradingScales": [
@@ -920,7 +922,7 @@
   },
   "schoolInfo": {
     "academicYear": "2025/2026",
-    "term": "1",
+    "term": "2",
     "closingDate": "18th DEC, 2025",
     "reopeningDate": "12th JAN, 2026",
     "classTeacher": "",
@@ -1252,7 +1254,77 @@
       ]
     }
   ],
-  "timetables": [],
+  "timetables": [
+    {
+      "id": "tt-basic-9",
+      "updatedAt": "2026-08-31T07:20:03.323Z",
+      "class": "BASIC 9",
+      "classId": "iPooVjMkWOUvEpY1UYDu",
+      "periods": [
+        {
+          "period": 1,
+          "time": "08:00 - 08:45",
+          "name": "Period 1"
+        },
+        {
+          "period": 2,
+          "time": "08:45 - 09:30",
+          "name": "Period 2"
+        },
+        {
+          "period": 3,
+          "time": "09:30 - 10:15",
+          "name": "Period 3"
+        },
+        {
+          "period": 4,
+          "time": "10:15 - 10:45",
+          "isBreak": true,
+          "name": "Snack Break"
+        },
+        {
+          "period": 5,
+          "time": "10:45 - 11:30",
+          "name": "Period 4"
+        },
+        {
+          "period": 6,
+          "time": "11:30 - 12:15",
+          "name": "Period 5"
+        },
+        {
+          "period": 7,
+          "time": "12:15 - 01:00",
+          "isBreak": true,
+          "name": "Lunch & Rest"
+        },
+        {
+          "period": 8,
+          "time": "01:00 - 01:45",
+          "name": "Period 6"
+        },
+        {
+          "period": 9,
+          "time": "01:45 - 02:30",
+          "name": "Period 7"
+        }
+      ],
+      "schedule": {
+        "Monday": [
+          {
+            "period": 1,
+            "subject": "CAD",
+            "teacher": "Test Teacher",
+            "room": "b6"
+          }
+        ],
+        "Tuesday": [],
+        "Wednesday": [],
+        "Thursday": [],
+        "Friday": []
+      }
+    }
+  ],
   "examTimetables": [],
   "transcriptRequests": [],
   "auditLogs": [
@@ -5905,6 +5977,106 @@
       "affectedRecord": "",
       "timestamp": "2026-08-31T07:10:25.028Z",
       "formattedTime": "8/31/2026, 7:10:25 AM"
+    },
+    {
+      "id": "log_1788160424107_qbth6",
+      "user": "Test Administrator",
+      "role": "Super Admin",
+      "action": "Admin Login",
+      "details": "Signed in as admin@test.com (local)",
+      "affectedRecord": "",
+      "timestamp": "2026-08-31T07:13:44.107Z",
+      "formattedTime": "8/31/2026, 7:13:44 AM"
+    },
+    {
+      "id": "log_1788160471444_aawky",
+      "user": "Test Administrator",
+      "role": "Super Admin",
+      "action": "Active Term Set",
+      "details": "Set active term",
+      "affectedRecord": "AIzgmhIqyQpHhLfWN7DR",
+      "timestamp": "2026-08-31T07:14:31.444Z",
+      "formattedTime": "8/31/2026, 7:14:31 AM"
+    },
+    {
+      "id": "log_1788160547100_o0rif",
+      "user": "Test Administrator",
+      "role": "Super Admin",
+      "action": "Report Approved",
+      "details": "Approved report for ESTHER",
+      "affectedRecord": "rpt_mtbi5z493tra",
+      "timestamp": "2026-08-31T07:15:47.100Z",
+      "formattedTime": "8/31/2026, 7:15:47 AM"
+    },
+    {
+      "id": "log_1788160708287_fzn55",
+      "user": "admin@test.com",
+      "role": "Guest",
+      "action": "Report Approved",
+      "details": "Approved report for ESTHER",
+      "affectedRecord": "rpt_mtbi5z493tra",
+      "timestamp": "2026-08-31T07:18:28.287Z",
+      "formattedTime": "8/31/2026, 7:18:28 AM"
+    },
+    {
+      "id": "log_1788160799767_wxpae",
+      "user": "admin@test.com",
+      "role": "Guest",
+      "action": "Timetable Published",
+      "details": "Admin published weekly timetable for BASIC 9",
+      "affectedRecord": "tt-basic-9",
+      "timestamp": "2026-08-31T07:19:59.767Z",
+      "formattedTime": "8/31/2026, 7:19:59 AM"
+    },
+    {
+      "id": "log_1788160801079_hf6ur",
+      "user": "admin@test.com",
+      "role": "Guest",
+      "action": "Timetable Published",
+      "details": "Admin published weekly timetable for BASIC 9",
+      "affectedRecord": "tt-basic-9",
+      "timestamp": "2026-08-31T07:20:01.079Z",
+      "formattedTime": "8/31/2026, 7:20:01 AM"
+    },
+    {
+      "id": "log_1788160802084_g98wm",
+      "user": "admin@test.com",
+      "role": "Guest",
+      "action": "Timetable Published",
+      "details": "Admin published weekly timetable for BASIC 9",
+      "affectedRecord": "tt-basic-9",
+      "timestamp": "2026-08-31T07:20:02.084Z",
+      "formattedTime": "8/31/2026, 7:20:02 AM"
+    },
+    {
+      "id": "log_1788160802697_yhi92",
+      "user": "admin@test.com",
+      "role": "Guest",
+      "action": "Timetable Published",
+      "details": "Admin published weekly timetable for BASIC 9",
+      "affectedRecord": "tt-basic-9",
+      "timestamp": "2026-08-31T07:20:02.697Z",
+      "formattedTime": "8/31/2026, 7:20:02 AM"
+    },
+    {
+      "id": "log_1788160803153_xcc9p",
+      "user": "admin@test.com",
+      "role": "Guest",
+      "action": "Timetable Published",
+      "details": "Admin published weekly timetable for BASIC 9",
+      "affectedRecord": "tt-basic-9",
+      "timestamp": "2026-08-31T07:20:03.153Z",
+      "formattedTime": "8/31/2026, 7:20:03 AM"
+    },
+    {
+      "id": "log_1788160803364_t36bv",
+      "user": "admin@test.com",
+      "role": "Guest",
+      "action": "Timetable Published",
+      "details": "Admin published weekly timetable for BASIC 9",
+      "affectedRecord": "tt-basic-9",
+      "timestamp": "2026-08-31T07:20:03.364Z",
+      "formattedTime": "8/31/2026, 7:20:03 AM"
     }
   ],
   "schoolDepartments": [
