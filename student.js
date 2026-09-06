@@ -843,33 +843,65 @@ async function renderStudentTimetable(student) {
     container.innerHTML = '<div style="text-align:center;padding:30px;color:#64748b;"><i class="fas fa-spinner fa-spin fa-2x"></i><p style="margin-top:10px;">Loading class timetable…</p></div>';
 
     try {
-        const [ttRes, cfgRes] = await Promise.all([
-            fetch('/api/timetables'),
-            fetch('/api/timetables/config')
-        ]);
+        let timetables = [];
+        try {
+            const ttRes = await fetch('/api/timetables');
+            if (ttRes.ok) {
+                timetables = await ttRes.json();
+            }
+        } catch (e) {}
 
-        const timetables = ttRes.ok ? await ttRes.json() : [];
-        const config = cfgRes.ok ? await cfgRes.json() : {
-            days: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'],
-            periods: [
-                { period: 1, time: '08:00 - 08:45' },
-                { period: 2, time: '08:45 - 09:30' },
-                { period: 3, time: '09:30 - 10:15' },
-                { period: 4, time: '10:45 - 11:30' },
-                { period: 5, time: '11:30 - 12:15' },
-                { period: 6, time: '12:15 - 13:00' },
-                { period: 7, time: '13:30 - 14:15' },
-                { period: 8, time: '14:15 - 15:00' }
-            ]
-        };
+        if (!Array.isArray(timetables) || !timetables.length) {
+            try {
+                timetables = JSON.parse(localStorage.getItem('timetables') || '[]');
+            } catch (e) { timetables = []; }
+        }
 
-        const studentClass = student.class || '';
-        const classSlots = timetables.filter(t => (t.class || '').toLowerCase() === studentClass.toLowerCase());
+        const studentClass = (student.class || '').trim();
+        const activeDoc = timetables.find(t => 
+            (t.class || '').trim().toLowerCase() === studentClass.toLowerCase() ||
+            (t.classId && String(t.classId) === String(student.classId)) ||
+            (t.id && t.id.toLowerCase() === ('tt-' + studentClass.toLowerCase().replace(/\s+/g, '-')))
+        );
 
         const ttSub = document.getElementById('studentTimetableSubtitle');
         if (ttSub) ttSub.textContent = `Official Weekly Schedule for ${studentClass} (Managed by Administration)`;
 
-        if (!classSlots.length) {
+        const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+        const periods = (activeDoc && Array.isArray(activeDoc.periods) && activeDoc.periods.length) ? activeDoc.periods : [
+            { period: 1, time: '08:00 - 08:45', name: 'Period 1' },
+            { period: 2, time: '08:45 - 09:30', name: 'Period 2' },
+            { period: 3, time: '09:30 - 10:15', name: 'Period 3' },
+            { period: 4, time: '10:15 - 10:45', isBreak: true, name: 'Snack Break' },
+            { period: 5, time: '10:45 - 11:30', name: 'Period 4' },
+            { period: 6, time: '11:30 - 12:15', name: 'Period 5' },
+            { period: 7, time: '12:15 - 01:00', isBreak: true, name: 'Lunch & Rest' },
+            { period: 8, time: '01:00 - 01:45', name: 'Period 6' },
+            { period: 9, time: '01:45 - 02:30', name: 'Period 7' }
+        ];
+
+        const getSlot = (day, pNum) => {
+            if (!activeDoc) return null;
+            if (activeDoc.schedule && Array.isArray(activeDoc.schedule[day])) {
+                return activeDoc.schedule[day].find(s => Number(s.period) === Number(pNum));
+            }
+            if (Array.isArray(activeDoc)) {
+                return activeDoc.find(s => Number(s.period) === Number(pNum) && (s.day || '').toLowerCase() === day.toLowerCase());
+            }
+            return null;
+        };
+
+        let totalScheduled = 0;
+        days.forEach(d => {
+            periods.forEach(p => {
+                if (!p.isBreak) {
+                    const s = getSlot(d, p.period);
+                    if (s && s.subject) totalScheduled++;
+                }
+            });
+        });
+
+        if (!activeDoc || totalScheduled === 0) {
             container.innerHTML = `
                 <div style="text-align:center;padding:40px 20px;color:#64748b;">
                     <div style="width:60px;height:60px;background:#f1f5f9;border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 16px;font-size:24px;color:#94a3b8;">
@@ -882,40 +914,53 @@ async function renderStudentTimetable(student) {
             return;
         }
 
-        const days = config.days || ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
-        const periods = config.periods || [];
-
         let tableHtml = `
             <div style="margin-bottom:14px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;">
                 <div>
                     <span style="font-size:16px;font-weight:800;color:#0f172a;">${studentClass} Timetable</span>
-                    <span style="font-size:12px;background:#e0e7ff;color:#4338ca;padding:3px 10px;border-radius:12px;font-weight:700;margin-left:8px;">${classSlots.length} Slots Scheduled</span>
+                    <span style="font-size:12px;background:#e0e7ff;color:#4338ca;padding:3px 10px;border-radius:12px;font-weight:700;margin-left:8px;">${totalScheduled} Periods Scheduled</span>
                 </div>
                 <div style="font-size:12px;color:#64748b;">
-                    <i class="fas fa-lock"></i> Read-only portal view
+                    <i class="fas fa-lock"></i> Official School Schedule
                 </div>
             </div>
-            <table style="width:100%;border-collapse:collapse;min-width:650px;text-align:center;font-size:12px;">
-                <thead>
-                    <tr style="background:#0f172a;color:#ffffff;">
-                        <th style="padding:10px;border:1px solid #1e293b;width:110px;text-align:center;">Period / Time</th>
-                        ${days.map(d => `<th style="padding:10px;border:1px solid #1e293b;">${d}</th>`).join('')}
-                    </tr>
-                </thead>
-                <tbody>
+            <div style="overflow-x:auto;">
+                <table style="width:100%;border-collapse:collapse;min-width:650px;text-align:center;font-size:12px;">
+                    <thead>
+                        <tr style="background:#0f172a;color:#ffffff;">
+                            <th style="padding:10px;border:1px solid #1e293b;width:120px;text-align:center;">Period / Time</th>
+                            ${days.map(d => `<th style="padding:10px;border:1px solid #1e293b;">${d}</th>`).join('')}
+                        </tr>
+                    </thead>
+                    <tbody>
         `;
 
         periods.forEach(p => {
+            if (p.isBreak) {
+                tableHtml += `
+                    <tr style="background:rgba(245,158,11,0.08);">
+                        <td style="padding:8px;border:1px solid #e2e8f0;font-weight:700;color:#b45309;">
+                            <div>${p.name || 'Break'}</div>
+                            <div style="font-size:10px;font-weight:normal;">${p.time || ''}</div>
+                        </td>
+                        <td colspan="5" style="padding:8px;border:1px solid #e2e8f0;color:#b45309;font-weight:700;letter-spacing:0.04em;">
+                            <i class="fas fa-mug-hot" style="margin-right:6px;"></i> ${p.name || 'Break Interval'} (${p.time || ''})
+                        </td>
+                    </tr>
+                `;
+                return;
+            }
+
             tableHtml += `<tr>`;
             tableHtml += `
                 <td style="padding:10px 8px;border:1px solid #e2e8f0;background:#f8fafc;font-weight:700;color:#334155;">
                     <div>Period ${p.period}</div>
-                    <div style="font-size:10.5px;color:#64748b;font-weight:normal;margin-top:2px;">${p.time}</div>
+                    <div style="font-size:10.5px;color:#64748b;font-weight:normal;margin-top:2px;">${p.time || ''}</div>
                 </td>
             `;
 
             days.forEach(day => {
-                const slot = classSlots.find(s => String(s.period) === String(p.period) && (s.day || '').toLowerCase() === day.toLowerCase());
+                const slot = getSlot(day, p.period);
                 if (slot && slot.subject) {
                     tableHtml += `
                         <td style="padding:8px;border:1px solid #e2e8f0;background:#eef2ff;vertical-align:top;">
@@ -937,8 +982,9 @@ async function renderStudentTimetable(student) {
         });
 
         tableHtml += `
-                </tbody>
-            </table>
+                    </tbody>
+                </table>
+            </div>
         `;
 
         container.innerHTML = tableHtml;
@@ -955,11 +1001,20 @@ async function renderStudentExams(student) {
     container.innerHTML = '<div style="text-align:center;padding:30px;color:#64748b;"><i class="fas fa-spinner fa-spin fa-2x"></i><p style="margin-top:10px;">Loading examination schedule…</p></div>';
 
     try {
-        const res = await fetch('/api/timetables/exams');
-        const allExams = res.ok ? await res.json() : [];
+        let allExams = [];
+        try {
+            const res = await fetch('/api/timetables/exams');
+            if (res.ok) allExams = await res.json();
+        } catch (e) {}
 
-        const studentClass = student.class || '';
-        const classExams = allExams.filter(e => (e.class || '').toLowerCase() === studentClass.toLowerCase());
+        if (!Array.isArray(allExams) || !allExams.length) {
+            try {
+                allExams = JSON.parse(localStorage.getItem('examTimetables') || '[]');
+            } catch (e) { allExams = []; }
+        }
+
+        const studentClass = (student.class || '').trim();
+        const classExams = allExams.filter(e => (e.class || '').trim().toLowerCase() === studentClass.toLowerCase());
 
         const exSub = document.getElementById('studentExamsSubtitle');
         if (exSub) exSub.textContent = `Official Examinations Schedule for ${studentClass}`;
@@ -1090,27 +1145,27 @@ async function downloadStudentReportFile() {
         if (typeof html2canvas !== 'undefined' && jsPDFConstructor) {
             const targetEl = container.querySelector('#printableReportCard') || container.firstElementChild || container;
             const canvas = await html2canvas(targetEl, {
-                scale: 2,
+                scale: 1.6,
                 useCORS: true,
                 allowTaint: true,
                 backgroundColor: '#ffffff'
             });
             if (container.parentNode) document.body.removeChild(container);
 
-            const doc = new jsPDFConstructor('p', 'mm', 'a4');
+            const doc = new jsPDFConstructor({ orientation: 'p', unit: 'mm', format: 'a4', compress: true });
             const W = doc.internal.pageSize.getWidth();
             const H = doc.internal.pageSize.getHeight();
-            const imgData = canvas.toDataURL('image/png');
+            const imgData = canvas.toDataURL('image/jpeg', 0.82);
             const ratio = canvas.height / canvas.width;
             const imgH = W * ratio;
             let posY = 0;
-            doc.addImage(imgData, 'PNG', 0, posY, W, imgH);
+            doc.addImage(imgData, 'JPEG', 0, posY, W, imgH, undefined, 'FAST');
             if (imgH > H) {
                 let remaining = imgH - H;
                 while (remaining > 0) {
                     posY -= H;
                     doc.addPage();
-                    doc.addImage(imgData, 'PNG', 0, posY, W, imgH);
+                    doc.addImage(imgData, 'JPEG', 0, posY, W, imgH, undefined, 'FAST');
                     remaining -= H;
                 }
             }

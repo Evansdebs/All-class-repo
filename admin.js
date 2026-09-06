@@ -4602,25 +4602,25 @@ async function downloadAdminPreviewReport() {
     if (typeof html2canvas !== 'undefined' && jsPDFConstructor) {
         try {
             const canvas = await html2canvas(printContent, {
-                scale: 2,
+                scale: 1.6,
                 useCORS: true,
                 allowTaint: true,
                 backgroundColor: '#ffffff'
             });
-            const doc = new jsPDFConstructor('p', 'mm', 'a4');
+            const doc = new jsPDFConstructor({ orientation: 'p', unit: 'mm', format: 'a4', compress: true });
             const W = doc.internal.pageSize.getWidth();
             const H = doc.internal.pageSize.getHeight();
-            const imgData = canvas.toDataURL('image/png');
+            const imgData = canvas.toDataURL('image/jpeg', 0.82);
             const ratio = canvas.height / canvas.width;
             const imgH = W * ratio;
             let posY = 0;
-            doc.addImage(imgData, 'PNG', 0, posY, W, imgH);
+            doc.addImage(imgData, 'JPEG', 0, posY, W, imgH, undefined, 'FAST');
             if (imgH > H) {
                 let remaining = imgH - H;
                 while (remaining > 0) {
                     posY -= H;
                     doc.addPage();
-                    doc.addImage(imgData, 'PNG', 0, posY, W, imgH);
+                    doc.addImage(imgData, 'JPEG', 0, posY, W, imgH, undefined, 'FAST');
                     remaining -= H;
                 }
             }
@@ -4628,7 +4628,7 @@ async function downloadAdminPreviewReport() {
             const studentName = r?.studentName || 'student';
             const fileName = `${studentName.replace(/[^a-zA-Z0-9]/g, '_')}_report.pdf`;
             doc.save(fileName);
-            showToast('PDF downloaded successfully.', 'success');
+            showToast('Optimized PDF downloaded successfully.', 'success');
             return;
         } catch (err) {
             console.warn('html2canvas preview download fallback:', err);
@@ -4929,6 +4929,13 @@ function renderFieldToggles() {
 }
 
 async function saveAllSettings() {
+    const saveBtn = document.getElementById('btnSaveAllSettings') || document.querySelector('button[onclick="saveAllSettings()"]');
+    const alertBanner = document.getElementById('settingsSuccessAlert');
+    if (saveBtn) {
+        saveBtn.disabled = true;
+        saveBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> <span>Saving Settings...</span>';
+    }
+
     const activeYear = adminState.academicYears.find(y => y.isActive);
     const activeTerm = adminState.terms.find(t => t.isActive);
     const settings = {
@@ -4965,10 +4972,29 @@ async function saveAllSettings() {
             headTeacher:   settings.headTeacher,
             schoolLogo:    settings.schoolLogo
         });
-        showToast('Settings saved! Teacher portal will show these on reports.', 'success');
+
+        // Confirmation banner & toast
+        if (alertBanner) {
+            alertBanner.style.display = 'flex';
+            alertBanner.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+        showToast('Settings saved successfully! Teacher portal and reports will now show these updates.', 'success');
+        if (saveBtn) {
+            saveBtn.innerHTML = '<i class="fas fa-check-circle" style="color:#ffffff;"></i> <span>Settings Saved!</span>';
+            saveBtn.classList.add('btn-success');
+            setTimeout(() => {
+                saveBtn.disabled = false;
+                saveBtn.innerHTML = '<i class="fas fa-save"></i> <span>Save Settings</span>';
+                saveBtn.classList.remove('btn-success');
+            }, 3000);
+        }
         await logActivity('School Settings Updated', 'Updated report calendar and school information');
     } catch (e) {
-        showToast(`Error: ${e.message}`, 'error');
+        if (saveBtn) {
+            saveBtn.disabled = false;
+            saveBtn.innerHTML = '<i class="fas fa-save"></i> <span>Save Settings</span>';
+        }
+        showToast(`Error saving settings: ${e.message}`, 'error');
     }
 }
 
@@ -5918,14 +5944,18 @@ function closeConfirmModal(event) {
 
 // ─── TOAST ────────────────────────────────────────────────────────────────────
 function showToast(message, type = 'info') {
-    const area = document.getElementById('adminNotificationArea');
-    if (!area) return;
+    let area = document.getElementById('adminNotificationArea');
+    if (!area) {
+        area = document.createElement('div');
+        area.id = 'adminNotificationArea';
+        document.body.appendChild(area);
+    }
     const icons = { success: 'fa-check-circle', error: 'fa-times-circle', warning: 'fa-exclamation-triangle', info: 'fa-info-circle' };
     const toast = document.createElement('div');
     toast.className = `admin-toast ${type}`;
     toast.innerHTML = `<i class="fas ${icons[type] || icons.info}"></i><span>${escHtml(message)}</span>`;
     area.appendChild(toast);
-    setTimeout(() => { toast.style.opacity = '0'; setTimeout(() => toast.remove(), 300); }, 3500);
+    setTimeout(() => { toast.style.opacity = '0'; setTimeout(() => toast.remove(), 300); }, 4000);
 }
 
 // ─── PAGINATION ───────────────────────────────────────────────────────────────
@@ -7469,11 +7499,68 @@ async function renderAdminTeacherSchedule() {
         return;
     }
 
+    let data = null;
     try {
         const res = await fetch(`/api/timetables/teacher/${encodeURIComponent(teacherName)}`);
-        if (!res.ok) throw new Error('Failed to load teacher schedule');
-        const data = await res.json();
+        if (res.ok) data = await res.json();
+    } catch (e) {}
 
+    if (!data || !data.weeklySchedule) {
+        // Client-side computation fallback
+        const allTt = (adminState && adminState.timetables && adminState.timetables.length)
+            ? adminState.timetables
+            : (safeLocalGet('timetables', []) || []);
+        const allEx = (adminState && adminState.examTimetables && adminState.examTimetables.length)
+            ? adminState.examTimetables
+            : (adminExamsList && adminExamsList.length ? adminExamsList : (safeLocalGet('examTimetables', []) || []));
+
+        const weeklySchedule = { Monday: [], Tuesday: [], Wednesday: [], Thursday: [], Friday: [] };
+        const clashes = [];
+        const normTName = teacherName.toLowerCase().trim();
+
+        allTt.forEach(tt => {
+            const sched = tt.schedule || {};
+            ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'].forEach(day => {
+                (sched[day] || []).forEach(slot => {
+                    if (slot.teacher && slot.teacher.toLowerCase().trim() === normTName) {
+                        const existing = weeklySchedule[day].find(s => Number(s.period) === Number(slot.period));
+                        if (existing) {
+                            clashes.push({
+                                day,
+                                period: slot.period,
+                                classA: existing.class,
+                                subjectA: existing.subject,
+                                classB: tt.class,
+                                subjectB: slot.subject
+                            });
+                        }
+                        weeklySchedule[day].push({
+                            period: slot.period,
+                            time: (tt.periods || []).find(p => Number(p.period) === Number(slot.period))?.time || '',
+                            class: tt.class,
+                            subject: slot.subject,
+                            room: slot.room || tt.room || ''
+                        });
+                    }
+                });
+            });
+        });
+
+        const invigilationDuties = allEx.filter(e =>
+            (e.chiefInvigilator && e.chiefInvigilator.toLowerCase().trim() === normTName) ||
+            (e.assistantInvigilator && e.assistantInvigilator.toLowerCase().trim() === normTName)
+        );
+
+        data = {
+            teacherName,
+            weeklySchedule,
+            clashes,
+            hasClash: clashes.length > 0,
+            invigilationDuties
+        };
+    }
+
+    try {
         const weekly = data.weeklySchedule || { Monday: [], Tuesday: [], Wednesday: [], Thursday: [], Friday: [] };
         const clashes = data.clashes || [];
         const invigilation = data.invigilationDuties || [];

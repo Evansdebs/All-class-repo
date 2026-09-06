@@ -830,10 +830,20 @@
             <div class="section-header">
                 <h2><i class="fas fa-cog"></i> School Settings & Report Template</h2>
                 <div class="section-actions">
-                    <button class="btn-admin btn-primary" onclick="saveAllSettings()">
-                        <i class="fas fa-save"></i> Save Settings
+                    <button id="btnSaveAllSettings" class="btn-admin btn-primary" onclick="saveAllSettings()">
+                        <i class="fas fa-save"></i> <span>Save Settings</span>
                     </button>
                 </div>
+            </div>
+            <div id="settingsSuccessAlert" style="display:none;margin-bottom:16px;padding:14px 18px;background:rgba(16,185,129,0.12);border:1.5px solid #10b981;border-radius:10px;color:#065f46;align-items:center;justify-content:space-between;gap:12px;">
+                <div style="display:flex;align-items:center;gap:10px;">
+                    <i class="fas fa-check-circle" style="font-size:20px;color:#10b981;"></i>
+                    <div>
+                        <strong style="font-size:14px;display:block;">Settings Saved Successfully!</strong>
+                        <span style="font-size:12.5px;color:#047857;">School profile, report calendar dates, and template configurations have been saved and will reflect on all teacher report cards.</span>
+                    </div>
+                </div>
+                <button type="button" onclick="this.parentElement.style.display='none'" style="background:none;border:none;color:#047857;cursor:pointer;font-size:16px;">&times;</button>
             </div>
             <div class="settings-grid">
                 <!-- School Information -->
@@ -2370,5 +2380,6 @@ if (typeof firebase === 'undefined') {
 <script src="attendance.js?v=v32"></script>
 <script src="pwa-sync.js?v=v32"></script>
 <script src="admin.js?v=v32"></script>
+<div id="adminNotificationArea"></div>
 </body>
 </html>

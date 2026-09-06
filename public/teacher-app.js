@@ -3059,7 +3059,7 @@ function generatePdfBlob(id) {
 
                     const targetEl = container.querySelector('#printableReportCard') || container.firstElementChild || container;
                     const canvasPromise = html2canvas(targetEl, {
-                        scale: 2,
+                        scale: 1.6,
                         useCORS: true,
                         allowTaint: true,
                         backgroundColor: '#ffffff'
@@ -3071,20 +3071,20 @@ function generatePdfBlob(id) {
                     if (container && container.parentNode) document.body.removeChild(container);
                     container = null;
 
-                    const doc = new jsPDFConstructor('p', 'mm', 'a4');
+                    const doc = new jsPDFConstructor({ orientation: 'p', unit: 'mm', format: 'a4', compress: true });
                     const W = doc.internal.pageSize.getWidth();
                     const H = doc.internal.pageSize.getHeight();
-                    const imgData = canvas.toDataURL('image/png');
+                    const imgData = canvas.toDataURL('image/jpeg', 0.82);
                     const ratio = canvas.height / canvas.width;
                     const imgH = W * ratio;
                     let posY = 0;
-                    doc.addImage(imgData, 'PNG', 0, posY, W, imgH);
+                    doc.addImage(imgData, 'JPEG', 0, posY, W, imgH, undefined, 'FAST');
                     if (imgH > H) {
                         let remaining = imgH - H;
                         while (remaining > 0) {
                             posY -= H;
                             doc.addPage();
-                            doc.addImage(imgData, 'PNG', 0, posY, W, imgH);
+                            doc.addImage(imgData, 'JPEG', 0, posY, W, imgH, undefined, 'FAST');
                             remaining -= H;
                         }
                     }
@@ -4422,18 +4422,32 @@ async function renderTeacherTimetableTab() {
     panel.innerHTML = '<div style="text-align:center;padding:40px;color:var(--muted);"><i class="fas fa-spinner fa-spin fa-2x"></i><p style="margin-top:10px;">Loading schedule data from school system…</p></div>';
 
     try {
-        const [ttRes, exRes] = await Promise.all([
-            fetch('/api/timetables'),
-            fetch('/api/timetables/exams')
-        ]);
+        let timetables = [];
+        let allExams = [];
+        try {
+            const [ttRes, exRes] = await Promise.all([
+                fetch('/api/timetables'),
+                fetch('/api/timetables/exams')
+            ]);
+            timetables = ttRes.ok ? await ttRes.json() : [];
+            allExams = exRes.ok ? await exRes.json() : [];
+        } catch (e) {}
 
-        const timetables = ttRes.ok ? await ttRes.json() : [];
-        const allExams = exRes.ok ? await exRes.json() : [];
+        if (!Array.isArray(timetables) || !timetables.length) {
+            try { timetables = JSON.parse(localStorage.getItem('timetables') || '[]'); } catch (e) { timetables = []; }
+        }
+        if (!Array.isArray(allExams) || !allExams.length) {
+            try { allExams = JSON.parse(localStorage.getItem('examTimetables') || '[]'); } catch (e) { allExams = []; }
+        }
 
         const allowedClasses = teacherAllowedClasses();
-        const activeClass = currentClass || allowedClasses[0] || '';
+        const allClassesList = (typeof classes !== 'undefined' && Array.isArray(classes) && classes.length)
+            ? classes.map(c => typeof c === 'string' ? c : (c.name || c.id))
+            : timetables.map(t => t.class).filter(Boolean);
+        const availableClasses = allowedClasses.length ? allowedClasses : allClassesList;
+        const activeClass = currentClass || availableClasses[0] || '';
 
-        const activeDoc = timetables.find(t => (t.class || '').toLowerCase() === activeClass.toLowerCase());
+        const activeDoc = timetables.find(t => (t.class || '').trim().toLowerCase() === activeClass.trim().toLowerCase());
         const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
         const periods = (activeDoc && activeDoc.periods && activeDoc.periods.length) ? activeDoc.periods : [
             { period: 1, time: '08:00 - 08:45', name: 'Period 1' },
@@ -4465,9 +4479,16 @@ async function renderTeacherTimetableTab() {
             });
         });
 
-        // 2. Exams for active class
-        const classExams = allExams.filter(e => (e.class || '').toLowerCase() === activeClass.toLowerCase());
+        // Exams for active class
+        const classExams = allExams.filter(e => (e.class || '').trim().toLowerCase() === activeClass.trim().toLowerCase());
         classExams.sort((a, b) => (a.examDate || '').localeCompare(b.examDate || ''));
+
+        // Check for personal invigilation duties for the logged-in teacher
+        const currentTeacher = (sessionStorage.getItem('teacherName') || '').toLowerCase().trim();
+        const myInvigilations = currentTeacher ? allExams.filter(e => 
+            (e.chiefInvigilator && e.chiefInvigilator.toLowerCase().trim() === currentTeacher) ||
+            (e.assistantInvigilator && e.assistantInvigilator.toLowerCase().trim() === currentTeacher)
+        ) : [];
 
         let html = `
             <div class="panel-head" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:18px;">
@@ -4479,6 +4500,12 @@ async function renderTeacherTimetableTab() {
                         Official timetables and exam notices published by School Administration for <strong>${esc(activeClass)}</strong>.
                     </p>
                 </div>
+                ${myInvigilations.length ? `
+                    <div style="background:rgba(16,185,129,0.12);border:1px solid #10b981;padding:6px 14px;border-radius:20px;font-size:12px;font-weight:700;color:#065f46;display:flex;align-items:center;gap:6px;">
+                        <i class="fas fa-user-check" style="color:#10b981;"></i> You have ${myInvigilations.length} Assigned Invigilation Duty(${myInvigilations.length === 1 ? '' : 'ies'})
+                    </div>
+                ` : ''}
+            </div>
                 ${allowedClasses.length > 1 ? `
                     <div style="display:flex;align-items:center;gap:8px;">
                         <label style="font-size:13px;font-weight:600;color:var(--ink);">Switch Class:</label>

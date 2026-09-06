@@ -346,6 +346,175 @@ function seedNewCollections(db) {
         changed = true;
     }
 
+    if (!Array.isArray(db.timetables) || db.timetables.length === 0) {
+        const defaultPeriods = [
+            { period: 1, time: '08:00 - 08:45', name: 'Period 1' },
+            { period: 2, time: '08:45 - 09:30', name: 'Period 2' },
+            { period: 3, time: '09:30 - 10:15', name: 'Period 3' },
+            { period: 4, time: '10:15 - 10:45', isBreak: true, name: 'Snack Break' },
+            { period: 5, time: '10:45 - 11:30', name: 'Period 4' },
+            { period: 6, time: '11:30 - 12:15', name: 'Period 5' },
+            { period: 7, time: '12:15 - 01:00', isBreak: true, name: 'Lunch & Rest' },
+            { period: 8, time: '01:00 - 01:45', name: 'Period 6' },
+            { period: 9, time: '01:45 - 02:30', name: 'Period 7' }
+        ];
+
+        db.timetables = [
+            {
+                id: 'tt-basic-9',
+                class: 'BASIC 9',
+                periods: defaultPeriods,
+                updatedAt: new Date().toISOString(),
+                schedule: {
+                    Monday: [
+                        { period: 1, subject: 'English Language', teacher: 'aba', room: 'JHS Block Room 1' },
+                        { period: 2, subject: 'Mathematics', teacher: 'aba', room: 'JHS Block Room 1' },
+                        { period: 3, subject: 'Integrated Science', teacher: 'Mr. Mensah', room: 'Science Lab' },
+                        { period: 5, subject: 'Social Studies', teacher: 'Mr. Mensah', room: 'JHS Block Room 1' },
+                        { period: 6, subject: 'Computing / ICT', teacher: 'Mr. Evans', room: 'Computer Lab' },
+                        { period: 8, subject: 'RME', teacher: 'aba', room: 'JHS Block Room 1' },
+                        { period: 9, subject: 'Career Technology', teacher: 'Mr. Evans', room: 'Workshop' }
+                    ],
+                    Tuesday: [
+                        { period: 1, subject: 'Mathematics', teacher: 'aba', room: 'JHS Block Room 1' },
+                        { period: 2, subject: 'English Language', teacher: 'aba', room: 'JHS Block Room 1' },
+                        { period: 3, subject: 'Integrated Science', teacher: 'Mr. Mensah', room: 'Science Lab' },
+                        { period: 5, subject: 'Creative Arts', teacher: 'Mrs. Addo', room: 'Art Studio' },
+                        { period: 6, subject: 'French', teacher: 'M. Koffi', room: 'JHS Block Room 1' },
+                        { period: 8, subject: 'Social Studies', teacher: 'Mr. Mensah', room: 'JHS Block Room 1' },
+                        { period: 9, subject: 'Physical Education', teacher: 'Coach Osei', room: 'School Field' }
+                    ],
+                    Wednesday: [
+                        { period: 1, subject: 'Integrated Science', teacher: 'Mr. Mensah', room: 'Science Lab' },
+                        { period: 2, subject: 'Mathematics', teacher: 'aba', room: 'JHS Block Room 1' },
+                        { period: 3, subject: 'English Language', teacher: 'aba', room: 'JHS Block Room 1' },
+                        { period: 5, subject: 'Computing / ICT', teacher: 'Mr. Evans', room: 'Computer Lab' },
+                        { period: 6, subject: 'RME', teacher: 'aba', room: 'JHS Block Room 1' },
+                        { period: 8, subject: 'French', teacher: 'M. Koffi', room: 'JHS Block Room 1' },
+                        { period: 9, subject: 'Career Technology', teacher: 'Mr. Evans', room: 'Workshop' }
+                    ],
+                    Thursday: [
+                        { period: 1, subject: 'Social Studies', teacher: 'Mr. Mensah', room: 'JHS Block Room 1' },
+                        { period: 2, subject: 'English Language', teacher: 'aba', room: 'JHS Block Room 1' },
+                        { period: 3, subject: 'Mathematics', teacher: 'aba', room: 'JHS Block Room 1' },
+                        { period: 5, subject: 'Integrated Science', teacher: 'Mr. Mensah', room: 'Science Lab' },
+                        { period: 6, subject: 'Creative Arts', teacher: 'Mrs. Addo', room: 'Art Studio' },
+                        { period: 8, subject: 'Computing / ICT', teacher: 'Mr. Evans', room: 'Computer Lab' },
+                        { period: 9, subject: 'Library & Reading', teacher: 'aba', room: 'Library' }
+                    ],
+                    Friday: [
+                        { period: 1, subject: 'Mathematics', teacher: 'aba', room: 'JHS Block Room 1' },
+                        { period: 2, subject: 'Integrated Science', teacher: 'Mr. Mensah', room: 'Science Lab' },
+                        { period: 3, subject: 'English Language', teacher: 'aba', room: 'JHS Block Room 1' },
+                        { period: 5, subject: 'RME', teacher: 'aba', room: 'JHS Block Room 1' },
+                        { period: 6, subject: 'Social Studies', teacher: 'Mr. Mensah', room: 'JHS Block Room 1' },
+                        { period: 8, subject: 'French', teacher: 'M. Koffi', room: 'JHS Block Room 1' },
+                        { period: 9, subject: 'Club / Society / Sports', teacher: 'aba', room: 'Assembly Hall' }
+                    ]
+                }
+            },
+            {
+                id: 'tt-basic-6',
+                class: 'Basic 6',
+                periods: defaultPeriods,
+                updatedAt: new Date().toISOString(),
+                schedule: {
+                    Monday: [
+                        { period: 1, subject: 'English Language', teacher: 'aba', room: 'Class 6A' },
+                        { period: 2, subject: 'Mathematics', teacher: 'aba', room: 'Class 6A' },
+                        { period: 3, subject: 'Natural Science', teacher: 'Mr. Mensah', room: 'Class 6A' },
+                        { period: 5, subject: 'Computing', teacher: 'Mr. Evans', room: 'Computer Lab' },
+                        { period: 6, subject: 'Social Studies', teacher: 'Mr. Mensah', room: 'Class 6A' }
+                    ],
+                    Tuesday: [
+                        { period: 1, subject: 'Mathematics', teacher: 'aba', room: 'Class 6A' },
+                        { period: 2, subject: 'English Language', teacher: 'aba', room: 'Class 6A' },
+                        { period: 3, subject: 'RME', teacher: 'aba', room: 'Class 6A' },
+                        { period: 5, subject: 'Creative Arts', teacher: 'Mrs. Addo', room: 'Class 6A' }
+                    ],
+                    Wednesday: [
+                        { period: 1, subject: 'Natural Science', teacher: 'Mr. Mensah', room: 'Class 6A' },
+                        { period: 2, subject: 'Mathematics', teacher: 'aba', room: 'Class 6A' },
+                        { period: 3, subject: 'English Language', teacher: 'aba', room: 'Class 6A' }
+                    ],
+                    Thursday: [
+                        { period: 1, subject: 'Social Studies', teacher: 'Mr. Mensah', room: 'Class 6A' },
+                        { period: 2, subject: 'English Language', teacher: 'aba', room: 'Class 6A' },
+                        { period: 3, subject: 'Mathematics', teacher: 'aba', room: 'Class 6A' }
+                    ],
+                    Friday: [
+                        { period: 1, subject: 'English Language', teacher: 'aba', room: 'Class 6A' },
+                        { period: 2, subject: 'Natural Science', teacher: 'Mr. Mensah', room: 'Class 6A' },
+                        { period: 3, subject: 'Physical Education', teacher: 'Coach Osei', room: 'Field' }
+                    ]
+                }
+            }
+        ];
+        changed = true;
+    }
+
+    if (!Array.isArray(db.examTimetables) || db.examTimetables.length === 0) {
+        db.examTimetables = [
+            {
+                id: 'exam-001',
+                subject: 'English Language',
+                title: 'End of Term Examination Paper 1 & 2',
+                class: 'BASIC 9',
+                examDate: '2026-11-24',
+                startTime: '08:30',
+                endTime: '11:00',
+                hall: 'Main Assembly Hall',
+                chiefInvigilator: 'aba',
+                assistantInvigilator: 'Mr. Mensah',
+                status: 'Scheduled',
+                createdAt: new Date().toISOString()
+            },
+            {
+                id: 'exam-002',
+                subject: 'Mathematics',
+                title: 'End of Term Examination Paper 1 & 2',
+                class: 'BASIC 9',
+                examDate: '2026-11-25',
+                startTime: '08:30',
+                endTime: '11:00',
+                hall: 'Main Assembly Hall',
+                chiefInvigilator: 'Mr. Evans',
+                assistantInvigilator: 'aba',
+                status: 'Scheduled',
+                createdAt: new Date().toISOString()
+            },
+            {
+                id: 'exam-003',
+                subject: 'Integrated Science',
+                title: 'End of Term Practical & Theory',
+                class: 'BASIC 9',
+                examDate: '2026-11-26',
+                startTime: '08:30',
+                endTime: '11:00',
+                hall: 'Science Laboratory',
+                chiefInvigilator: 'Mr. Mensah',
+                assistantInvigilator: 'aba',
+                status: 'Scheduled',
+                createdAt: new Date().toISOString()
+            },
+            {
+                id: 'exam-004',
+                subject: 'Mathematics',
+                title: 'Basic 6 Term Exam',
+                class: 'Basic 6',
+                examDate: '2026-11-25',
+                startTime: '09:00',
+                endTime: '11:00',
+                hall: 'Block B Classroom',
+                chiefInvigilator: 'aba',
+                assistantInvigilator: 'Mrs. Addo',
+                status: 'Scheduled',
+                createdAt: new Date().toISOString()
+            }
+        ];
+        changed = true;
+    }
+
     if (changed) {
         writeDb(db);
     }
@@ -1737,6 +1906,187 @@ async function requestHandler(req, res) {
                 return;
             }
 
+            if (pathname === '/api/alumni/sync-system' && (method === 'POST' || method === 'GET')) {
+                try {
+                    const db = readDb();
+                    if (!Array.isArray(db.alumni)) db.alumni = [];
+                    const students = db.students || [];
+                    const results = db.results || [];
+                    const reports = db.reports || [];
+                    let syncedCount = 0;
+
+                    students.forEach(s => {
+                        const sId = String(s.id);
+                        const sAdm = String(s.admissionNo || '').trim();
+
+                        const termSessionsMap = {};
+
+                        // 1. Gather all report cards for this student
+                        const stuReports = reports.filter(rp =>
+                            String(rp.studentId) === sId ||
+                            (sAdm && String(rp.admissionNo || '').trim().toLowerCase() === sAdm.toLowerCase())
+                        );
+
+                        stuReports.forEach(rp => {
+                            const yr = rp.academicYear || rp.year || '2025/2026';
+                            const tm = String(rp.term || rp.termNumber || '1');
+                            const key = `${yr}__Term_${tm}`;
+                            if (!termSessionsMap[key]) {
+                                termSessionsMap[key] = {
+                                    academicYear: yr,
+                                    term: tm.startsWith('Term') ? tm : `Term ${tm}`,
+                                    class: rp.className || rp.class || s.class || 'Class',
+                                    subjects: []
+                                };
+                            }
+                            if (Array.isArray(rp.subjects)) {
+                                rp.subjects.forEach(sub => {
+                                    const subName = sub.name || sub.subject || 'Subject';
+                                    const existingSub = termSessionsMap[key].subjects.find(x => (x.subject || '').toLowerCase() === subName.toLowerCase());
+                                    if (!existingSub) {
+                                        termSessionsMap[key].subjects.push({
+                                            subject: subName,
+                                            classScore: Number(sub.cs50 ?? sub.classScore ?? 0),
+                                            examScore: Number(sub.es50 ?? sub.examScore ?? 0),
+                                            totalScore: Number(sub.tot ?? sub.totalScore ?? ((sub.cs50 || 0) + (sub.es50 || 0))),
+                                            grade: sub.grade || '—',
+                                            remark: sub.remark || sub.remarks || '—'
+                                        });
+                                    }
+                                });
+                            }
+                        });
+
+                        // 2. Gather recorded raw results
+                        const stuResults = results.filter(r =>
+                            String(r.studentId) === sId ||
+                            (sAdm && String(r.admissionNo || '').trim().toLowerCase() === sAdm.toLowerCase())
+                        );
+
+                        stuResults.forEach(r => {
+                            const yr = r.academicYear || '2025/2026';
+                            const tm = String(r.term || '1');
+                            const key = `${yr}__Term_${tm}`;
+                            if (!termSessionsMap[key]) {
+                                termSessionsMap[key] = {
+                                    academicYear: yr,
+                                    term: tm.startsWith('Term') ? tm : `Term ${tm}`,
+                                    class: r.class || s.class || 'Class',
+                                    subjects: []
+                                };
+                            }
+                            const subName = r.subjectName || r.subjectId || 'Subject';
+                            const existingSub = termSessionsMap[key].subjects.find(x => (x.subject || '').toLowerCase() === subName.toLowerCase());
+                            const cs = Number(r.classScore50 ?? r.classScore ?? 0);
+                            const es = Number(r.examScore50 ?? r.examScore ?? 0);
+                            const tot = Number(r.totalScore ?? (cs + es));
+                            if (!existingSub) {
+                                termSessionsMap[key].subjects.push({
+                                    subject: subName,
+                                    classScore: cs,
+                                    examScore: es,
+                                    totalScore: tot,
+                                    grade: r.grade || '—',
+                                    remark: r.remark || '—'
+                                });
+                            }
+                        });
+
+                        // 3. Construct academicHistory sessions
+                        const academicHistory = Object.values(termSessionsMap).map(session => {
+                            let sum = 0;
+                            session.subjects.forEach(sub => { sum += (Number(sub.totalScore) || 0); });
+                            const avg = session.subjects.length ? Math.round(sum / session.subjects.length) : 0;
+                            return {
+                                ...session,
+                                termAverage: avg,
+                                termTotal: sum,
+                                subjectCount: session.subjects.length
+                            };
+                        });
+
+                        // If student has no recorded term results, provide clean default structure
+                        if (academicHistory.length === 0) {
+                            academicHistory.push({
+                                academicYear: s.academicYear || '2025/2026',
+                                term: 'Term 1',
+                                class: s.class || 'Class',
+                                subjects: [],
+                                termAverage: 0,
+                                termTotal: 0,
+                                subjectCount: 0
+                            });
+                        }
+
+                        // Determine graduation year / metadata
+                        const gradYear = s.graduationYear || (s.academicYear ? (s.academicYear.split('/')[1] || '2026') : '2026');
+                        const verificationCode = 'TLS-VRF-' + gradYear + '-' + (s.id.replace(/[^a-zA-Z0-9]/g, '').slice(-4) || '001').toUpperCase();
+
+                        let allScoresSum = 0;
+                        let allScoresCount = 0;
+                        academicHistory.forEach(h => {
+                            (h.subjects || []).forEach(sub => {
+                                allScoresSum += (Number(sub.totalScore) || 0);
+                                allScoresCount++;
+                            });
+                        });
+                        const overallAvg = allScoresCount ? Math.round(allScoresSum / allScoresCount) : 75;
+                        let overallGrade = 'Distinction (A+)';
+                        if (overallAvg < 50) overallGrade = 'Pass (D)';
+                        else if (overallAvg < 65) overallGrade = 'Credit (C)';
+                        else if (overallAvg < 75) overallGrade = 'Very Good (B)';
+                        else if (overallAvg < 85) overallGrade = 'Excellence (A)';
+
+                        const existingIdx = db.alumni.findIndex(a =>
+                            String(a.originalStudentId) === sId ||
+                            String(a.id) === ('alm-' + sId) ||
+                            (sAdm && String(a.admissionNo || '').toLowerCase() === sAdm.toLowerCase())
+                        );
+
+                        const almRecord = {
+                            id: 'alm-' + sId,
+                            originalStudentId: sId,
+                            admissionNo: s.admissionNo || ('TLS/' + gradYear + '/' + sId.slice(-3)),
+                            indexNo: s.indexNo || ('0102' + gradYear.slice(-2) + String(sId).replace(/\D/g, '').slice(-4).padStart(4, '1')),
+                            name: s.name,
+                            gender: s.gender || 'Not specified',
+                            dob: s.dob || '',
+                            graduationYear: String(gradYear),
+                            classGraduated: s.class || 'Basic 9',
+                            finalAggregate: Math.max(6, Math.min(36, Math.round(42 - (overallAvg / 2.7)))),
+                            overallGrade: overallGrade,
+                            awards: s.awards || 'Academic Excellence & Good Conduct',
+                            conductRemark: 'Exemplary character, demonstrated leadership and academic consistency throughout all terms.',
+                            status: 'Verified',
+                            contactPhone: s.parentPhone || '',
+                            contactEmail: s.parentEmail || '',
+                            verificationCode,
+                            academicHistory,
+                            termsAttendedCount: academicHistory.length,
+                            updatedAt: new Date().toISOString()
+                        };
+
+                        if (existingIdx >= 0) {
+                            db.alumni[existingIdx] = { ...db.alumni[existingIdx], ...almRecord };
+                        } else {
+                            db.alumni.push(almRecord);
+                        }
+                        syncedCount++;
+                    });
+
+                    writeDb(db);
+                    sendJson(res, 200, {
+                        success: true,
+                        message: `Successfully synchronized ${syncedCount} student record(s) across all terms into the Alumni register.`,
+                        count: syncedCount,
+                        alumni: db.alumni
+                    });
+                } catch (err) {
+                    sendJson(res, 500, { error: 'Sync failed: ' + err.message });
+                }
+                return;
+            }
+
             const transcriptMatch = pathname.match(/^\/api\/alumni\/([^/]+)\/transcript$/);
             if (transcriptMatch && method === 'GET') {
                 const id = transcriptMatch[1];
@@ -1931,53 +2281,66 @@ async function requestHandler(req, res) {
                 }
             }
 
-            const teacherTtMatch = pathname.match(/^\/api\/timetables\/teacher\/([^/]+)$/);
+            const teacherTtMatch = pathname.match(/^\/api\/timetables\/teacher\/(.+)$/);
             if (teacherTtMatch && method === 'GET') {
-                const teacherName = decodeURIComponent(teacherTtMatch[1]);
+                const rawParam = teacherTtMatch[1];
+                let teacherName = '';
+                try { teacherName = decodeURIComponent(rawParam).trim(); } catch (e) { teacherName = rawParam.trim(); }
                 const db = readDb();
                 const weeklySchedule = { Monday: [], Tuesday: [], Wednesday: [], Thursday: [], Friday: [] };
                 const clashes = [];
 
-                (db.timetables || []).forEach(tt => {
-                    const sched = tt.schedule || {};
-                    ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'].forEach(day => {
-                        (sched[day] || []).forEach(slot => {
-                            if (slot.teacher && slot.teacher.toLowerCase() === teacherName.toLowerCase()) {
-                                const existing = weeklySchedule[day].find(s => s.period === slot.period);
-                                if (existing) {
-                                    clashes.push({
-                                        day,
+                try {
+                    const normTarget = teacherName.toLowerCase().trim();
+                    (db.timetables || []).forEach(tt => {
+                        const sched = tt.schedule || {};
+                        ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'].forEach(day => {
+                            (sched[day] || []).forEach(slot => {
+                                if (slot && slot.teacher && slot.teacher.toLowerCase().trim() === normTarget) {
+                                    const existing = weeklySchedule[day].find(s => Number(s.period) === Number(slot.period));
+                                    if (existing) {
+                                        clashes.push({
+                                            day,
+                                            period: slot.period,
+                                            classA: existing.class,
+                                            subjectA: existing.subject,
+                                            classB: tt.class,
+                                            subjectB: slot.subject
+                                        });
+                                    }
+                                    weeklySchedule[day].push({
                                         period: slot.period,
-                                        classA: existing.class,
-                                        subjectA: existing.subject,
-                                        classB: tt.class,
-                                        subjectB: slot.subject
+                                        time: (tt.periods || []).find(p => Number(p.period) === Number(slot.period))?.time || '',
+                                        class: tt.class,
+                                        subject: slot.subject,
+                                        room: slot.room || tt.room || ''
                                     });
                                 }
-                                weeklySchedule[day].push({
-                                    period: slot.period,
-                                    time: (tt.periods || []).find(p => p.period === slot.period)?.time || '',
-                                    class: tt.class,
-                                    subject: slot.subject,
-                                    room: slot.room || tt.room || ''
-                                });
-                            }
+                            });
                         });
                     });
-                });
 
-                const invigilationDuties = (db.examTimetables || []).filter(e =>
-                    (e.chiefInvigilator && e.chiefInvigilator.toLowerCase() === teacherName.toLowerCase()) ||
-                    (e.assistantInvigilator && e.assistantInvigilator.toLowerCase() === teacherName.toLowerCase())
-                );
+                    const invigilationDuties = (db.examTimetables || []).filter(e =>
+                        (e.chiefInvigilator && e.chiefInvigilator.toLowerCase().trim() === normTarget) ||
+                        (e.assistantInvigilator && e.assistantInvigilator.toLowerCase().trim() === normTarget)
+                    );
 
-                sendJson(res, 200, {
-                    teacherName,
-                    weeklySchedule,
-                    clashes,
-                    hasClash: clashes.length > 0,
-                    invigilationDuties
-                });
+                    sendJson(res, 200, {
+                        teacherName,
+                        weeklySchedule,
+                        clashes,
+                        hasClash: clashes.length > 0,
+                        invigilationDuties
+                    });
+                } catch (err) {
+                    sendJson(res, 200, {
+                        teacherName,
+                        weeklySchedule: { Monday: [], Tuesday: [], Wednesday: [], Thursday: [], Friday: [] },
+                        clashes: [],
+                        hasClash: false,
+                        invigilationDuties: []
+                    });
+                }
                 return;
             }
 
