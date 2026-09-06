@@ -1215,9 +1215,9 @@
                         <a class="export-btn" href="/open?src=/api/export/auditLogs.json" >
                             <i class="fas fa-history"></i> Audit Logs (JSON)
                         </a>
-                        <a class="export-btn danger" href="/open?src=/api/export/backup" >
+                        <button type="button" class="export-btn danger" onclick="exportFullDatabaseBackupJSON()">
                             <i class="fas fa-archive"></i> Full Backup (JSON)
-                        </a>
+                        </button>
                         <button class="export-btn warning" onclick="openRestoreBackupModal()">
                             <i class="fas fa-trash-restore"></i> Restore Backup (JSON)
                         </button>

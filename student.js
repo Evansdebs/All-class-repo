@@ -25,6 +25,66 @@ function togglePasswordVisibility(inputId, iconId) {
     }
 }
 
+function toggleDobVisibility(inputId, iconId) {
+    togglePasswordVisibility(inputId, iconId);
+}
+
+function normalizeDate(str) {
+    if (!str) return '';
+    const s = String(str).trim();
+    const isoMatch = s.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$/);
+    if (isoMatch) {
+        return `${isoMatch[1]}-${isoMatch[2].padStart(2, '0')}-${isoMatch[3].padStart(2, '0')}`;
+    }
+    const dmyMatch = s.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})$/);
+    if (dmyMatch) {
+        return `${dmyMatch[3]}-${dmyMatch[2].padStart(2, '0')}-${dmyMatch[1].padStart(2, '0')}`;
+    }
+    const dt = new Date(s);
+    if (!isNaN(dt.getTime())) {
+        const y = dt.getFullYear();
+        const m = String(dt.getMonth() + 1).padStart(2, '0');
+        const d = String(dt.getDate()).padStart(2, '0');
+        return `${y}-${m}-${d}`;
+    }
+    return s.toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+function verifyStudentDob(student, enteredDob) {
+    if (!enteredDob) return false;
+    const inputNorm = normalizeDate(enteredDob);
+    const rawDob = student.dob || student.dateOfBirth || student.birthDate || student.pin || '';
+    if (!rawDob) {
+        // Fallback: If no DOB registered yet on student file, allow PIN or registered birth date
+        return true;
+    }
+    const recordNorm = normalizeDate(rawDob);
+    if (inputNorm && recordNorm && inputNorm === recordNorm) return true;
+    const rawClean = String(rawDob).trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+    const inClean = String(enteredDob).trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+    return rawClean === inClean;
+}
+
+function findActiveStudentByAdmission(studentsList, enteredId) {
+    if (!enteredId || !Array.isArray(studentsList)) return null;
+    const search = enteredId.trim().toLowerCase();
+    const active = studentsList.filter(s => s && !s.isDeleted && s.status !== 'deleted' && s.status !== 'inactive');
+    
+    // 1. Exact match on admissionNo
+    let match = active.find(s => s.admissionNo && String(s.admissionNo).trim().toLowerCase() === search);
+    if (match) return match;
+    
+    // 2. Exact match on studentId
+    match = active.find(s => s.studentId && String(s.studentId).trim().toLowerCase() === search);
+    if (match) return match;
+
+    // 3. Exact match on id
+    match = active.find(s => s.id != null && String(s.id).trim().toLowerCase() === search);
+    if (match) return match;
+
+    return null;
+}
+
 let activeStudentData = null;
 let realtimeUnsubscribers = [];
 
@@ -65,6 +125,7 @@ function syncStudentPortalBranding(customSettings) {
 function logoutStudent() {
     activeStudentData = null;
     sessionStorage.removeItem('studentAuthId');
+    sessionStorage.removeItem('studentAuthDob');
     sessionStorage.removeItem('studentTab');
     const overlayEl = document.getElementById('studentAuthOverlay');
     if (overlayEl) overlayEl.style.display = 'flex';
@@ -109,9 +170,11 @@ document.addEventListener('DOMContentLoaded', async () => {
         } catch (e) {}
     }
     const savedId = sessionStorage.getItem('studentAuthId');
-    if (savedId) {
-        loadStudentDashboard(savedId).catch(() => {
+    const savedDob = sessionStorage.getItem('studentAuthDob');
+    if (savedId && savedDob) {
+        loadStudentDashboard(savedId, savedDob).catch(() => {
             sessionStorage.removeItem('studentAuthId');
+            sessionStorage.removeItem('studentAuthDob');
         });
     }
 
@@ -156,6 +219,7 @@ window.addEventListener('schoolSettingsUpdated', (e) => {
 
 async function handleStudentLogin() {
     const studentIdInput = document.getElementById('studentLoginId')?.value?.trim() || '';
+    const studentDobInput = (document.getElementById('studentLoginDob')?.value || document.getElementById('studentLoginPin')?.value || '').trim();
     const errorEl = document.getElementById('studentAuthError');
     const btn     = document.getElementById('studentLoginBtn');
 
@@ -166,21 +230,40 @@ async function handleStudentLogin() {
         return;
     }
 
+    if (!studentDobInput) {
+        if (errorEl) { errorEl.textContent = 'Please enter your Date of Birth. It is compulsory for student portal access.'; errorEl.style.display = 'block'; }
+        return;
+    }
+
     if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Authenticating…'; }
 
     try {
-        await loadStudentDashboard(studentIdInput);
+        await loadStudentDashboard(studentIdInput, studentDobInput);
         sessionStorage.setItem('studentAuthId', studentIdInput);
+        sessionStorage.setItem('studentAuthDob', studentDobInput);
     } catch (e) {
-        if (errorEl) { errorEl.textContent = e.message || 'No record found for this Admission Number.'; errorEl.style.display = 'block'; }
+        if (errorEl) { errorEl.textContent = e.message || 'No active record found matching the provided details.'; errorEl.style.display = 'block'; }
     } finally {
         if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-sign-in-alt"></i> Access Report'; }
     }
 }
 
-async function loadStudentDashboard(admissionNo) {
-    let student = null;
-    let studentsList = [];
+async function loadStudentDashboard(enteredId, enteredDob) {
+    const searchId = String(enteredId || '').trim();
+    const searchDob = String(enteredDob || '').trim();
+
+    if (!searchId) {
+        throw new Error('Please enter your Admission Number or Student ID.');
+    }
+    if (!searchDob) {
+        throw new Error('Please enter your Date of Birth.');
+    }
+
+    // Flush old report card & summary container immediately to prevent any old/cached report from appearing!
+    const summaryCardsEl = document.getElementById('studentResultsSummaryCards');
+    if (summaryCardsEl) summaryCardsEl.innerHTML = '';
+    const container = document.getElementById('studentReportCardContainer');
+    if (container) container.innerHTML = '<div style="text-align:center;padding:36px;color:#94a3b8;"><i class="fas fa-spinner fa-spin" style="font-size:24px;"></i><p style="margin-top:10px;font-size:14px;">Retrieving official student record...</p></div>';
 
     // Initialize Firebase if present
     if (typeof initFirebase === 'function') initFirebase();
@@ -188,28 +271,50 @@ async function loadStudentDashboard(admissionNo) {
         try { await pullSchoolFromFirebase(); } catch (e) {}
     }
 
-    // 1. Search in local / cloud students
-    const localStudents = safeLocalGet('students', []);
-    studentsList = localStudents;
+    // 1. Search in local active students list
+    const localStudents = safeLocalGet('students', []) || [];
+    let student = findActiveStudentByAdmission(localStudents, searchId);
 
-    if (typeof isFirebaseActive !== 'undefined' && isFirebaseActive && typeof db !== 'undefined' && db) {
+    // 2. If not found locally and Firebase is active, query cloud students
+    if (!student && typeof isFirebaseActive !== 'undefined' && isFirebaseActive && typeof db !== 'undefined' && db) {
         try {
-            const snap = await db.collection('students').where('admissionNo', '==', admissionNo).get();
+            // Query by admissionNo
+            let snap = await db.collection('students').where('admissionNo', '==', searchId).get();
             if (!snap.empty) {
-                student = { id: snap.docs[0].id, ...snap.docs[0].data() };
+                const candidates = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+                    .filter(s => !s.isDeleted && s.status !== 'deleted' && s.status !== 'inactive');
+                if (candidates.length > 0) student = candidates[0];
+            }
+            // Query by studentId if not found
+            if (!student) {
+                snap = await db.collection('students').where('studentId', '==', searchId).get();
+                if (!snap.empty) {
+                    const candidates = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+                        .filter(s => !s.isDeleted && s.status !== 'deleted' && s.status !== 'inactive');
+                    if (candidates.length > 0) student = candidates[0];
+                }
+            }
+            // Try direct doc id
+            if (!student) {
+                const docSnap = await db.collection('students').doc(searchId).get();
+                if (docSnap.exists) {
+                    const d = { id: docSnap.id, ...docSnap.data() };
+                    if (!d.isDeleted && d.status !== 'deleted' && d.status !== 'inactive') {
+                        student = d;
+                    }
+                }
             }
         } catch (e) {}
     }
 
-    if (!student) {
-        student = studentsList.find(s =>
-            (s.admissionNo && s.admissionNo.toLowerCase() === admissionNo.toLowerCase()) ||
-            (s.id && s.id.toString() === admissionNo)
-        );
+    if (!student || student.isDeleted || student.status === 'deleted' || student.status === 'inactive') {
+        throw new Error(`Student record with ID "${searchId}" is not active or has been removed by administration.`);
     }
 
-    if (!student || student.isDeleted || student.status === 'deleted' || student.status === 'inactive') {
-        throw new Error(`Student record with Admission Number "${admissionNo}" is not active or has been removed.`);
+    // Strictly verify Date of Birth against student record
+    const isDobCorrect = verifyStudentDob(student, searchDob);
+    if (!isDobCorrect) {
+        throw new Error('The Date of Birth entered does not match our records for this Student ID. Please check and try again.');
     }
 
     activeStudentData = student;
@@ -399,6 +504,7 @@ function setupStudentRealtimeListener(student) {
 
 function handleStudentLogout() {
     sessionStorage.removeItem('studentAuthId');
+    sessionStorage.removeItem('studentAuthDob');
     sessionStorage.removeItem('studentClass');
     activeStudentData = null;
     if (Array.isArray(realtimeUnsubscribers)) {
@@ -411,6 +517,12 @@ function handleStudentLogout() {
     if (errEl) { errEl.style.display = 'none'; errEl.textContent = ''; }
     const input = document.getElementById('studentLoginId');
     if (input) input.value = '';
+    const dobInput = document.getElementById('studentLoginDob') || document.getElementById('studentLoginPin');
+    if (dobInput) dobInput.value = '';
+    const container = document.getElementById('studentReportCardContainer');
+    if (container) container.innerHTML = '';
+    const summaryCardsEl = document.getElementById('studentResultsSummaryCards');
+    if (summaryCardsEl) summaryCardsEl.innerHTML = '';
     const main = document.getElementById('studentMainContent');
     if (main) main.style.display = 'none';
     const overlay = document.getElementById('studentAuthOverlay');

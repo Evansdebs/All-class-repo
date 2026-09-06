@@ -1699,13 +1699,13 @@ async function hydrateSchoolFromServer() {
                 if (Array.isArray(remote) && Array.isArray(local) && local.length > 0) {
                     const map = new Map();
                     local.forEach(item => {
-                        if (item) {
+                        if (item && !item.isDeleted && item.status !== 'deleted') {
                             const id = getEntityKey(item);
                             if (id) map.set(id, item);
                         }
                     });
                     remote.forEach(item => {
-                        if (item) {
+                        if (item && !item.isDeleted && item.status !== 'deleted') {
                             const id = getEntityKey(item);
                             if (id) {
                                 const existing = map.get(id);

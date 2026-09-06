@@ -971,6 +971,13 @@ function sendJson(res, statusCode, obj) {
 }
 
 function readBody(req) {
+    if (req.body !== undefined && req.body !== null) {
+        if (typeof req.body === 'object') return Promise.resolve(req.body);
+        if (typeof req.body === 'string') {
+            const parsed = safeJsonParse(req.body, {});
+            return Promise.resolve(parsed || {});
+        }
+    }
     return new Promise((resolve, reject) => {
         let body = '';
         req.on('data', chunk => { body += chunk; });
@@ -2262,9 +2269,9 @@ async function requestHandler(req, res) {
                 return;
             }
 
-            const examMatch = pathname.match(/^\/api\/timetables\/([^/]+)$/);
-            if (examMatch && pathname.startsWith('/api/timetables/exams/')) {
-                const id = pathname.replace('/api/timetables/exams/', '');
+            const examDetailMatch = pathname.match(/^\/api\/timetables\/exams\/([^/]+)$/);
+            if (examDetailMatch) {
+                const id = decodeURIComponent(examDetailMatch[1]);
                 if (method === 'GET') {
                     const db = readDb();
                     const item = (db.examTimetables || []).find(e => e.id === id);

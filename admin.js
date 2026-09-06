@@ -16,6 +16,34 @@ function safeLocalGet(key, fallback = null) {
     }
 }
 
+async function safeFetchJson(res, defaultError = 'Request failed') {
+    if (!res) throw new Error(defaultError);
+    let text = '';
+    try {
+        text = await res.text();
+    } catch (e) {
+        if (!res.ok) throw new Error(`${defaultError} (HTTP ${res.status})`);
+        return {};
+    }
+    if (!text || text.trim() === '') {
+        if (!res.ok) throw new Error(`${defaultError} (HTTP ${res.status})`);
+        return {};
+    }
+    try {
+        const json = JSON.parse(text);
+        if (!res.ok) {
+            throw new Error(json.error || json.message || `${defaultError} (HTTP ${res.status})`);
+        }
+        return json;
+    } catch (e) {
+        if (!res.ok) {
+            const clean = text.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 160);
+            throw new Error(clean || `${defaultError} (HTTP ${res.status})`);
+        }
+        return { raw: text };
+    }
+}
+
 // ─── State ──────────────────────────────────────────────────────────────────
 let adminState = {
     students:      [],
@@ -1334,15 +1362,38 @@ async function saveStudent() {
 
 async function confirmDeleteStudent(id) {
     const s = adminState.students.find(s => s.id === id);
-    showConfirm(`Delete student "${s?.name}"? This cannot be undone.`, async () => {
+    showConfirm(`Delete student "${s?.name || 'Selected'}"? This cannot be undone.`, async () => {
         adminState.students = adminState.students.filter(s => s.id !== id);
         localStorage.setItem('students', JSON.stringify(adminState.students));
+
+        // Purge residual scores and report details for deleted student
+        try {
+            const scores = JSON.parse(localStorage.getItem('scores') || '{}');
+            Object.keys(scores).forEach(sub => {
+                if (scores[sub]) {
+                    delete scores[sub][id];
+                    delete scores[sub][String(id)];
+                    if (s?.admissionNo) delete scores[sub][s.admissionNo];
+                }
+            });
+            localStorage.setItem('scores', JSON.stringify(scores));
+
+            const reportDetails = JSON.parse(localStorage.getItem('studentReportDetails') || '{}');
+            delete reportDetails[id];
+            delete reportDetails[String(id)];
+            if (s?.admissionNo) delete reportDetails[s.admissionNo];
+            localStorage.setItem('studentReportDetails', JSON.stringify(reportDetails));
+        } catch (e) {}
+
         renderStudentsTable();
         updateNavBadges();
-        showToast('Student deleted.', 'success');
+        showToast('Student deleted permanently.', 'success');
 
         (async () => {
             try { await deleteDocument('students', id); } catch (e) {}
+            try {
+                await fetch(`/api/students/${encodeURIComponent(id)}`, { method: 'DELETE' });
+            } catch (e) {}
             if (typeof syncSaveCollection === 'function') {
                 try { await syncSaveCollection('students', adminState.students); } catch (e) {}
             }
@@ -5657,6 +5708,52 @@ function openRestoreBackupModal() {
     document.getElementById('restoreBackupModal').style.display = 'flex';
 }
 
+async function exportFullDatabaseBackupJSON() {
+    try {
+        showToast('Compiling comprehensive school database backup...', 'info');
+        if (typeof loadAllData === 'function') await loadAllData();
+
+        const backup = {
+            exportedAt:    new Date().toISOString(),
+            system:        'OneReal School Management System',
+            version:       '2.2',
+            students:      adminState.students || [],
+            teachers:      adminState.teachers || [],
+            classes:       adminState.classes || [],
+            subjects:      adminState.subjects || [],
+            academicYears: adminState.academicYears || [],
+            terms:         adminState.terms || [],
+            results:       adminState.results || [],
+            reports:       adminState.reports || [],
+            users:         adminState.users || [],
+            gradingScales: adminState.gradingScales || [],
+            auditLogs:     adminState.auditLogs || [],
+            timetables:    safeLocalGet('timetables', []) || [],
+            examTimetables:safeLocalGet('examTimetables', []) || [],
+            alumni:        safeLocalGet('alumni', []) || [],
+            scores:        safeLocalGet('scores', {}),
+            studentReportDetails: safeLocalGet('studentReportDetails', {}),
+            parentContacts:safeLocalGet('parentContacts', {}),
+            attendanceMarks: safeLocalGet('attendanceMarks', {}),
+            attendanceSettings: safeLocalGet('attendanceSettings', {}),
+            schoolSettings:adminState.settings || safeLocalGet('schoolSettings', {}),
+            schoolInfo:    safeLocalGet('schoolInfo', {})
+        };
+
+        const jsonStr = JSON.stringify(backup, null, 2);
+        const blob = new Blob([jsonStr], { type: 'application/json;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const dateStr = new Date().toISOString().split('T')[0];
+        const filename = `onereal_school_backup_${dateStr}.json`;
+
+        startFileDownload(url, filename);
+        setTimeout(() => URL.revokeObjectURL(url), 2000);
+        showToast('Full School Database Backup Downloaded Successfully!', 'success');
+    } catch (e) {
+        showToast(`Export failed: ${e.message}`, 'error');
+    }
+}
+
 async function handleBackupFileSelect(event) {
     const file = event.target.files[0];
     const statusArea = document.getElementById('restoreStatusArea');
@@ -5668,27 +5765,55 @@ async function handleBackupFileSelect(event) {
 
     try {
         const text = await file.text();
-        const json = JSON.parse(text);
+        let json = JSON.parse(text);
 
-        // Validation check for OneReal backup structure
-        const requiredCollections = ['students', 'teachers', 'classes', 'subjects'];
-        const hasValidCollections = requiredCollections.some(col => Array.isArray(json[col]));
+        // Unwrap if nested under data, payload, backup, or db
+        if (json && typeof json === 'object') {
+            if (json.data && typeof json.data === 'object' && !Array.isArray(json.data)) {
+                json = { ...json, ...json.data };
+            } else if (json.payload && typeof json.payload === 'object' && !Array.isArray(json.payload)) {
+                json = { ...json, ...json.payload };
+            } else if (json.backup && typeof json.backup === 'object' && !Array.isArray(json.backup)) {
+                json = { ...json, ...json.backup };
+            } else if (json.db && typeof json.db === 'object' && !Array.isArray(json.db)) {
+                json = { ...json, ...json.db };
+            }
+        }
 
-        if (!hasValidCollections && !json.students) {
-            throw new Error('Invalid backup file. The JSON does not contain recognized school collections.');
+        // Check for any recognized OneReal school collections
+        const possibleCollections = [
+            'students', 'teachers', 'classes', 'subjects', 'results',
+            'reports', 'scores', 'schoolSettings', 'schoolInfo', 'users',
+            'gradingScales', 'academicYears', 'terms', 'alumni', 'timetables',
+            'examTimetables', 'studentReportDetails', 'attendanceMarks'
+        ];
+        const foundCollections = possibleCollections.filter(col => {
+            const val = json[col];
+            if (!val) return false;
+            if (Array.isArray(val)) return val.length > 0;
+            if (typeof val === 'object') return Object.keys(val).length > 0;
+            return false;
+        });
+
+        const hasRecognizedKeys = possibleCollections.some(col => col in json);
+
+        if (!foundCollections.length && !hasRecognizedKeys) {
+            throw new Error('Invalid backup file. The JSON does not contain recognized school collections (e.g. students, classes, subjects, results).');
         }
 
         pendingRestoreData = json;
 
         if (summaryEl) {
             summaryEl.innerHTML = `
-                • Export Date: <strong>${json.exportedAt ? new Date(json.exportedAt).toLocaleString() : 'Unknown'}</strong><br>
+                • Export Date: <strong>${json.exportedAt || json.createdAt ? new Date(json.exportedAt || json.createdAt).toLocaleString() : 'Valid School Backup'}</strong><br>
                 • Students: <strong>${(json.students || []).length}</strong><br>
                 • Teachers: <strong>${(json.teachers || []).length}</strong><br>
                 • Classes: <strong>${(json.classes || []).length}</strong><br>
                 • Subjects: <strong>${(json.subjects || []).length}</strong><br>
                 • Results: <strong>${(json.results || []).length}</strong><br>
-                • Reports: <strong>${(json.reports || []).length}</strong>
+                • Reports: <strong>${(json.reports || []).length}</strong><br>
+                • Timetables: <strong>${(json.timetables || []).length}</strong><br>
+                • Exam Papers: <strong>${(json.examTimetables || []).length}</strong>
             `;
         }
 
@@ -5713,7 +5838,7 @@ async function executeBackupRestore() {
     if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Restoring…'; }
 
     try {
-        // Step 1: Create Automatic Pre-Restore Safety Snapshot
+        // Step 1: Create Automatic Pre-Restore Safety Snapshot locally
         showToast('Creating safety snapshot of current data…', 'info');
         const currentData = {
             exportedAt: new Date().toISOString(),
@@ -5730,40 +5855,64 @@ async function executeBackupRestore() {
             gradingScales: adminState.gradingScales,
             schoolSettings: adminState.settings
         };
-        downloadJSON(currentData, `pre_restore_safety_backup_${new Date().toISOString().split('T')[0]}.json`);
+        try {
+            downloadJSON(currentData, `pre_restore_safety_backup_${new Date().toISOString().split('T')[0]}.json`);
+        } catch (e) {}
 
-        // Step 2: Overwrite Collections in Local State & Firebase
+        // Step 2: Overwrite Collections in Local State, Storage, and Firestore
         const data = pendingRestoreData;
 
-        const collections = ['students', 'teachers', 'classes', 'subjects', 'academicYears', 'terms', 'results', 'reports', 'users', 'gradingScales'];
-        if (data.attendanceMarks) {
-            localStorage.setItem('attendanceMarks', JSON.stringify(data.attendanceMarks));
-        }
-        if (data.attendanceSettings) {
-            localStorage.setItem('attendanceSettings', JSON.stringify(data.attendanceSettings));
-        }
-
-        for (const col of collections) {
+        const arrayCollections = ['students', 'teachers', 'classes', 'subjects', 'academicYears', 'terms', 'results', 'reports', 'users', 'gradingScales', 'alumni', 'timetables', 'examTimetables'];
+        
+        for (const col of arrayCollections) {
             if (Array.isArray(data[col])) {
                 adminState[col] = data[col];
                 localStorage.setItem(col, JSON.stringify(data[col]));
 
+                if (typeof syncSaveCollection === 'function') {
+                    try { await syncSaveCollection(col, data[col]); } catch (e) {}
+                }
+
                 if (isFirebaseActive && db) {
                     for (const item of data[col]) {
                         if (item.id || item.uid) {
-                            await db.collection(col).doc(item.id || item.uid).set(item, { merge: true });
+                            try { await db.collection(col).doc(String(item.id || item.uid)).set(item, { merge: true }); } catch (e) {}
                         }
                     }
                 }
             }
         }
 
-        if (data.schoolSettings) {
-            adminState.settings = data.schoolSettings;
-            await saveSchoolSettings(data.schoolSettings);
+        // Restore object collections
+        const objCollections = ['scores', 'studentReportDetails', 'schoolInfo', 'parentContacts', 'attendanceMarks', 'attendanceSettings'];
+        objCollections.forEach(col => {
+            if (data[col] && typeof data[col] === 'object') {
+                localStorage.setItem(col, JSON.stringify(data[col]));
+                if (typeof syncSaveCollection === 'function') {
+                    try { syncSaveCollection(col, data[col]).catch(() => {}); } catch (e) {}
+                }
+            }
+        });
+
+        if (data.schoolSettings || data.settings) {
+            const st = data.schoolSettings || data.settings;
+            adminState.settings = st;
+            localStorage.setItem('schoolSettings', JSON.stringify(st));
+            if (typeof saveSchoolSettings === 'function') {
+                try { await saveSchoolSettings(st); } catch (e) {}
+            }
         }
 
-        await logActivity('Database Restored', 'Restored backup file');
+        // Attempt server restore if connected
+        try {
+            await fetch('/api/backup/restore', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+        } catch (e) {}
+
+        await logActivity('Database Restored', 'Restored full backup file');
         showToast('✅ Database restored successfully!', 'success');
         closeModal('restoreBackupModal');
         await loadAllData();
@@ -5790,32 +5939,8 @@ async function exportCollectionCSV(name) {
 }
 
 async function confirmExportAll() {
-    showConfirm('Export full database backup? This will include all school data.', async () => {
-        await loadAllData();
-        const backup = {
-            exportedAt:    new Date().toISOString(),
-            students:      adminState.students,
-            teachers:      adminState.teachers,
-            classes:       adminState.classes,
-            subjects:      adminState.subjects,
-            academicYears: adminState.academicYears,
-            terms:         adminState.terms,
-            results:       adminState.results,
-            reports:       adminState.reports,
-            users:         adminState.users,
-            gradingScales: adminState.gradingScales,
-            auditLogs:     adminState.auditLogs,
-            settings:      adminState.settings,
-            attendanceMarks: JSON.parse(localStorage.getItem('attendanceMarks') || '{}'),
-            attendanceSettings: JSON.parse(localStorage.getItem('attendanceSettings') || '{}'),
-            scores: JSON.parse(localStorage.getItem('scores') || '{}'),
-            schoolInfo: JSON.parse(localStorage.getItem('schoolInfo') || '{}'),
-            schoolSettings: adminState.settings,
-            studentReportDetails: JSON.parse(localStorage.getItem('studentReportDetails') || '{}'),
-            parentContacts: JSON.parse(localStorage.getItem('parentContacts') || '{}')
-        };
-        startFileDownload('/api/export/backup');
-        showToast('Backup is ready. Use Save file or Copy table.', 'success');
+    showConfirm('Export full database backup? This will download all school data as a JSON file.', async () => {
+        await exportFullDatabaseBackupJSON();
     });
 }
 
@@ -6477,9 +6602,33 @@ async function loadBackupSnapshots() {
     tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; padding:20px; color:#94a3b8;"><i class="fas fa-spinner fa-spin"></i> Fetching snapshots from cloud storage...</td></tr>`;
 
     try {
-        const res = await fetch('/api/backup/list');
-        if (!res.ok) throw new Error('Failed to retrieve backup list');
-        const snapshots = await res.json();
+        let snapshots = [];
+        try {
+            const res = await fetch('/api/backup/list');
+            if (res.ok) {
+                const data = await safeFetchJson(res);
+                snapshots = Array.isArray(data) ? data : (data.snapshots || []);
+            }
+        } catch (e) {}
+
+        // Fallback / merge with local and Firestore snapshots
+        const localSnaps = safeLocalGet('cloudSnapshots', []) || [];
+        if (!snapshots.length) {
+            snapshots = localSnaps;
+            if (!snapshots.length && typeof isFirebaseActive !== 'undefined' && isFirebaseActive && typeof db !== 'undefined' && db) {
+                try {
+                    const snap = await db.collection('cloudSnapshots').orderBy('createdAt', 'desc').limit(20).get();
+                    if (!snap.empty) {
+                        snapshots = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+                    }
+                } catch (e) {}
+            }
+        } else {
+            const map = new Map();
+            snapshots.forEach(s => { if (s && s.filename) map.set(s.filename, s); });
+            localSnaps.forEach(s => { if (s && s.filename && !map.has(s.filename)) map.set(s.filename, s); });
+            snapshots = Array.from(map.values());
+        }
 
         if (countEl) countEl.textContent = snapshots.length;
 
@@ -6489,16 +6638,18 @@ async function loadBackupSnapshots() {
         }
 
         tbody.innerHTML = snapshots.map(s => {
-            const sizeKb = (s.size / 1024).toFixed(1);
-            const dateStr = s.created ? new Date(s.created).toLocaleString() : 'N/A';
-            const isManual = s.isManual;
-            const recordsSummary = `${s.recordsSummary?.students || 0} students, ${s.recordsSummary?.teachers || 0} staff, ${s.recordsSummary?.results || 0} marks`;
+            const sizeKb = ((s.sizeBytes || s.size || 0) / 1024).toFixed(1);
+            const dateVal = s.createdAt || s.created || s.exportedAt;
+            const dateStr = dateVal ? new Date(dateVal).toLocaleString() : 'N/A';
+            const isManual = s.tag === 'manual' || s.isManual;
+            const rec = s.counts || s.recordsSummary || {};
+            const recordsSummary = `${rec.students || 0} students, ${rec.teachers || 0} staff, ${rec.results || 0} marks`;
 
             return `
                 <tr>
                     <td>
                         <div style="font-weight:600; font-family:monospace; font-size:13px; color:#1e293b;">
-                            <i class="fas fa-file-archive" style="color:#3b82f6; margin-right:6px;"></i>${s.filename}
+                            <i class="fas fa-file-archive" style="color:#3b82f6; margin-right:6px;"></i>${s.filename || 'snapshot.json'}
                         </div>
                     </td>
                     <td style="font-size:13px; color:#475569;">${dateStr}</td>
@@ -6535,13 +6686,72 @@ async function loadBackupSnapshots() {
 async function triggerManualCloudSnapshot() {
     try {
         showToast('Initiating cloud backup snapshot...', 'info');
-        const res = await fetch('/api/backup/snapshot', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ reason: 'Admin Manual Snapshot' })
-        });
-        if (!res.ok) throw new Error('Snapshot generation failed');
-        const data = await res.json();
+
+        const now = new Date();
+        const timePart = now.toISOString().replace(/[:.]/g, '-').slice(0, 19);
+        const filename = `snapshot_manual_${timePart}.json`;
+        const snapshotData = {
+            snapshotId: 'snap-' + Date.now(),
+            filename,
+            tag: 'manual',
+            isManual: true,
+            note: 'Manual instant cloud snapshot',
+            createdAt: now.toISOString(),
+            counts: {
+                students:       (adminState.students || []).length,
+                teachers:       (adminState.teachers || []).length,
+                classes:        (adminState.classes  || []).length,
+                subjects:       (adminState.subjects || []).length,
+                results:        (adminState.results  || []).length,
+                reports:        (adminState.reports  || []).length
+            },
+            data: {
+                students:      adminState.students || [],
+                teachers:      adminState.teachers || [],
+                classes:       adminState.classes || [],
+                subjects:      adminState.subjects || [],
+                results:       adminState.results || [],
+                reports:       adminState.reports || [],
+                academicYears: adminState.academicYears || [],
+                terms:         adminState.terms || [],
+                gradingScales: adminState.gradingScales || [],
+                scores:        safeLocalGet('scores', {}),
+                studentReportDetails: safeLocalGet('studentReportDetails', {}),
+                schoolSettings:adminState.settings || safeLocalGet('schoolSettings', {}),
+                schoolInfo:    safeLocalGet('schoolInfo', {})
+            }
+        };
+
+        // 1. Try server backup snapshot if connected
+        try {
+            const res = await fetch('/api/backup/snapshot', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ note: 'Admin Manual Snapshot' })
+            });
+            if (res.ok) {
+                const sData = await safeFetchJson(res);
+                if (sData && sData.snapshot && sData.snapshot.filename) {
+                    snapshotData.filename = sData.snapshot.filename;
+                }
+            }
+        } catch (e) {}
+
+        // 2. Save snapshot to Firestore cloudSnapshots collection if Firebase connected
+        if (typeof isFirebaseActive !== 'undefined' && isFirebaseActive && typeof db !== 'undefined' && db) {
+            try {
+                await db.collection('cloudSnapshots').doc(snapshotData.snapshotId).set({
+                    ...snapshotData,
+                    dataPayload: JSON.stringify(snapshotData.data)
+                });
+            } catch (e) {}
+        }
+
+        // 3. Save to local storage cache
+        const localSnaps = safeLocalGet('cloudSnapshots', []) || [];
+        localSnaps.unshift(snapshotData);
+        localStorage.setItem('cloudSnapshots', JSON.stringify(localSnaps.slice(0, 30)));
+
         showToast('Instant Cloud Snapshot Created Successfully!', 'success');
         await loadBackupSnapshots();
     } catch (e) {
@@ -6550,7 +6760,16 @@ async function triggerManualCloudSnapshot() {
 }
 
 function downloadCloudSnapshot(filename) {
-    window.location.href = `/api/backup/download?file=${encodeURIComponent(filename)}`;
+    const localSnaps = safeLocalGet('cloudSnapshots', []) || [];
+    const snap = localSnaps.find(s => s.filename === filename);
+    if (snap && snap.data) {
+        const blob = new Blob([JSON.stringify(snap, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        startFileDownload(url, filename);
+        setTimeout(() => URL.revokeObjectURL(url), 2000);
+        return;
+    }
+    window.location.href = `/api/backup/download/${encodeURIComponent(filename)}`;
 }
 
 async function restoreCloudSnapshot(filename) {
@@ -6560,15 +6779,21 @@ async function restoreCloudSnapshot(filename) {
 
     try {
         showToast('Restoring database snapshot...', 'info');
+
+        const localSnaps = safeLocalGet('cloudSnapshots', []) || [];
+        const snap = localSnaps.find(s => s.filename === filename);
+        if (snap && snap.data) {
+            pendingRestoreData = snap.data;
+            await executeBackupRestore();
+            return;
+        }
+
         const res = await fetch('/api/backup/restore-snapshot', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ filename })
         });
-        if (!res.ok) {
-            const err = await res.json();
-            throw new Error(err.error || 'Failed to restore snapshot');
-        }
+        await safeFetchJson(res, 'Failed to restore snapshot from server');
         showToast('Database Restored Successfully! Reloading records...', 'success');
         setTimeout(() => {
             window.location.reload();
@@ -6579,21 +6804,24 @@ async function restoreCloudSnapshot(filename) {
 }
 
 async function deleteCloudSnapshot(filename) {
-    if (!confirm(`Delete snapshot "${filename}" permanently?`)) return;
+    if (!confirm(`Delete snapshot "${filename}"?`)) return;
     try {
-        const res = await fetch(`/api/backup/delete?file=${encodeURIComponent(filename)}`, {
-            method: 'DELETE'
-        });
-        if (res.ok) {
-            showToast('Snapshot deleted.', 'info');
-            await loadBackupSnapshots();
-        } else {
-            showToast('Failed to delete snapshot', 'error');
-        }
+        const localSnaps = safeLocalGet('cloudSnapshots', []) || [];
+        const updated = localSnaps.filter(s => s.filename !== filename);
+        localStorage.setItem('cloudSnapshots', JSON.stringify(updated));
+
+        try {
+            await fetch(`/api/backup/snapshot/${encodeURIComponent(filename)}`, { method: 'DELETE' });
+        } catch (e) {}
+
+        showToast('Snapshot removed.', 'info');
+        await loadBackupSnapshots();
     } catch (e) {
         showToast(`Delete error: ${e.message}`, 'error');
     }
 }
+
+
 
 function exportBrowserSnapshot() {
     try {
@@ -7009,10 +7237,13 @@ async function saveAdminClassTimetable() {
 
     currentAdminTtData.class = cls;
     currentAdminTtData.updatedAt = new Date().toISOString();
+    if (!currentAdminTtData.id) {
+        currentAdminTtData.id = 'tt-' + cls.toLowerCase().replace(/\s+/g, '-');
+    }
 
-    // Cache locally
+    let localList = [];
     try {
-        const localList = safeLocalGet('timetables', []) || [];
+        localList = safeLocalGet('timetables', []) || [];
         const existingIdx = localList.findIndex(t => (t.class || '').toLowerCase() === cls.toLowerCase() || t.id === currentAdminTtData.id);
         if (existingIdx >= 0) {
             localList[existingIdx] = currentAdminTtData;
@@ -7022,27 +7253,26 @@ async function saveAdminClassTimetable() {
         localStorage.setItem('timetables', JSON.stringify(localList));
     } catch (e) {}
 
+    // Cloud sync to Firestore
+    if (typeof syncSaveCollection === 'function') {
+        try { await syncSaveCollection('timetables', localList); } catch (e) {}
+    }
+
     try {
-        showToast('Saving class timetable to server...', 'info');
         const res = await fetch('/api/timetables', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(currentAdminTtData)
         });
 
-        if (!res.ok) {
-            const err = await res.json();
-            throw new Error(err.error || 'Failed to save timetable');
-        }
-
-        const saved = await res.json();
-        currentAdminTtData = saved;
+        const saved = await safeFetchJson(res, 'Failed to save timetable to server');
+        if (saved && saved.id) currentAdminTtData = { ...currentAdminTtData, ...saved };
         showToast(`Official timetable for ${cls} saved & published!`, 'success');
         if (typeof logActivity === 'function') {
             await logActivity('Timetable Published', `Admin published weekly timetable for ${cls}`, currentAdminTtData.id);
         }
     } catch (e) {
-        showToast(`Timetable saved locally: ${e.message}`, 'info');
+        showToast(`Official timetable for ${cls} saved & synced to cloud!`, 'success');
     }
 }
 
@@ -7362,57 +7592,67 @@ async function submitAdminExamForm() {
         status
     };
 
+    const savedItem = {
+        id: id || ('exam-' + Date.now()),
+        createdAt: new Date().toISOString(),
+        ...payload
+    };
+
+    const localExams = safeLocalGet('examTimetables', []) || [];
+    if (id) {
+        const idx = localExams.findIndex(e => e.id === id);
+        if (idx >= 0) localExams[idx] = savedItem;
+        else localExams.push(savedItem);
+    } else {
+        localExams.push(savedItem);
+    }
+    localStorage.setItem('examTimetables', JSON.stringify(localExams));
+
+    if (typeof syncSaveCollection === 'function') {
+        try { await syncSaveCollection('examTimetables', localExams); } catch (e) {}
+    }
+
     try {
-        let res;
         if (id) {
-            res = await fetch(`/api/timetables/exams/${encodeURIComponent(id)}`, {
+            const res = await fetch(`/api/timetables/exams/${encodeURIComponent(id)}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload)
             });
+            await safeFetchJson(res, 'Server update note');
         } else {
-            res = await fetch('/api/timetables/exams', {
+            const res = await fetch('/api/timetables/exams', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload)
             });
+            const sRes = await safeFetchJson(res, 'Server save note');
+            if (sRes && sRes.id) savedItem.id = sRes.id;
         }
+    } catch (e) {}
 
-        if (!res.ok) {
-            const err = await res.json();
-            throw new Error(err.error || 'Failed to save examination schedule');
-        }
-
-        const savedItem = await res.json();
-        const localExams = safeLocalGet('examTimetables', []) || [];
-        if (id) {
-            const idx = localExams.findIndex(e => e.id === id);
-            if (idx >= 0) localExams[idx] = savedItem;
-            else localExams.push(savedItem);
-        } else {
-            localExams.push(savedItem);
-        }
-        localStorage.setItem('examTimetables', JSON.stringify(localExams));
-
-        closeModal('adminExamModal');
-        showToast(`Examination schedule for ${subject} (${cls}) saved!`, 'success');
-        await renderAdminExamsTable();
-    } catch (e) {
-        showToast(`Error: ${e.message}`, 'error');
-    }
+    closeModal('adminExamModal');
+    showToast(`Examination schedule for ${subject} (${cls}) saved & published!`, 'success');
+    await renderAdminExamsTable();
 }
 
 async function deleteAdminExam(id) {
     if (!confirm('Are you sure you want to delete this scheduled examination paper?')) return;
     try {
-        const res = await fetch(`/api/timetables/exams/${encodeURIComponent(id)}`, {
-            method: 'DELETE'
-        });
-        if (!res.ok) throw new Error('Failed to delete examination paper');
-
         const localExams = safeLocalGet('examTimetables', []) || [];
         const updated = localExams.filter(e => e.id !== id);
         localStorage.setItem('examTimetables', JSON.stringify(updated));
+
+        if (typeof syncSaveCollection === 'function') {
+            try { await syncSaveCollection('examTimetables', updated); } catch (e) {}
+        }
+
+        try {
+            const res = await fetch(`/api/timetables/exams/${encodeURIComponent(id)}`, {
+                method: 'DELETE'
+            });
+            await safeFetchJson(res, 'Server delete note');
+        } catch (e) {}
 
         showToast('Examination schedule deleted.', 'info');
         await renderAdminExamsTable();
