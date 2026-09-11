@@ -5871,8 +5871,8 @@ async function handleUniversalImportFile(event) {
 
 function renderUniversalImportPreview(collection, records) {
     const previewArea = document.getElementById('importPreviewArea');
-    const thead = document.getElementById('importPreviewHead');
-    const tbody = document.getElementById('importPreviewBody');
+    const thead = document.getElementById('importModalPreviewHead') || document.getElementById('importPreviewHead');
+    const tbody = document.getElementById('importModalPreviewBody') || document.getElementById('importPreviewBody');
     const badge = document.getElementById('importPreviewCountBadge');
     const valMsg = document.getElementById('importValidationMessages');
     const confirmBtn = document.getElementById('confirmImportModalBtn');
@@ -5885,6 +5885,7 @@ function renderUniversalImportPreview(collection, records) {
             { key: 'class', label: 'Class' },
             { key: 'dob', label: 'Date of Birth' },
             { key: 'status', label: 'Status' },
+            { key: 'parentName', label: 'Parent Name' },
             { key: 'parentPhone', label: 'Parent Phone' }
         ],
         teachers: [
@@ -5945,13 +5946,18 @@ function renderUniversalImportPreview(collection, records) {
         thead.innerHTML = `<tr><th>#</th>${displayColumns.map(c => `<th>${escHtml(c.label)}</th>`).join('')}</tr>`;
     }
     if (tbody) {
-        tbody.innerHTML = records.slice(0, 20).map((r, idx) =>
+        tbody.innerHTML = records.slice(0, 50).map((r, idx) =>
             `<tr><td>${idx + 1}</td>${displayColumns.map(c => `<td>${escHtml(r[c.key] || '—')}</td>`).join('')}</tr>`
         ).join('');
     }
 
     if (badge) badge.textContent = `${records.length} record${records.length === 1 ? '' : 's'}`;
-    if (previewArea) previewArea.style.display = 'block';
+    if (previewArea) {
+        previewArea.style.display = 'block';
+        setTimeout(() => {
+            previewArea.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }, 50);
+    }
 
     const colTitle = collection.charAt(0).toUpperCase() + collection.slice(1);
     if (confirmBtn) {
@@ -5974,6 +5980,7 @@ async function confirmUniversalImport() {
 
     try {
         let count = 0;
+
         for (let i = 0; i < data.length; i++) {
             const record = { ...data[i] };
 
@@ -5988,18 +5995,35 @@ async function confirmUniversalImport() {
                 if (!record.createdAt) record.createdAt = new Date().toISOString();
                 record.updatedAt = new Date().toISOString();
 
-                // Upsert in adminState.students
-                const existingIdx = adminState.students.findIndex(s => 
-                    (s.admissionNo && record.admissionNo && String(s.admissionNo).trim().toLowerCase() === String(record.admissionNo).trim().toLowerCase()) ||
-                    (s.id && record.id && String(s.id) === String(record.id))
-                );
-                if (existingIdx >= 0) {
-                    adminState.students[existingIdx] = { ...adminState.students[existingIdx], ...record };
+                // Safe Upsert:
+                // 1) Match by unique ID if provided
+                const existingIdxById = record.id ? adminState.students.findIndex(s => String(s.id) === String(record.id)) : -1;
+                // 2) Match by Admission Number
+                const existingIdxByAdm = record.admissionNo ? adminState.students.findIndex(s => 
+                    String(s.admissionNo || '').trim().toLowerCase() === String(record.admissionNo).trim().toLowerCase()
+                ) : -1;
+
+                if (existingIdxById >= 0) {
+                    adminState.students[existingIdxById] = { ...adminState.students[existingIdxById], ...record };
+                } else if (existingIdxByAdm >= 0) {
+                    const existingStu = adminState.students[existingIdxByAdm];
+                    const sameName = existingStu.name && record.name && 
+                        existingStu.name.trim().toLowerCase() === record.name.trim().toLowerCase();
+                    if (sameName) {
+                        // Same student: update details
+                        adminState.students[existingIdxByAdm] = { ...existingStu, ...record };
+                    } else {
+                        // Different student with duplicate admission number! Ensure a unique admission number so neither student is overwritten or disappears
+                        let candidateAdm = record.admissionNo + '-' + (i + 1);
+                        while (adminState.students.some(s => String(s.admissionNo || '').trim().toLowerCase() === candidateAdm.toLowerCase())) {
+                            candidateAdm = 'TLS/' + new Date().getFullYear() + '/' + String(adminState.students.length + count + 1).padStart(3, '0');
+                            count++;
+                        }
+                        record.admissionNo = candidateAdm;
+                        adminState.students.push(record);
+                    }
                 } else {
                     adminState.students.push(record);
-                }
-                if (typeof addDocument === 'function') {
-                    try { await addDocument('students', record); } catch (e) { console.warn('addDocument warning:', e); }
                 }
             } else if (collection === 'teachers') {
                 if (!record.id) record.id = 'tch_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6) + '_' + i;
@@ -6007,62 +6031,63 @@ async function confirmUniversalImport() {
                 const existingIdx = adminState.teachers.findIndex(t => (t.email && record.email && t.email.toLowerCase() === record.email.toLowerCase()) || t.id === record.id);
                 if (existingIdx >= 0) adminState.teachers[existingIdx] = { ...adminState.teachers[existingIdx], ...record };
                 else adminState.teachers.push(record);
-                if (typeof addDocument === 'function') {
-                    try { await addDocument('teachers', record); } catch (e) { console.warn('addDocument warning:', e); }
-                }
             } else if (collection === 'classes') {
                 if (!record.id) record.id = 'cls_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6) + '_' + i;
                 const existingIdx = adminState.classes.findIndex(c => (c.name && record.name && c.name.toLowerCase() === record.name.toLowerCase()) || c.id === record.id);
                 if (existingIdx >= 0) adminState.classes[existingIdx] = { ...adminState.classes[existingIdx], ...record };
                 else adminState.classes.push(record);
-                if (typeof addDocument === 'function') {
-                    try { await addDocument('classes', record); } catch (e) { console.warn('addDocument warning:', e); }
-                }
             } else if (collection === 'subjects') {
                 if (!record.id) record.id = 'sub_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6) + '_' + i;
                 const existingIdx = adminState.subjects.findIndex(s => (s.name && record.name && s.name.toLowerCase() === record.name.toLowerCase()) || s.id === record.id);
                 if (existingIdx >= 0) adminState.subjects[existingIdx] = { ...adminState.subjects[existingIdx], ...record };
                 else adminState.subjects.push(record);
-                if (typeof addDocument === 'function') {
-                    try { await addDocument('subjects', record); } catch (e) { console.warn('addDocument warning:', e); }
-                }
             } else if (collection === 'results') {
                 if (!record.id) record.id = 'res_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6) + '_' + i;
                 adminState.results.push(record);
-                if (typeof addDocument === 'function') {
-                    try { await addDocument('results', record); } catch (e) { console.warn('addDocument warning:', e); }
-                }
-            } else {
-                if (typeof addDocument === 'function') {
-                    try { await addDocument(collection, record); } catch (e) { console.warn('addDocument warning:', e); }
-                }
             }
             count++;
         }
 
-        // Save collections to localStorage and trigger remote sync
+        // Single atomic persistence - eliminates race conditions from looping un-awaited sync calls
         if (collection === 'students') {
             localStorage.setItem('students', JSON.stringify(adminState.students));
             if (typeof syncSaveCollection === 'function') {
-                syncSaveCollection('students', adminState.students).catch(e => console.warn('syncSaveCollection error:', e));
+                await syncSaveCollection('students', adminState.students);
             }
+            // Clear any active search or class filter so all newly imported students are immediately visible
+            const searchInput = document.getElementById('studentFilterSearch');
+            if (searchInput) searchInput.value = '';
+            const classSelect = document.getElementById('studentFilterClass');
+            if (classSelect) classSelect.value = '';
+            const statusSelect = document.getElementById('studentFilterStatus');
+            if (statusSelect) statusSelect.value = '';
+            adminState.studentPage = 1;
             renderStudentsTable();
             updateNavBadges();
         } else if (collection === 'teachers') {
             localStorage.setItem('teachers', JSON.stringify(adminState.teachers));
             if (typeof syncSaveCollection === 'function') {
-                syncSaveCollection('teachers', adminState.teachers).catch(e => console.warn('syncSaveCollection error:', e));
+                await syncSaveCollection('teachers', adminState.teachers);
             }
             renderTeachersTable();
             updateNavBadges();
         } else if (collection === 'classes') {
             localStorage.setItem('classes', JSON.stringify(adminState.classes));
+            if (typeof syncSaveCollection === 'function') {
+                await syncSaveCollection('classes', adminState.classes);
+            }
             renderClassesTable();
         } else if (collection === 'subjects') {
             localStorage.setItem('subjects', JSON.stringify(adminState.subjects));
+            if (typeof syncSaveCollection === 'function') {
+                await syncSaveCollection('subjects', adminState.subjects);
+            }
             renderSubjectsTable();
         } else if (collection === 'results') {
             localStorage.setItem('results', JSON.stringify(adminState.results));
+            if (typeof syncSaveCollection === 'function') {
+                await syncSaveCollection('results', adminState.results);
+            }
             renderResultsTable();
         }
 
