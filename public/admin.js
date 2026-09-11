@@ -5946,8 +5946,33 @@ function renderUniversalImportPreview(collection, records) {
         thead.innerHTML = `<tr><th>#</th>${displayColumns.map(c => `<th>${escHtml(c.label)}</th>`).join('')}</tr>`;
     }
     if (tbody) {
+        const activeClasses = (adminState.classes || []).filter(cls =>
+            cls.status !== 'inactive' && cls.status !== 'deleted' && !cls.isDeleted
+        );
         tbody.innerHTML = records.slice(0, 50).map((r, idx) =>
-            `<tr><td>${idx + 1}</td>${displayColumns.map(c => `<td>${escHtml(r[c.key] || '—')}</td>`).join('')}</tr>`
+            `<tr><td>${idx + 1}</td>${displayColumns.map(c => {
+                // Render Class column as a live dropdown for student imports
+                if (collection === 'students' && c.key === 'class') {
+                    const currentVal = r.class || '';
+                    const isKnown = activeClasses.some(cls => cls.name.toLowerCase() === currentVal.toLowerCase());
+                    const classOpts = activeClasses.map(cls =>
+                        `<option value="${escHtml(cls.name)}" ${cls.name.toLowerCase() === currentVal.toLowerCase() ? 'selected' : ''}>${escHtml(cls.name)}</option>`
+                    ).join('');
+                    const unknownOpt = (!isKnown && currentVal)
+                        ? `<option value="${escHtml(currentVal)}" selected>${escHtml(currentVal)} ⚠ not in system</option>`
+                        : '';
+                    return `<td><select class="import-class-select" data-idx="${idx}"
+                        onchange="updateImportRecordClass(this)"
+                        style="border:1px solid var(--border,#ccc);border-radius:6px;padding:3px 8px;
+                               background:var(--bg-card,#fff);color:var(--text-primary,#111);
+                               font-size:12px;max-width:160px;cursor:pointer;">
+                        <option value="">-- Select Class --</option>
+                        ${classOpts}
+                        ${unknownOpt}
+                    </select></td>`;
+                }
+                return `<td>${escHtml(r[c.key] || '—')}</td>`;
+            }).join('')}</tr>`
         ).join('');
     }
 
@@ -5967,6 +5992,22 @@ function renderUniversalImportPreview(collection, records) {
     }
 }
 
+/**
+ * Called when a class dropdown in the import preview changes.
+ * Immediately updates the in-memory importData so Confirm Import picks up the new value.
+ */
+function updateImportRecordClass(selectEl) {
+    const idx = parseInt(selectEl.dataset.idx, 10);
+    if (!adminState.importData || isNaN(idx)) return;
+    const className = selectEl.value;
+    adminState.importData[idx].class = className;
+    // Try to resolve the matching classId from the system
+    const foundClass = (adminState.classes || []).find(c =>
+        c.name && c.name.toLowerCase() === className.toLowerCase()
+    );
+    adminState.importData[idx].classId = foundClass ? foundClass.id : '';
+}
+
 async function confirmUniversalImport() {
     const collection = currentImportTarget || adminState.importCollection || 'students';
     const data = adminState.importData;
@@ -5980,6 +6021,24 @@ async function confirmUniversalImport() {
 
     try {
         let count = 0;
+
+        // Sync any live class-dropdown selections from the preview table back into importData
+        // This ensures user's in-modal changes are captured even if onchange was not fired
+        if (collection === 'students') {
+            document.querySelectorAll('.import-class-select').forEach(sel => {
+                const idx = parseInt(sel.dataset.idx, 10);
+                if (!isNaN(idx) && adminState.importData[idx]) {
+                    const className = sel.value;
+                    adminState.importData[idx].class = className;
+                    const foundClass = (adminState.classes || []).find(c =>
+                        c.name && c.name.toLowerCase() === className.toLowerCase()
+                    );
+                    adminState.importData[idx].classId = foundClass
+                        ? foundClass.id
+                        : (adminState.importData[idx].classId || '');
+                }
+            });
+        }
 
         for (let i = 0; i < data.length; i++) {
             const record = { ...data[i] };
