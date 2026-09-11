@@ -5556,6 +5556,50 @@ function triggerImport(collection) {
     document.getElementById(`import${collection.charAt(0).toUpperCase() + collection.slice(1)}File`)?.click();
 }
 
+async function handleImportFile(event, collection) {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    adminState.importCollection = collection;
+
+    try {
+        if (typeof XLSX === 'undefined') {
+            showToast('Excel library not loaded. Please refresh the page and try again.', 'error');
+            event.target.value = '';
+            return;
+        }
+
+        const arrayBuffer = await file.arrayBuffer();
+        const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+
+        // Use the first sheet
+        const firstSheetName = workbook.SheetNames[0];
+        if (!firstSheetName) {
+            showToast('The Excel file appears to be empty or has no sheets.', 'error');
+            event.target.value = '';
+            return;
+        }
+
+        const worksheet = workbook.Sheets[firstSheetName];
+        const records = XLSX.utils.sheet_to_json(worksheet, { defval: '' });
+
+        if (!records.length) {
+            showToast('Excel file is empty or has no data rows.', 'error');
+            event.target.value = '';
+            return;
+        }
+
+        const headers = Object.keys(records[0]);
+        adminState.importData = records;
+        showImportPreview(headers, records, collection);
+    } catch (e) {
+        console.error('Excel import error:', e);
+        showToast('Failed to read Excel file. Please ensure it is a valid .xlsx or .xls file.', 'error');
+    }
+
+    event.target.value = '';
+}
+
 async function handleImportCSV(event, collection) {
     const file = event.target.files[0];
     if (!file) return;
@@ -5608,9 +5652,9 @@ function showImportPreview(headers, records, collection) {
     if (banner) {
         banner.innerHTML = `
             <strong><i class="fas fa-info-circle"></i> Instructions for ${collection.toUpperCase()} Import:</strong><br>
-            • File format: Standard CSV (.csv)<br>
+            • File format: Excel (.xlsx / .xls)<br>
             • Required columns: <code>${reqCols.join(', ')}</code><br>
-            • Download the <a href="#" onclick="downloadTemplate('${collection}');return false;" style="color:var(--primary);font-weight:600;">Download ${collection} CSV Template</a> for pre-formatted sample data.
+            • Download the <a href="#" onclick="downloadTemplate('${collection}');return false;" style="color:var(--primary);font-weight:600;">Download ${collection} Excel Template</a> for pre-formatted sample data.
         `;
     }
 

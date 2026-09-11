@@ -1153,28 +1153,28 @@
                     <div class="import-section">
                         <div class="import-option" onclick="triggerImport('students')">
                             <i class="fas fa-user-graduate"></i>
-                            <span>Import Students (CSV)</span>
-                            <input type="file" id="importStudentsFile" accept=".csv" style="display:none;" onchange="handleImportCSV(event, 'students')">
+                            <span>Import Students (Excel)</span>
+                            <input type="file" id="importStudentsFile" accept=".xlsx,.xls" style="display:none;" onchange="handleImportFile(event, 'students')">
                         </div>
                         <div class="import-option" onclick="triggerImport('teachers')">
                             <i class="fas fa-chalkboard-teacher"></i>
-                            <span>Import Teachers (CSV)</span>
-                            <input type="file" id="importTeachersFile" accept=".csv" style="display:none;" onchange="handleImportCSV(event, 'teachers')">
+                            <span>Import Teachers (Excel)</span>
+                            <input type="file" id="importTeachersFile" accept=".xlsx,.xls" style="display:none;" onchange="handleImportFile(event, 'teachers')">
                         </div>
                         <div class="import-option" onclick="triggerImport('classes')">
                             <i class="fas fa-school"></i>
-                            <span>Import Classes (CSV)</span>
-                            <input type="file" id="importClassesFile" accept=".csv" style="display:none;" onchange="handleImportCSV(event, 'classes')">
+                            <span>Import Classes (Excel)</span>
+                            <input type="file" id="importClassesFile" accept=".xlsx,.xls" style="display:none;" onchange="handleImportFile(event, 'classes')">
                         </div>
                         <div class="import-option" onclick="triggerImport('subjects')">
                             <i class="fas fa-book-open"></i>
-                            <span>Import Subjects (CSV)</span>
-                            <input type="file" id="importSubjectsFile" accept=".csv" style="display:none;" onchange="handleImportCSV(event, 'subjects')">
+                            <span>Import Subjects (Excel)</span>
+                            <input type="file" id="importSubjectsFile" accept=".xlsx,.xls" style="display:none;" onchange="handleImportFile(event, 'subjects')">
                         </div>
                         <div class="import-option" onclick="triggerImport('results')">
                             <i class="fas fa-clipboard-list"></i>
-                            <span>Import Results (CSV)</span>
-                            <input type="file" id="importResultsFile" accept=".csv" style="display:none;" onchange="handleImportCSV(event, 'results')">
+                            <span>Import Results (Excel)</span>
+                            <input type="file" id="importResultsFile" accept=".xlsx,.xls" style="display:none;" onchange="handleImportFile(event, 'results')">
                         </div>
                     </div>
                     <div id="importPreviewSection" style="display:none;padding:16px;">
