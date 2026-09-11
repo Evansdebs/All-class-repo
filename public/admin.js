@@ -5236,22 +5236,33 @@ function downloadTemplate(type) {
         const secondSubject = subjectNames[1] || subjectNames[0] || 'English Language';
 
         if (type === 'students') {
-            const headers = ['Admission No', 'Full Name', 'Class', 'Gender', 'Date of Birth', 'Parent Name', 'Parent Phone', 'Parent Email', 'Address'];
+            // Updated column order matching Student Management table and UI forms
+            const headers = ['Admission No.', 'Full Name', 'Gender', 'Class', 'Date of Birth', 'Status', 'Parent Name', 'Parent Phone', 'Parent Email', 'Address'];
             const sampleRows = [
                 headers,
-                ['STU001', 'Kwame Mensah', firstClass, 'Male', '2015-05-12', 'Kofi Mensah', '0241234567', 'kofi@example.com', 'Accra'],
-                ['STU002', 'Ama Serwaa', secondClass, 'Female', '2015-08-23', 'Akosua Serwaa', '0249876543', 'akosua@example.com', 'Kumasi']
+                ['TLS/2026/001', 'Kwame Mensah', 'Male', firstClass, '2015-05-12', 'active', 'Kofi Mensah', '0241234567', 'kofi@example.com', 'Accra'],
+                ['TLS/2026/002', 'Ama Serwaa', 'Female', secondClass, '2015-08-23', 'active', 'Akosua Serwaa', '0249876543', 'akosua@example.com', 'Kumasi']
             ];
             const ws = XLSX.utils.aoa_to_sheet(sampleRows);
             ws['!cols'] = [
-                { wch: 16 }, { wch: 22 }, { wch: 18 }, { wch: 12 }, { wch: 16 },
-                { wch: 22 }, { wch: 18 }, { wch: 24 }, { wch: 20 }
+                { wch: 18 }, { wch: 24 }, { wch: 12 }, { wch: 18 }, { wch: 16 },
+                { wch: 12 }, { wch: 22 }, { wch: 18 }, { wch: 24 }, { wch: 20 }
             ];
 
-            // In-cell dropdowns for Class (Col C) and Gender (Col D)
+            // In-cell dropdowns for Gender (Col C), Class (Col D), Status (Col F)
             ws['!dataValidation'] = [
                 {
                     sqref: 'C2:C500',
+                    type: 'list',
+                    operator: 'equal',
+                    formula1: '"Male,Female"',
+                    showDropDown: true,
+                    errorTitle: 'Invalid Gender',
+                    error: 'Please select Male or Female.',
+                    showErrorMessage: true
+                },
+                {
+                    sqref: 'D2:D500',
                     type: 'list',
                     operator: 'equal',
                     formula1: `"${classNames.slice(0, 30).join(',')}"`,
@@ -5261,13 +5272,13 @@ function downloadTemplate(type) {
                     showErrorMessage: true
                 },
                 {
-                    sqref: 'D2:D500',
+                    sqref: 'F2:F500',
                     type: 'list',
                     operator: 'equal',
-                    formula1: '"Male,Female"',
+                    formula1: '"active,inactive"',
                     showDropDown: true,
-                    errorTitle: 'Invalid Gender',
-                    error: 'Please select Male or Female.',
+                    errorTitle: 'Invalid Status',
+                    error: 'Please select active or inactive.',
                     showErrorMessage: true
                 }
             ];
@@ -5477,9 +5488,9 @@ function downloadCsvTemplate(type) {
 
     if (type === 'students') {
         filename = 'students_import_template.csv';
-        csvContent = 'Admission No,Full Name,Class,Gender,Date of Birth,Parent Name,Parent Phone,Parent Email,Address\n' +
-                     `STU001,"Kwame Mensah","${firstClass}","Male","2015-05-12","Kofi Mensah","0241234567","kofi@example.com","Accra"\n` +
-                     `STU002,"Ama Serwaa","${secondClass}","Female","2015-08-23","Akosua Serwaa","0249876543","akosua@example.com","Kumasi"\n`;
+        csvContent = 'Admission No.,Full Name,Gender,Class,Date of Birth,Status,Parent Name,Parent Phone,Parent Email,Address\n' +
+                     `TLS/2026/001,"Kwame Mensah","Male","${firstClass}","2015-05-12","active","Kofi Mensah","0241234567","kofi@example.com","Accra"\n` +
+                     `TLS/2026/002,"Ama Serwaa","Female","${secondClass}","2015-08-23","active","Akosua Serwaa","0249876543","akosua@example.com","Kumasi"\n`;
     } else if (type === 'teachers') {
         filename = 'teachers_import_template.csv';
         csvContent = 'Full Name,Email Address,Phone Number,Role,Password,Assigned Classes,Assigned Subjects\n' +
@@ -5552,183 +5563,555 @@ function exportDataExcel(collection) {
     startFileDownload(`/api/export/${encodeURIComponent(collection)}.xlsx`, filename);
 }
 
-function triggerImport(collection) {
-    document.getElementById(`import${collection.charAt(0).toUpperCase() + collection.slice(1)}File`)?.click();
+let currentImportTarget = 'students';
+
+function findBestSheet(workbook, collection) {
+    if (!workbook || !workbook.SheetNames || !workbook.SheetNames.length) return null;
+
+    const keywords = {
+        students: ['student', 'learner', 'pupil', 'import'],
+        teachers: ['teacher', 'staff', 'tutor', 'import'],
+        classes:  ['class', 'grade', 'level', 'import'],
+        subjects: ['subject', 'course', 'import'],
+        results:  ['result', 'score', 'mark', 'import']
+    }[collection] || [collection];
+
+    for (const name of workbook.SheetNames) {
+        const lowerName = name.toLowerCase();
+        if (lowerName.startsWith('available') || lowerName.includes('instruction') || lowerName.includes('reference')) continue;
+        if (keywords.some(k => lowerName.includes(k))) {
+            return workbook.Sheets[name];
+        }
+    }
+
+    for (const name of workbook.SheetNames) {
+        const lowerName = name.toLowerCase();
+        if (lowerName.startsWith('available') || lowerName.includes('instruction')) continue;
+        const sheet = workbook.Sheets[name];
+        if (sheet && sheet['!ref']) {
+            const rows = XLSX.utils.sheet_to_json(sheet, { defval: '', raw: false });
+            if (rows && rows.length > 0) return sheet;
+        }
+    }
+
+    return workbook.Sheets[workbook.SheetNames[0]];
 }
 
-async function handleImportFile(event, collection) {
-    const file = event.target.files[0];
+// Smart parser that scans rows 0..9 to detect the real header row
+function parseSheetSmart(worksheet, collection) {
+    if (typeof XLSX === 'undefined' || !worksheet) return [];
+    const aoa = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '', raw: false });
+    if (!aoa || !aoa.length) return [];
+
+    const keywordMap = {
+        students: ['name', 'admission', 'student', 'class', 'gender', 'dob', 'birth', 'status', 'parent'],
+        teachers: ['name', 'email', 'phone', 'teacher', 'role', 'class', 'subject'],
+        classes:  ['class', 'name', 'level', 'grade'],
+        subjects: ['subject', 'name', 'code'],
+        results:  ['student', 'score', 'mark', 'exam', 'class', 'subject']
+    };
+    const targetKeywords = keywordMap[collection] || ['name', 'id', 'title'];
+
+    let headerRowIdx = -1;
+    for (let r = 0; r < Math.min(aoa.length, 10); r++) {
+        const row = aoa[r];
+        if (!Array.isArray(row) || !row.length) continue;
+        const matches = row.filter(cell => {
+            const str = String(cell != null ? cell : '').toLowerCase().replace(/[^a-z0-9]/g, '');
+            return targetKeywords.some(k => str.includes(k));
+        });
+        if (matches.length >= 2) {
+            headerRowIdx = r;
+            break;
+        }
+    }
+
+    let headers = [];
+    if (headerRowIdx >= 0) {
+        headers = aoa[headerRowIdx].map((h, i) => String(h != null ? h : '').trim() || ('col_' + i));
+    } else {
+        if (collection === 'students') {
+            headers = ['Admission No.', 'Full Name', 'Gender', 'Class', 'Date of Birth', 'Status', 'Parent Name', 'Parent Phone', 'Parent Email', 'Address'];
+        } else {
+            headers = (aoa[0] || []).map((h, i) => String(h != null ? h : '').trim() || ('col_' + i));
+        }
+    }
+
+    const dataRows = aoa.slice(headerRowIdx >= 0 ? headerRowIdx + 1 : 0);
+    const records = [];
+
+    dataRows.forEach(row => {
+        if (!row || !row.some(cell => String(cell != null ? cell : '').trim() !== '')) return;
+        const obj = {};
+        headers.forEach((h, colIdx) => {
+            obj[h] = row[colIdx] != null ? String(row[colIdx]).trim() : '';
+        });
+        records.push(obj);
+    });
+
+    return records;
+}
+
+function openImportModal(collection = 'students') {
+    currentImportTarget = collection;
+    adminState.importCollection = collection;
+    adminState.importData = [];
+
+    const modal = document.getElementById('importModal');
+    if (!modal) return;
+
+    const colTitle = collection.charAt(0).toUpperCase() + collection.slice(1);
+    const titleEl = document.getElementById('importModalTitle');
+    const headEl = document.getElementById('importUploadHeading');
+    const subEl = document.getElementById('importUploadSubtitle');
+    const tplBtn = document.getElementById('importDownloadTemplateBtn');
+    const nameEl = document.getElementById('importSelectedFileName');
+    const previewArea = document.getElementById('importPreviewArea');
+    const valMsg = document.getElementById('importValidationMessages');
+    const confirmBtn = document.getElementById('confirmImportModalBtn');
+    const fileInput = document.getElementById('universalImportFileInput');
+
+    if (titleEl) titleEl.innerHTML = `<i class="fas fa-file-import"></i> Import ${colTitle}`;
+    if (headEl) headEl.textContent = `Select Excel (.xlsx) or CSV File for ${colTitle}`;
+    if (subEl) subEl.textContent = `Upload your completed template to import ${collection} into the system.`;
+    if (tplBtn) tplBtn.innerHTML = `<i class="fas fa-download"></i> Download ${colTitle} Template (.xlsx)`;
+    if (nameEl) { nameEl.textContent = ''; nameEl.style.display = 'none'; }
+    if (previewArea) previewArea.style.display = 'none';
+    if (valMsg) valMsg.innerHTML = '';
+    if (confirmBtn) confirmBtn.style.display = 'none';
+    if (fileInput) fileInput.value = '';
+
+    modal.style.display = 'flex';
+}
+
+function downloadCurrentImportTemplate() {
+    downloadTemplate(currentImportTarget || 'students');
+}
+
+function normalizeImportedRecord(collection, raw) {
+    if (!raw || typeof raw !== 'object') return {};
+    const norm = {};
+    const cleanMap = {};
+
+    Object.keys(raw).forEach(k => {
+        if (k === undefined || k === null) return;
+        // Aggressive punctuation stripping: "Admission No." -> "admissionno", "D.O.B." -> "dob"
+        const cleanKey = String(k).trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+        cleanMap[cleanKey] = raw[k] != null ? String(raw[k]).trim() : '';
+    });
+
+    if (collection === 'students') {
+        norm.name = cleanMap['fullname'] || cleanMap['name'] || cleanMap['studentname'] || cleanMap['learnername'] || cleanMap['studentfullname'] || raw['Full Name'] || raw['name'] || '';
+        norm.admissionNo = cleanMap['admissionno'] || cleanMap['admissionnumber'] || cleanMap['admission'] || cleanMap['admno'] || cleanMap['studentid'] || cleanMap['id'] || raw['Admission No'] || raw['Admission No.'] || raw['admissionNo'] || '';
+        norm.gender = cleanMap['gender'] || cleanMap['sex'] || raw['Gender'] || raw['gender'] || '';
+        if (norm.gender) {
+            const gLower = norm.gender.toLowerCase();
+            if (gLower.startsWith('m')) norm.gender = 'Male';
+            else if (gLower.startsWith('f')) norm.gender = 'Female';
+        }
+        norm.class = cleanMap['class'] || cleanMap['classname'] || cleanMap['grade'] || cleanMap['level'] || raw['Class'] || raw['class'] || '';
+        norm.dob = cleanMap['dateofbirth'] || cleanMap['dob'] || cleanMap['birthdate'] || cleanMap['birth'] || raw['Date of Birth'] || raw['dob'] || '';
+        norm.status = cleanMap['status'] || cleanMap['studentstatus'] || raw['Status'] || 'active';
+        if (norm.status.toLowerCase() !== 'inactive') norm.status = 'active';
+
+        norm.parentName = cleanMap['parentname'] || cleanMap['guardianname'] || cleanMap['parent'] || raw['Parent Name'] || raw['parentName'] || '';
+        norm.parentPhone = cleanMap['parentphone'] || cleanMap['guardianphone'] || cleanMap['phone'] || cleanMap['contact'] || raw['Parent Phone'] || raw['parentPhone'] || '';
+        norm.parentEmail = cleanMap['parentemail'] || cleanMap['guardianemail'] || cleanMap['email'] || raw['Parent Email'] || raw['parentEmail'] || '';
+        norm.address = cleanMap['address'] || cleanMap['residentialaddress'] || raw['Address'] || raw['address'] || '';
+
+        // Auto-swap check if Gender and Class were entered in swapped columns
+        const classLower = (norm.class || '').toLowerCase();
+        const genderLower = (norm.gender || '').toLowerCase();
+        if ((classLower === 'male' || classLower === 'female') && (!genderLower || genderLower.includes('class') || genderLower.includes('grade') || genderLower.includes('basic') || genderLower.includes('jhs') || genderLower.includes('primary') || genderLower.includes('kg'))) {
+            const temp = norm.class;
+            norm.class = norm.gender;
+            norm.gender = temp.charAt(0).toUpperCase() + temp.slice(1).toLowerCase();
+        }
+
+        // Auto resolve classId or class name if classes exist in adminState
+        if (Array.isArray(adminState.classes)) {
+            const foundClass = adminState.classes.find(c => 
+                (c.name && norm.class && c.name.toLowerCase() === norm.class.toLowerCase()) ||
+                (c.id && norm.class && String(c.id).toLowerCase() === norm.class.toLowerCase())
+            );
+            if (foundClass) {
+                norm.classId = foundClass.id;
+                norm.class = foundClass.name;
+            }
+        }
+    } else if (collection === 'teachers') {
+        norm.name = cleanMap['fullname'] || cleanMap['name'] || cleanMap['teachername'] || raw['Full Name'] || raw['name'] || '';
+        norm.email = cleanMap['emailaddress'] || cleanMap['email'] || cleanMap['teacheremail'] || raw['Email Address'] || raw['email'] || '';
+        norm.phone = cleanMap['phonenumber'] || cleanMap['phone'] || raw['Phone Number'] || raw['phone'] || '';
+        norm.role = cleanMap['role'] || raw['Role'] || 'Teacher';
+        norm.password = cleanMap['password'] || raw['Password'] || 'Pass123!';
+        norm.assignedClasses = cleanMap['assignedclasses'] || cleanMap['classes'] || raw['Assigned Classes'] || '';
+        norm.assignedSubjects = cleanMap['assignedsubjects'] || cleanMap['subjects'] || raw['Assigned Subjects'] || '';
+        norm.status = cleanMap['status'] || raw['Status'] || 'active';
+    } else if (collection === 'classes') {
+        norm.name = cleanMap['classname'] || cleanMap['name'] || raw['Class Name'] || raw['name'] || '';
+        norm.level = cleanMap['academiclevel'] || cleanMap['level'] || raw['Academic Level'] || raw['level'] || 'Primary';
+        norm.gradingScale = cleanMap['gradingscale'] || raw['Grading Scale'] || '';
+        norm.status = cleanMap['status'] || raw['Status'] || 'active';
+    } else if (collection === 'subjects') {
+        norm.name = cleanMap['subjectname'] || cleanMap['name'] || raw['Subject Name'] || raw['name'] || '';
+        norm.code = cleanMap['subjectcode'] || cleanMap['code'] || raw['Subject Code'] || raw['code'] || '';
+        norm.status = cleanMap['status'] || raw['Status'] || 'active';
+    } else if (collection === 'results') {
+        norm.studentName = cleanMap['studentname'] || cleanMap['name'] || raw['Student Name'] || '';
+        norm.studentId = cleanMap['studentid'] || cleanMap['admissionno'] || cleanMap['admissionnumber'] || raw['studentId'] || '';
+        norm.class = cleanMap['class'] || raw['Class'] || '';
+        norm.subject = cleanMap['subject'] || cleanMap['subjectname'] || raw['Subject'] || '';
+        norm.subjectId = cleanMap['subjectid'] || raw['subjectId'] || '';
+        norm.classScore = parseFloat(cleanMap['classscore'] || raw['Class Score'] || raw['classScore']) || 0;
+        norm.examScore = parseFloat(cleanMap['examscore'] || raw['Exam Score'] || raw['examScore']) || 0;
+        norm.totalScore = parseFloat(cleanMap['totalscore'] || raw['Total Score'] || raw['totalScore']) || (norm.classScore + norm.examScore);
+        norm.academicYear = cleanMap['academicyear'] || raw['Academic Year'] || '';
+        norm.term = cleanMap['term'] || raw['Term'] || '';
+    } else {
+        Object.assign(norm, raw);
+    }
+    return norm;
+}
+
+async function handleUniversalImportFile(event) {
+    const file = event.target.files && event.target.files[0];
     if (!file) return;
 
+    // Clear input value so selecting the exact same file again fires onchange
+    event.target.value = '';
+
+    const collection = currentImportTarget || adminState.importCollection || 'students';
     adminState.importCollection = collection;
+
+    const nameEl = document.getElementById('importSelectedFileName');
+    const previewArea = document.getElementById('importPreviewArea');
+    const valMsg = document.getElementById('importValidationMessages');
+    const confirmBtn = document.getElementById('confirmImportModalBtn');
+
+    if (nameEl) {
+        nameEl.innerHTML = `<i class="fas fa-file-excel"></i> Selected: <strong>${escHtml(file.name)}</strong> (${(file.size / 1024).toFixed(1)} KB)`;
+        nameEl.style.display = 'block';
+    }
+    if (valMsg) {
+        valMsg.innerHTML = `<div style="color:var(--text-secondary);font-size:13px;"><i class="fas fa-spinner fa-spin"></i> Reading file data...</div>`;
+    }
 
     try {
-        if (typeof XLSX === 'undefined') {
-            showToast('Excel library not loaded. Please refresh the page and try again.', 'error');
-            event.target.value = '';
+        let rawRecords = [];
+        const isCsv = file.name.toLowerCase().endsWith('.csv');
+
+        if (isCsv) {
+            const text = await file.text();
+            if (typeof XLSX !== 'undefined') {
+                const wb = XLSX.read(text, { type: 'string' });
+                const ws = findBestSheet(wb, collection);
+                rawRecords = parseSheetSmart(ws, collection);
+            } else if (window.OneRealFiles && typeof OneRealFiles.parseCsv === 'function') {
+                rawRecords = OneRealFiles.parseCsv(text);
+            } else {
+                const lines = text.split(/\r?\n/).filter(r => r.trim());
+                if (lines.length > 1) {
+                    const headers0 = lines[0].split(',').map(h => h.trim().replace(/^["']|["']$/g, ''));
+                    rawRecords = lines.slice(1).map(line => {
+                        const vals = line.split(',').map(v => v.trim().replace(/^["']|["']$/g, ''));
+                        const obj = {};
+                        headers0.forEach((h, i) => { obj[h] = vals[i] || ''; });
+                        return obj;
+                    });
+                }
+            }
+        } else {
+            if (typeof XLSX === 'undefined') {
+                showToast('Excel library not loaded yet. Please wait a moment and re-select the file.', 'error');
+                if (valMsg) valMsg.innerHTML = `<div class="import-validation-error" style="color:var(--danger);font-size:13px;"><i class="fas fa-exclamation-triangle"></i> Excel parsing library is loading. Please re-select your file.</div>`;
+                return;
+            }
+            const arrayBuffer = await file.arrayBuffer();
+            const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+            const worksheet = findBestSheet(workbook, collection);
+            if (!worksheet) {
+                if (valMsg) valMsg.innerHTML = `<div class="import-validation-error" style="color:var(--danger);font-size:13px;"><i class="fas fa-exclamation-triangle"></i> The Excel file contains no readable sheets.</div>`;
+                return;
+            }
+            rawRecords = parseSheetSmart(worksheet, collection);
+        }
+
+        if (!rawRecords.length) {
+            if (valMsg) valMsg.innerHTML = `<div class="import-validation-error" style="color:var(--danger);font-size:13px;"><i class="fas fa-exclamation-triangle"></i> The selected file has no data rows.</div>`;
             return;
         }
 
-        const arrayBuffer = await file.arrayBuffer();
-        const workbook = XLSX.read(arrayBuffer, { type: 'array' });
-
-        // Use the first sheet
-        const firstSheetName = workbook.SheetNames[0];
-        if (!firstSheetName) {
-            showToast('The Excel file appears to be empty or has no sheets.', 'error');
-            event.target.value = '';
-            return;
-        }
-
-        const worksheet = workbook.Sheets[firstSheetName];
-        const records = XLSX.utils.sheet_to_json(worksheet, { defval: '' });
-
-        if (!records.length) {
-            showToast('Excel file is empty or has no data rows.', 'error');
-            event.target.value = '';
-            return;
-        }
-
-        const headers = Object.keys(records[0]);
-        adminState.importData = records;
-        showImportPreview(headers, records, collection);
-    } catch (e) {
-        console.error('Excel import error:', e);
-        showToast('Failed to read Excel file. Please ensure it is a valid .xlsx or .xls file.', 'error');
-    }
-
-    event.target.value = '';
-}
-
-async function handleImportCSV(event, collection) {
-    const file = event.target.files[0];
-    if (!file) return;
-
-    adminState.importCollection = collection;
-
-    const text = await file.text();
-    let records = [];
-    if (window.OneRealFiles && OneRealFiles.parseCsv) {
-        records = OneRealFiles.parseCsv(text);
-    } else {
-        const rows = text.split('\n').filter(r => r.trim());
-        if (!rows.length) { showToast('Empty CSV file.', 'error'); return; }
-        const headers0 = rows[0].split(',').map(h => h.trim().replace(/"/g, ''));
-        records = rows.slice(1).map(row => {
-            const values = row.split(',').map(v => v.trim().replace(/"/g, ''));
-            const obj = {};
-            headers0.forEach((h, i) => { obj[h] = values[i] || ''; });
-            return obj;
+        // Filter out sample placeholder rows from template if user left them in
+        const filteredRecords = rawRecords.filter(r => {
+            const str = JSON.stringify(Object.values(r)).toLowerCase();
+            return !str.includes('(sample)') && !str.includes('type student name here') && !str.includes('type teacher name here');
         });
-    }
-    if (!records.length) { showToast('Empty CSV file.', 'error'); return; }
-    const headers = Object.keys(records[0]);
+        const recordsToUse = filteredRecords.length ? filteredRecords : rawRecords;
 
-    adminState.importData = records;
-    showImportPreview(headers, records, collection);
-    event.target.value = '';
+        // Normalize all records to standard property names
+        const normalized = recordsToUse.map(r => normalizeImportedRecord(collection, r))
+            .filter(r => Object.values(r).some(v => v !== '' && v !== null && v !== undefined));
+
+        if (!normalized.length) {
+            if (valMsg) valMsg.innerHTML = `<div class="import-validation-error" style="color:var(--danger);font-size:13px;"><i class="fas fa-exclamation-triangle"></i> No valid records found to import. Please check that names and details are filled.</div>`;
+            return;
+        }
+
+        adminState.importData = normalized;
+        renderUniversalImportPreview(collection, normalized);
+
+    } catch (e) {
+        console.error('File import error:', e);
+        if (valMsg) {
+            valMsg.innerHTML = `<div class="import-validation-error" style="color:var(--danger);font-size:13px;"><i class="fas fa-exclamation-triangle"></i> Error reading file: ${escHtml(e.message)}</div>`;
+        }
+    }
 }
 
-function showImportPreview(headers, records, collection) {
-    const section = document.getElementById('importPreviewSection');
-    const thead   = document.getElementById('importPreviewHead');
-    const tbody   = document.getElementById('importPreviewBody');
-    const msgEl   = document.getElementById('importValidationMessages');
-    const banner  = document.getElementById('importInstructionsBanner');
-    const btn     = document.getElementById('confirmImportBtn');
-    if (!section || !thead || !tbody) return;
+function renderUniversalImportPreview(collection, records) {
+    const previewArea = document.getElementById('importPreviewArea');
+    const thead = document.getElementById('importPreviewHead');
+    const tbody = document.getElementById('importPreviewBody');
+    const badge = document.getElementById('importPreviewCountBadge');
+    const valMsg = document.getElementById('importValidationMessages');
+    const confirmBtn = document.getElementById('confirmImportModalBtn');
 
-    section.style.display = 'block';
+    const displayColumns = {
+        students: [
+            { key: 'admissionNo', label: 'Admission No.' },
+            { key: 'name', label: 'Full Name' },
+            { key: 'gender', label: 'Gender' },
+            { key: 'class', label: 'Class' },
+            { key: 'dob', label: 'Date of Birth' },
+            { key: 'status', label: 'Status' },
+            { key: 'parentPhone', label: 'Parent Phone' }
+        ],
+        teachers: [
+            { key: 'name', label: 'Full Name' },
+            { key: 'email', label: 'Email Address' },
+            { key: 'phone', label: 'Phone' },
+            { key: 'role', label: 'Role' },
+            { key: 'assignedClasses', label: 'Classes' }
+        ],
+        classes: [
+            { key: 'name', label: 'Class Name' },
+            { key: 'level', label: 'Academic Level' },
+            { key: 'gradingScale', label: 'Grading Scale' }
+        ],
+        subjects: [
+            { key: 'name', label: 'Subject Name' },
+            { key: 'code', label: 'Subject Code' }
+        ],
+        results: [
+            { key: 'studentName', label: 'Student Name' },
+            { key: 'class', label: 'Class' },
+            { key: 'subject', label: 'Subject' },
+            { key: 'classScore', label: 'Class Score' },
+            { key: 'examScore', label: 'Exam Score' },
+            { key: 'totalScore', label: 'Total' }
+        ]
+    }[collection] || Object.keys(records[0] || {}).map(k => ({ key: k, label: k }));
 
-    const reqCols = {
-        students: ['name', 'admissionNo', 'class'],
-        teachers: ['name', 'email'],
-        classes:  ['name'],
-        subjects: ['name'],
-        results:  ['studentId', 'subjectId', 'totalScore']
-    }[collection] || ['name'];
-
-    // Instruction Banner
-    if (banner) {
-        banner.innerHTML = `
-            <strong><i class="fas fa-info-circle"></i> Instructions for ${collection.toUpperCase()} Import:</strong><br>
-            • File format: Excel (.xlsx / .xls)<br>
-            • Required columns: <code>${reqCols.join(', ')}</code><br>
-            • Download the <a href="#" onclick="downloadTemplate('${collection}');return false;" style="color:var(--primary);font-weight:600;">Download ${collection} Excel Template</a> for pre-formatted sample data.
-        `;
-    }
-
-    // Validation
     const errors = [];
     const warnings = [];
 
-    // Check missing columns
-    reqCols.forEach(col => {
-        if (!headers.includes(col) && !(collection === 'results' && headers.includes('classScore') && headers.includes('examScore'))) {
-            errors.push(`Missing required column header: "${col}"`);
-        }
-    });
-
     records.forEach((r, i) => {
-        const rowNum = i + 2;
-        if (collection === 'students' && !r.name) errors.push(`Row ${rowNum}: Student name missing`);
-        if (collection === 'teachers' && (!r.name || !r.email)) errors.push(`Row ${rowNum}: Teacher name or email missing`);
-
-        if (collection === 'results') {
-            const cs = parseFloat(r.classScore) || 0;
-            const es = parseFloat(r.examScore)  || 0;
-            if (cs > 50) warnings.push(`Row ${rowNum}: Class score (${cs}) exceeds recommended 50 max`);
-            if (es > 50) warnings.push(`Row ${rowNum}: Exam score (${es}) exceeds recommended 50 max`);
+        const rowNum = i + 1;
+        if (collection === 'students') {
+            if (!r.name) errors.push(`Row ${rowNum}: Student Name is missing`);
+            if (!r.admissionNo) warnings.push(`Row ${rowNum}: Admission Number missing (will auto-generate)`);
+            if (!r.class) warnings.push(`Row ${rowNum}: Class is not specified`);
+        } else if (collection === 'teachers') {
+            if (!r.name) errors.push(`Row ${rowNum}: Teacher Name is missing`);
+            if (!r.email) errors.push(`Row ${rowNum}: Teacher Email is missing`);
         }
     });
 
-    if (msgEl) {
-        let html = '';
-        if (errors.length) {
-            html += errors.map(e => `<div class="import-validation-error"><i class="fas fa-exclamation-triangle"></i> ${escHtml(e)}</div>`).join('');
-        }
-        if (warnings.length) {
-            html += warnings.map(w => `<div class="import-validation-warning" style="color:var(--warning);font-size:12px;"><i class="fas fa-exclamation-circle"></i> ${escHtml(w)}</div>`).join('');
-        }
-        if (!errors.length) {
-            html += `<div class="import-validation-ok"><i class="fas fa-check-circle"></i> ${records.length} records validated successfully. Ready to import.</div>`;
-        }
-        msgEl.innerHTML = html;
+    let msgHtml = '';
+    if (errors.length) {
+        msgHtml += errors.slice(0, 4).map(e => `<div class="import-validation-error" style="color:var(--danger);font-size:13px;padding:2px 0;"><i class="fas fa-exclamation-triangle"></i> ${escHtml(e)}</div>`).join('');
+        if (errors.length > 4) msgHtml += `<div style="color:var(--danger);font-size:12px;">...and ${errors.length - 4} more error(s)</div>`;
+    }
+    if (warnings.length) {
+        msgHtml += warnings.slice(0, 3).map(w => `<div class="import-validation-warning" style="color:#d97706;font-size:12px;padding:2px 0;"><i class="fas fa-exclamation-circle"></i> ${escHtml(w)}</div>`).join('');
+    }
+    if (!errors.length) {
+        msgHtml += `<div class="import-validation-ok" style="color:#059669;font-weight:600;font-size:13px;padding:4px 0;"><i class="fas fa-check-circle"></i> ${records.length} record(s) ready to import.</div>`;
+    }
+    if (valMsg) valMsg.innerHTML = msgHtml;
+
+    if (thead) {
+        thead.innerHTML = `<tr><th>#</th>${displayColumns.map(c => `<th>${escHtml(c.label)}</th>`).join('')}</tr>`;
+    }
+    if (tbody) {
+        tbody.innerHTML = records.slice(0, 20).map((r, idx) =>
+            `<tr><td>${idx + 1}</td>${displayColumns.map(c => `<td>${escHtml(r[c.key] || '—')}</td>`).join('')}</tr>`
+        ).join('');
     }
 
-    if (btn) btn.disabled = errors.length > 0;
+    if (badge) badge.textContent = `${records.length} record${records.length === 1 ? '' : 's'}`;
+    if (previewArea) previewArea.style.display = 'block';
 
-    thead.innerHTML = `<tr>${headers.map(h => `<th>${escHtml(h)}</th>`).join('')}</tr>`;
-    tbody.innerHTML = records.slice(0, 10).map(r =>
-        `<tr>${headers.map(h => `<td>${escHtml(r[h] || '')}</td>`).join('')}</tr>`
-    ).join('');
+    const colTitle = collection.charAt(0).toUpperCase() + collection.slice(1);
+    if (confirmBtn) {
+        confirmBtn.disabled = errors.length > 0;
+        confirmBtn.style.display = 'inline-flex';
+        confirmBtn.innerHTML = `<i class="fas fa-check"></i> Confirm Import (${records.length} ${colTitle})`;
+    }
 }
 
-async function confirmImport() {
-    const collection = adminState.importCollection;
-    const data       = adminState.importData;
-    if (!collection || !data.length) return;
+async function confirmUniversalImport() {
+    const collection = currentImportTarget || adminState.importCollection || 'students';
+    const data = adminState.importData;
+    if (!collection || !data || !data.length) return;
+
+    const confirmBtn = document.getElementById('confirmImportModalBtn');
+    if (confirmBtn) {
+        confirmBtn.disabled = true;
+        confirmBtn.innerHTML = `<i class="fas fa-spinner fa-spin"></i> Importing...`;
+    }
 
     try {
         let count = 0;
-        for (const record of data) {
-            if (collection === 'results' && !record.totalScore && record.classScore && record.examScore) {
-                record.totalScore = (parseFloat(record.classScore) || 0) + (parseFloat(record.examScore) || 0);
+        for (let i = 0; i < data.length; i++) {
+            const record = { ...data[i] };
+
+            if (collection === 'students') {
+                if (!record.id) {
+                    record.id = 'stu_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6) + '_' + i;
+                }
+                if (!record.admissionNo) {
+                    record.admissionNo = 'TLS/' + new Date().getFullYear() + '/' + String(adminState.students.length + count + 1).padStart(3, '0');
+                }
+                record.status = record.status || 'active';
+                if (!record.createdAt) record.createdAt = new Date().toISOString();
+                record.updatedAt = new Date().toISOString();
+
+                // Upsert in adminState.students
+                const existingIdx = adminState.students.findIndex(s => 
+                    (s.admissionNo && record.admissionNo && String(s.admissionNo).trim().toLowerCase() === String(record.admissionNo).trim().toLowerCase()) ||
+                    (s.id && record.id && String(s.id) === String(record.id))
+                );
+                if (existingIdx >= 0) {
+                    adminState.students[existingIdx] = { ...adminState.students[existingIdx], ...record };
+                } else {
+                    adminState.students.push(record);
+                }
+                if (typeof addDocument === 'function') {
+                    try { await addDocument('students', record); } catch (e) { console.warn('addDocument warning:', e); }
+                }
+            } else if (collection === 'teachers') {
+                if (!record.id) record.id = 'tch_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6) + '_' + i;
+                record.status = record.status || 'active';
+                const existingIdx = adminState.teachers.findIndex(t => (t.email && record.email && t.email.toLowerCase() === record.email.toLowerCase()) || t.id === record.id);
+                if (existingIdx >= 0) adminState.teachers[existingIdx] = { ...adminState.teachers[existingIdx], ...record };
+                else adminState.teachers.push(record);
+                if (typeof addDocument === 'function') {
+                    try { await addDocument('teachers', record); } catch (e) { console.warn('addDocument warning:', e); }
+                }
+            } else if (collection === 'classes') {
+                if (!record.id) record.id = 'cls_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6) + '_' + i;
+                const existingIdx = adminState.classes.findIndex(c => (c.name && record.name && c.name.toLowerCase() === record.name.toLowerCase()) || c.id === record.id);
+                if (existingIdx >= 0) adminState.classes[existingIdx] = { ...adminState.classes[existingIdx], ...record };
+                else adminState.classes.push(record);
+                if (typeof addDocument === 'function') {
+                    try { await addDocument('classes', record); } catch (e) { console.warn('addDocument warning:', e); }
+                }
+            } else if (collection === 'subjects') {
+                if (!record.id) record.id = 'sub_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6) + '_' + i;
+                const existingIdx = adminState.subjects.findIndex(s => (s.name && record.name && s.name.toLowerCase() === record.name.toLowerCase()) || s.id === record.id);
+                if (existingIdx >= 0) adminState.subjects[existingIdx] = { ...adminState.subjects[existingIdx], ...record };
+                else adminState.subjects.push(record);
+                if (typeof addDocument === 'function') {
+                    try { await addDocument('subjects', record); } catch (e) { console.warn('addDocument warning:', e); }
+                }
+            } else if (collection === 'results') {
+                if (!record.id) record.id = 'res_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6) + '_' + i;
+                adminState.results.push(record);
+                if (typeof addDocument === 'function') {
+                    try { await addDocument('results', record); } catch (e) { console.warn('addDocument warning:', e); }
+                }
+            } else {
+                if (typeof addDocument === 'function') {
+                    try { await addDocument(collection, record); } catch (e) { console.warn('addDocument warning:', e); }
+                }
             }
-            await addDocument(collection, record);
             count++;
         }
-        showToast(`${count} records imported into ${collection}!`, 'success');
+
+        // Save collections to localStorage and trigger remote sync
+        if (collection === 'students') {
+            localStorage.setItem('students', JSON.stringify(adminState.students));
+            if (typeof syncSaveCollection === 'function') {
+                syncSaveCollection('students', adminState.students).catch(e => console.warn('syncSaveCollection error:', e));
+            }
+            renderStudentsTable();
+            updateNavBadges();
+        } else if (collection === 'teachers') {
+            localStorage.setItem('teachers', JSON.stringify(adminState.teachers));
+            if (typeof syncSaveCollection === 'function') {
+                syncSaveCollection('teachers', adminState.teachers).catch(e => console.warn('syncSaveCollection error:', e));
+            }
+            renderTeachersTable();
+            updateNavBadges();
+        } else if (collection === 'classes') {
+            localStorage.setItem('classes', JSON.stringify(adminState.classes));
+            renderClassesTable();
+        } else if (collection === 'subjects') {
+            localStorage.setItem('subjects', JSON.stringify(adminState.subjects));
+            renderSubjectsTable();
+        } else if (collection === 'results') {
+            localStorage.setItem('results', JSON.stringify(adminState.results));
+            renderResultsTable();
+        }
+
+        closeModal('importModal');
+        showToast(`Successfully imported ${count} ${collection}!`, 'success');
         await logActivity('Data Imported', `Imported ${count} records into ${collection}`);
-        await loadAllData();
-        cancelImport();
-        switchSection(collection);
+
+        // If on another section, switch to imported section
+        const currentActive = document.querySelector('.content-section.active')?.id;
+        if (currentActive === 'section-data-management') {
+            switchSection(collection);
+        }
     } catch (e) {
+        console.error('Confirm import error:', e);
         showToast(`Import error: ${e.message}`, 'error');
+    } finally {
+        if (confirmBtn) {
+            confirmBtn.disabled = false;
+            confirmBtn.innerHTML = `<i class="fas fa-check"></i> Confirm Import`;
+        }
     }
 }
 
+// Backward-compatible triggers
+function triggerImport(collection) {
+    openImportModal(collection || 'students');
+}
+
+async function handleImportFile(event, collection) {
+    currentImportTarget = collection || 'students';
+    return handleUniversalImportFile(event);
+}
+
+async function handleImportCSV(event, collection) {
+    currentImportTarget = collection || 'students';
+    return handleUniversalImportFile(event);
+}
+
+function showImportPreview(headers, records, collection) {
+    openImportModal(collection);
+    renderUniversalImportPreview(collection, records);
+}
+
+async function confirmImport() {
+    return confirmUniversalImport();
+}
+
 function cancelImport() {
+    closeModal('importModal');
     const section = document.getElementById('importPreviewSection');
     if (section) section.style.display = 'none';
     adminState.importCollection = null;
@@ -5988,7 +6371,7 @@ async function confirmExportAll() {
     });
 }
 
-function openImportStudentsModal() { triggerImport('students'); }
+function openImportStudentsModal() { openImportModal('students'); }
 
 async function startRealSchoolData() {
     showConfirm('Remove all demo students, teachers, scores, attendance and reports? School name, classes and grading stay. You can then add real staff and learners.', async () => {

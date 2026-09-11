@@ -323,7 +323,7 @@
                         <i class="fas fa-download"></i> Export Excel
                     </button>
                     <button class="btn-admin btn-secondary" onclick="openImportStudentsModal()">
-                        <i class="fas fa-upload"></i> Import CSV
+                        <i class="fas fa-upload"></i> Import Students (Excel/CSV)
                     </button>
                 </div>
             </div>
@@ -1153,28 +1153,28 @@
                     <div class="import-section">
                         <div class="import-option" onclick="triggerImport('students')">
                             <i class="fas fa-user-graduate"></i>
-                            <span>Import Students (Excel)</span>
-                            <input type="file" id="importStudentsFile" accept=".xlsx,.xls" style="display:none;" onchange="handleImportFile(event, 'students')">
+                            <span>Import Students (Excel/CSV)</span>
+                            <input type="file" id="importStudentsFile" accept=".xlsx,.xls,.csv" style="display:none;" onchange="handleImportFile(event, 'students')">
                         </div>
                         <div class="import-option" onclick="triggerImport('teachers')">
                             <i class="fas fa-chalkboard-teacher"></i>
-                            <span>Import Teachers (Excel)</span>
-                            <input type="file" id="importTeachersFile" accept=".xlsx,.xls" style="display:none;" onchange="handleImportFile(event, 'teachers')">
+                            <span>Import Teachers (Excel/CSV)</span>
+                            <input type="file" id="importTeachersFile" accept=".xlsx,.xls,.csv" style="display:none;" onchange="handleImportFile(event, 'teachers')">
                         </div>
                         <div class="import-option" onclick="triggerImport('classes')">
                             <i class="fas fa-school"></i>
-                            <span>Import Classes (Excel)</span>
-                            <input type="file" id="importClassesFile" accept=".xlsx,.xls" style="display:none;" onchange="handleImportFile(event, 'classes')">
+                            <span>Import Classes (Excel/CSV)</span>
+                            <input type="file" id="importClassesFile" accept=".xlsx,.xls,.csv" style="display:none;" onchange="handleImportFile(event, 'classes')">
                         </div>
                         <div class="import-option" onclick="triggerImport('subjects')">
                             <i class="fas fa-book-open"></i>
-                            <span>Import Subjects (Excel)</span>
-                            <input type="file" id="importSubjectsFile" accept=".xlsx,.xls" style="display:none;" onchange="handleImportFile(event, 'subjects')">
+                            <span>Import Subjects (Excel/CSV)</span>
+                            <input type="file" id="importSubjectsFile" accept=".xlsx,.xls,.csv" style="display:none;" onchange="handleImportFile(event, 'subjects')">
                         </div>
                         <div class="import-option" onclick="triggerImport('results')">
                             <i class="fas fa-clipboard-list"></i>
-                            <span>Import Results (Excel)</span>
-                            <input type="file" id="importResultsFile" accept=".xlsx,.xls" style="display:none;" onchange="handleImportFile(event, 'results')">
+                            <span>Import Results (Excel/CSV)</span>
+                            <input type="file" id="importResultsFile" accept=".xlsx,.xls,.csv" style="display:none;" onchange="handleImportFile(event, 'results')">
                         </div>
                     </div>
                     <div id="importPreviewSection" style="display:none;padding:16px;">
@@ -2360,6 +2360,59 @@
     </div>
 </div>
 
+<!-- Universal Data Import Modal -->
+<div class="modal-overlay" id="importModal" style="display:none;" onclick="closeModal('importModal', event)">
+    <div class="modal-box large" onclick="event.stopPropagation()">
+        <div class="modal-header">
+            <h3 id="importModalTitle"><i class="fas fa-file-import"></i> Import Data</h3>
+            <button class="modal-close" onclick="closeModal('importModal')"><i class="fas fa-times"></i></button>
+        </div>
+        <div class="modal-body" style="max-height:75vh; overflow-y:auto; padding:20px;">
+            <!-- Upload Area & Template Download -->
+            <div id="importStepUpload" style="background:#f8fafc; border:2px dashed #cbd5e1; border-radius:10px; padding:22px; text-align:center; margin-bottom:16px;">
+                <i class="fas fa-file-excel" style="font-size:36px; color:#10b981; margin-bottom:10px; display:block;"></i>
+                <h4 id="importUploadHeading" style="margin:0 0 6px 0; font-size:16px;">Select Excel (.xlsx) or CSV File</h4>
+                <p id="importUploadSubtitle" style="font-size:13px; color:var(--text-secondary); margin:0 0 16px 0;">
+                    Choose your filled template to import records into the school system.
+                </p>
+                <div style="display:flex; justify-content:center; gap:12px; flex-wrap:wrap;">
+                    <label class="btn-admin btn-primary" style="cursor:pointer; display:inline-flex; align-items:center; gap:8px;">
+                        <i class="fas fa-folder-open"></i> Choose File
+                        <input type="file" id="universalImportFileInput" accept=".xlsx,.xls,.csv" style="display:none;" onclick="this.value=null;" onchange="handleUniversalImportFile(event)">
+                    </label>
+                    <button type="button" class="btn-admin btn-secondary" id="importDownloadTemplateBtn" onclick="downloadCurrentImportTemplate()">
+                        <i class="fas fa-download"></i> Download Template (.xlsx)
+                    </button>
+                </div>
+                <div id="importSelectedFileName" style="margin-top:12px; font-size:13px; color:var(--primary); font-weight:600; display:none;"></div>
+            </div>
+
+            <!-- Validation Messages -->
+            <div id="importValidationMessages" style="margin-bottom:12px;"></div>
+
+            <!-- Preview Table Area -->
+            <div id="importPreviewArea" style="display:none;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                    <h4 style="margin:0; font-size:14px;"><i class="fas fa-table"></i> Data Preview</h4>
+                    <span id="importPreviewCountBadge" class="section-count-badge">0 records</span>
+                </div>
+                <div class="table-responsive" style="max-height:260px; overflow-y:auto; border:1px solid var(--border); border-radius:6px;">
+                    <table class="admin-table" id="importPreviewTable">
+                        <thead id="importPreviewHead"></thead>
+                        <tbody id="importPreviewBody"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer" style="display:flex; justify-content:space-between; align-items:center;">
+            <button type="button" class="btn-admin btn-ghost" onclick="closeModal('importModal')">Cancel</button>
+            <button type="button" class="btn-admin btn-primary" id="confirmImportModalBtn" style="display:none;" onclick="confirmUniversalImport()">
+                <i class="fas fa-check"></i> Confirm Import
+            </button>
+        </div>
+    </div>
+</div>
+
 <!-- Firebase SDK (CDN + Local Fallback) -->
 <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
@@ -2371,15 +2424,20 @@ if (typeof firebase === 'undefined') {
 }
 </script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="vendor/xlsx.full.min.js"></script>
+<script>
+if (typeof XLSX === 'undefined') {
+    document.write('<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"><\/script>');
+}
+</script>
 <script src="jspdf.umd.min.js"></script>
 <script src="jszip.min.js"></script>
-<script src="seed-data.js?v=v32"></script>
-<script src="firebase-config.js?v=v32"></script>
-<script src="files.js?v=v32"></script>
-<script src="attendance.js?v=v32"></script>
-<script src="pwa-sync.js?v=v32"></script>
-<script src="admin.js?v=v32"></script>
+<script src="seed-data.js?v=v36-student-import"></script>
+<script src="firebase-config.js?v=v36-student-import"></script>
+<script src="files.js?v=v36-student-import"></script>
+<script src="attendance.js?v=v36-student-import"></script>
+<script src="pwa-sync.js?v=v36-student-import"></script>
+<script src="admin.js?v=v36-student-import"></script>
 <div id="adminNotificationArea"></div>
 </body>
 </html>
