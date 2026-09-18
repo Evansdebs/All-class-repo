@@ -213,19 +213,50 @@ function subjectAssignedToTeacher(doc, teacher) {
 }
 
 function subjectAssignedToClass(doc, className) {
+    if (!doc) return false;
+    const targetClass = String(className || currentClass || '').trim();
+    if (!targetClass) return false;
+
+    const allSubjects = adminSubjects();
+    const hasConfiguredAssignments = allSubjects.some(s => Array.isArray(s.classIds) && s.classIds.length > 0);
+
     const ids = Array.isArray(doc.classIds) ? doc.classIds.map(String) : [];
-    if (!ids.length) return true; // no classes ticked → treated as offered everywhere
-    const cid = String(classIdForName(className) || '');
-    const cName = String(className || '');
-    return ids.includes(cid) || ids.includes(cName);
+
+    // Check bidirectional assignment if class record has subjectIds
+    const clsRec = classRecord(targetClass);
+    const clsSubjectIds = clsRec && Array.isArray(clsRec.subjectIds) ? clsRec.subjectIds.map(String) : [];
+    const docId = String(doc.id || '');
+    const docName = String(doc.name || '').trim().toLowerCase();
+    const docCode = String(doc.code || '').trim().toLowerCase();
+
+    if (clsSubjectIds.length > 0) {
+        if (clsSubjectIds.includes(docId) || clsSubjectIds.some(s => String(s).toLowerCase() === docName || String(s).toLowerCase() === docCode)) {
+            return true;
+        }
+    }
+
+    if (!ids.length) {
+        // If subject has no classes checked, only offer everywhere if no subject assignments configured yet
+        return !hasConfiguredAssignments;
+    }
+
+    const cid = String(classIdForName(targetClass) || '');
+    const cNameLower = targetClass.toLowerCase();
+
+    return ids.some(id => {
+        const sId = String(id).trim();
+        return sId === cid || sId.toLowerCase() === cNameLower;
+    });
 }
 
 function allClassSubjects(className) {
+    const targetClass = className || currentClass;
     const docs = adminSubjects();
-    const allDocs = docs.length ? docs : LEGACY_SUBJECTS.map(name => ({ id: name, name }));
-    const forClass = allDocs.filter(d => subjectAssignedToClass(d, className || currentClass));
-    if (forClass.length > 0) return forClass.map(d => d.name);
-    return allDocs.map(d => d.name);
+    const allDocs = docs.length
+        ? docs.filter(d => String(d.status || 'active').toLowerCase() !== 'inactive')
+        : LEGACY_SUBJECTS.map(name => ({ id: name, name }));
+    const forClass = allDocs.filter(d => subjectAssignedToClass(d, targetClass));
+    return forClass.map(d => d.name);
 }
 
 // Subjects for the class currently open, filtered by the teacher's assignment.
@@ -3931,40 +3962,44 @@ function renderAttendance() {
 
 function teacherSetPresentOverride(id, value) {
     if (typeof Attendance === 'undefined') return toast('Attendance module not loaded.', 'bad');
-    const v = value === '' || value == null ? null : Number(value);
-    if (v === null) {
-        // Clear override — restore to register count
+    const v = value === '' || value == null ? '' : Number(value);
+    if (v === '') {
         if (typeof Attendance.clearPresentOverride === 'function') {
             Attendance.clearPresentOverride(id);
         } else {
-            // Fallback: set to the live register count (removes override intent by calling with register value)
-            toast('Clear not supported; override removed.', 'ok');
+            Attendance.setPresentOverride(id, '');
         }
+        toast('Override cleared. Restored to register count.', 'ok');
     } else if (!isNaN(v) && v >= 0) {
         Attendance.setPresentOverride(id, v);
+        toast('Attendance override saved.', 'ok');
     } else {
         return toast('Invalid attendance value.', 'bad');
     }
-    // Update report label in-place without full re-render
     const lbl = document.getElementById('attLbl_' + id);
     if (lbl) lbl.textContent = Attendance.label(id) || '—';
-    toast('Attendance override saved.', 'ok');
 }
 
 function teacherSetStudentDays(id, value) {
     if (typeof Attendance === 'undefined') return toast('Attendance module not loaded.', 'bad');
-    if (typeof Attendance.setStudentDays !== 'function') return toast('setStudentDays not available.', 'bad');
-    const v = value === '' || value == null ? null : Number(value);
-    if (v === null) {
-        if (typeof Attendance.clearStudentDays === 'function') Attendance.clearStudentDays(id);
+    const v = value === '' || value == null ? '' : Number(value);
+    if (v === '') {
+        if (typeof Attendance.clearStudentDays === 'function') {
+            Attendance.clearStudentDays(id);
+        } else if (typeof Attendance.setStudentDays === 'function') {
+            Attendance.setStudentDays(id, '');
+        }
+        toast('Total days override cleared. Using term default.', 'ok');
     } else if (!isNaN(v) && v >= 0) {
-        Attendance.setStudentDays(id, v);
+        if (typeof Attendance.setStudentDays === 'function') {
+            Attendance.setStudentDays(id, v);
+            toast('Student total days saved.', 'ok');
+        }
     } else {
         return toast('Invalid days value.', 'bad');
     }
     const lbl = document.getElementById('attLbl_' + id);
     if (lbl) lbl.textContent = Attendance.label(id) || '—';
-    toast('Student total days saved.', 'ok');
 }
 
 function teacherSaveTermDays() {
@@ -3983,6 +4018,72 @@ function exportAttendance() {
     window.location.href = '/open?src=' + encodeURIComponent('/api/export/attendance.xlsx');
 }
 
+let _statsDebounceTimer = null;
+function scheduleStatsRender() {
+    clearTimeout(_statsDebounceTimer);
+    _statsDebounceTimer = setTimeout(() => {
+        if (typeof renderStats === 'function') {
+            try { renderStats(); } catch (e) {}
+        }
+    }, 400);
+}
+
+function updateAttendanceRowFast(id, nextStatus, date) {
+    const rowBtn = document.querySelector(`[data-att-id="${id}"]`);
+    if (!rowBtn) return false;
+    const tr = rowBtn.closest('tr');
+    if (!tr) return false;
+
+    // Update active button state
+    tr.querySelectorAll('[data-att-id]').forEach(btn => {
+        const bStatus = btn.getAttribute('data-att-status');
+        btn.classList.remove('on-present', 'on-late', 'on-absent');
+        if (nextStatus && bStatus === nextStatus) {
+            btn.classList.add('on-' + nextStatus);
+        }
+    });
+
+    // Update Status cell (second column in table)
+    const statusCell = tr.cells[1];
+    if (statusCell) {
+        if (nextStatus) {
+            const badgeClass = nextStatus === 'absent' ? 'wait' : 'ok';
+            statusCell.innerHTML = `<span class="badge ${badgeClass}">${esc(nextStatus)}</span>`;
+        } else {
+            statusCell.innerHTML = '<span class="muted">—</span>';
+        }
+    }
+
+    // Update Report label cell (fourth column in table)
+    const reportCell = tr.cells[3];
+    const lbl = Attendance.label(id);
+    if (reportCell) {
+        reportCell.innerHTML = `<strong>${esc(lbl || '—')}</strong>`;
+    }
+
+    // Also update totals table row if visible
+    const totalsLbl = document.getElementById('attLbl_' + id);
+    if (totalsLbl) totalsLbl.textContent = lbl || '—';
+
+    // Update summary counters at the top
+    updateAttendanceSummaryPills(date);
+    return true;
+}
+
+function updateAttendanceSummaryPills(date) {
+    const list = classStudents();
+    const sum = Attendance.summaryForClass(list, date);
+    const summaryContainer = document.querySelector('.att-summary');
+    if (!summaryContainer) return;
+    const pills = summaryContainer.querySelectorAll('.att-pill');
+    if (pills && pills.length >= 4) {
+        pills[0].textContent = `${sum.present} present`;
+        pills[1].textContent = `${sum.late} late`;
+        pills[2].textContent = `${sum.absent} absent`;
+        pills[3].textContent = `${sum.unmarked} unmarked`;
+    }
+}
+
 function teacherMark(id, status) {
     if (typeof Attendance === 'undefined') return toast('Attendance is not loaded.', 'bad');
     const date = clampAttendanceDate(document.getElementById('attDate')?.value);
@@ -3991,8 +4092,12 @@ function teacherMark(id, status) {
     const res = Attendance.mark(id, date, next, { className: currentClass, by: attendanceActor() });
     if (!res.ok) return toast(res.error, 'bad');
     toast(next ? (next + ' saved') : 'Mark cleared', 'ok');
-    renderAttendance();
-    renderStats();
+
+    const updated = updateAttendanceRowFast(id, next, date);
+    if (!updated) {
+        renderAttendance();
+    }
+    scheduleStatsRender();
 }
 
 function teacherMarkAll(status) {

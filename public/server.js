@@ -1554,7 +1554,19 @@ async function requestHandler(req, res) {
                 const db = readDb();
                 let list = db.students || [];
                 if (cls) list = list.filter(s => s.class === cls || s.classId === cls);
-                const subjects = ['English Language','Mathematics','Science','RME','History','Creative Arts','Computing','French','Asante Twi','Career Technology'];
+                const allSubjects = db.subjects || [];
+                const hasAssignments = allSubjects.some(s => Array.isArray(s.classIds) && s.classIds.length > 0);
+                let subjects = ['English Language','Mathematics','Science','RME','History','Creative Arts','Computing','French','Asante Twi','Career Technology'];
+                if (cls && hasAssignments) {
+                    const clsRec = (db.classes || []).find(c => c.id === cls || c.name === cls);
+                    const clsId = clsRec?.id || cls;
+                    const clsNameLower = String(clsRec?.name || cls).toLowerCase();
+                    const forClass = allSubjects.filter(sub => {
+                        const ids = Array.isArray(sub.classIds) ? sub.classIds.map(String) : [];
+                        return ids.some(id => id === clsId || id.toLowerCase() === clsNameLower);
+                    });
+                    if (forClass.length > 0) subjects = forClass.map(s => s.name);
+                }
                 const scores = db.scores || {};
                 const rows = list.map(s => {
                     const row = { Student: s.name, Class: s.class || cls };
@@ -1607,7 +1619,20 @@ async function requestHandler(req, res) {
                 const scores = db.scores || {};
                 const rows = [['Subject', 'Class Score', 'Exam Score', 'Total', 'Grade', 'Remark']];
                 if (student) {
+                    let allowedSubjects = null;
+                    const allSubs = db.subjects || [];
+                    if (allSubs.some(s => Array.isArray(s.classIds) && s.classIds.length > 0)) {
+                        const studentClass = student.class || '';
+                        const clsRec = (db.classes || []).find(c => c.id === student.classId || c.name === studentClass);
+                        const clsId = clsRec?.id || student.classId || '';
+                        const clsNameLower = String(studentClass).toLowerCase();
+                        allowedSubjects = new Set(allSubs.filter(sub => {
+                            const ids = Array.isArray(sub.classIds) ? sub.classIds.map(String) : [];
+                            return ids.some(id => (clsId && id === clsId) || id.toLowerCase() === clsNameLower);
+                        }).map(s => s.name.toLowerCase()));
+                    }
                     Object.keys(scores).forEach(sub => {
+                        if (allowedSubjects && !allowedSubjects.has(sub.toLowerCase())) return;
                         const bag = scores[sub] || {};
                         const e = bag[student.id] || bag[String(student.id)];
                         if (!e) return;

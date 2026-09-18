@@ -2,16 +2,27 @@
 (function (global) {
     'use strict';
 
+    let _marksCache = null;
+    let _settingsCache = null;
+    let _syncSaveTimers = {};
+
     function loadJSON(key, fallback) {
         try {
             const raw = localStorage.getItem(key);
             return raw ? JSON.parse(raw) : fallback;
         } catch (e) { return fallback; }
     }
-    function saveJSON(key, value) {
+    function saveJSON(key, value, immediateSync) {
         localStorage.setItem(key, JSON.stringify(value));
         if (typeof syncSaveCollection === 'function') {
-            try { syncSaveCollection(key, value); } catch (e) {}
+            if (immediateSync) {
+                try { syncSaveCollection(key, value); } catch (e) {}
+            } else {
+                clearTimeout(_syncSaveTimers[key]);
+                _syncSaveTimers[key] = setTimeout(() => {
+                    try { syncSaveCollection(key, value); } catch (e) {}
+                }, 350);
+            }
         }
     }
     function sid(id) { return String(id); }
@@ -66,15 +77,31 @@
         return '';
     }
 
+    function normalizeTermNumber(tVal) {
+        if (!tVal) return '1';
+        const str = String(tVal).trim();
+        const num = str.replace(/[^0-9]/g, '');
+        return num || str;
+    }
+
     function termKey() {
         const si = loadJSON('schoolInfo', {});
         const years = loadJSON('academicYears', []);
         const terms = loadJSON('terms', []);
         const y = years.find(x => x.isActive);
         const t = terms.find(x => x.isActive) || terms.find(x => x.isClosed);
-        const year = y?.name || si.academicYear || '';
-        const term = t ? String(t.termNumber || '') : String(si.term || '1');
+        const year = (y?.name || si.academicYear || '').trim();
+        const term = normalizeTermNumber(t ? (t.termNumber || t.name) : (si.term || '1'));
         return year + '|' + term;
+    }
+
+    function matchesTermKey(markTk, key) {
+        if (!markTk) return true;
+        if (markTk === key) return true;
+        const [y1, t1] = String(markTk).split('|');
+        const [y2, t2] = String(key).split('|');
+        if (y1 && y2 && y1.trim() !== y2.trim()) return false;
+        return normalizeTermNumber(t1) === normalizeTermNumber(t2);
     }
 
     function activeTerm() {
@@ -96,16 +123,26 @@
         };
     }
 
-    function load() {
-        marks = loadJSON('attendanceMarks', {}) || {};
-        settings = normalizeSettings(loadJSON('attendanceSettings', {}));
+    function load(force) {
+        if (force || !_marksCache) {
+            _marksCache = loadJSON('attendanceMarks', {}) || {};
+        }
+        if (force || !_settingsCache) {
+            _settingsCache = normalizeSettings(loadJSON('attendanceSettings', {}));
+        }
+        marks = _marksCache;
+        settings = _settingsCache;
         return { marks, settings };
     }
 
-    function persistMarks() { saveJSON('attendanceMarks', marks); }
-    function persistSettings() {
+    function persistMarks(immediate) {
+        _marksCache = marks;
+        saveJSON('attendanceMarks', marks, immediate);
+    }
+    function persistSettings(immediate) {
+        _settingsCache = settings;
         settings.updatedAt = new Date().toISOString();
-        saveJSON('attendanceSettings', settings);
+        saveJSON('attendanceSettings', settings, immediate);
     }
 
     function mergeMarks(local, remote) {
@@ -234,7 +271,7 @@
             const m = rec[date];
             if (!m) return;
             if (isWeekend(date) || isFuture(date)) return;
-            if (m.termKey && m.termKey !== key) return;
+            if (m.termKey && !matchesTermKey(m.termKey, key)) return;
             if (!inTermRange(date, key)) return;
             if (countedPresent(m.status)) n++;
         });
@@ -250,7 +287,7 @@
             const m = rec[date];
             if (!m) return;
             if (isWeekend(date) || isFuture(date)) return;
-            if (m.termKey && m.termKey !== key) return;
+            if (m.termKey && !matchesTermKey(m.termKey, key)) return;
             if (!inTermRange(date, key)) return;
             if (m.status === 'absent') n++;
         });
@@ -299,7 +336,7 @@
     function label(studentId) {
         const p = presentCount(studentId);
         const t = totalDays(studentId);
-        if (!t && !p) return '';
+        if (!t && p === 0) return '—';
         if (!t) return p + ' OUT OF —';
         return p + ' OUT OF ' + t;
     }
@@ -354,6 +391,10 @@
         syncStudentReportLabel(id);
     }
 
+    function clearStudentDays(studentId, tk) {
+        return setStudentDays(studentId, '', tk);
+    }
+
     function setPresentOverride(studentId, n, tk) {
         load();
         const key = tk || termKey();
@@ -363,6 +404,10 @@
         else settings.studentPresentOverride[id][key] = Math.max(0, Number(n) || 0);
         persistSettings();
         syncStudentReportLabel(id);
+    }
+
+    function clearPresentOverride(studentId, tk) {
+        return setPresentOverride(studentId, '', tk);
     }
 
     function hasPresentOverride(studentId, tk) {
@@ -387,14 +432,24 @@
     }
 
     let detailsCache = null;
+    let _flushDetailsTimer = null;
     function syncStudentReportLabel(studentId, deferFlush) {
         if (!detailsCache) detailsCache = loadJSON('studentReportDetails', {}) || {};
         const id = sid(studentId);
-        const numeric = Object.keys(detailsCache).find(k => String(k) === id);
-        const key = numeric !== undefined ? numeric : id;
-        if (!detailsCache[key]) detailsCache[key] = {};
-        detailsCache[key].attendance = label(studentId);
-        if (!deferFlush) flushReportDetails();
+        const lbl = label(studentId);
+        if (!detailsCache[id]) detailsCache[id] = {};
+        detailsCache[id].attendance = lbl;
+        const numeric = Object.keys(detailsCache).find(k => String(k) === id && k !== id);
+        if (numeric) {
+            if (!detailsCache[numeric]) detailsCache[numeric] = {};
+            detailsCache[numeric].attendance = lbl;
+        }
+        if (!deferFlush) {
+            flushReportDetails();
+        } else {
+            clearTimeout(_flushDetailsTimer);
+            _flushDetailsTimer = setTimeout(() => flushReportDetails(), 300);
+        }
     }
 
     function flushReportDetails() {
@@ -440,7 +495,9 @@
         setTermRange: setTermRange,
         finalizeClosedTerm: finalizeClosedTerm,
         setStudentDays: setStudentDays,
+        clearStudentDays: clearStudentDays,
         setPresentOverride: setPresentOverride,
+        clearPresentOverride: clearPresentOverride,
         hasPresentOverride: hasPresentOverride,
         summaryForClass: summaryForClass,
         refreshAllReportLabels: refreshAllReportLabels,

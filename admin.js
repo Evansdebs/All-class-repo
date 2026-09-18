@@ -4049,7 +4049,7 @@ function getAdminStudentReportDetails(studentId, s) {
     
     return {
         ...d,
-        attendance: d.attendance || '—',
+        attendance: (typeof Attendance !== 'undefined' && Attendance.label(studentId)) || d.attendance || '—',
         conduct: conduct || '—',
         interest: interest || '—',
         teacherRemarks: teacherRemarks || '—',
@@ -4058,6 +4058,39 @@ function getAdminStudentReportDetails(studentId, s) {
         promotionTarget,
         promoText
     };
+}
+
+function getSubjectsForClass(classIdOrName) {
+    if (!classIdOrName) return adminState.subjects || [];
+    const clsId = String(classIdOrName).trim();
+    const classRec = (adminState.classes || []).find(c => String(c.id) === clsId || String(c.name || '').toLowerCase() === clsId.toLowerCase());
+    const effectiveClassId = classRec?.id || clsId;
+    const effectiveClassName = classRec?.name || clsId;
+    const effectiveClassLower = effectiveClassName.toLowerCase();
+
+    const activeSubjects = (adminState.subjects || []).filter(s => String(s.status || 'active').toLowerCase() !== 'inactive');
+    const hasConfiguredAssignments = activeSubjects.some(s => Array.isArray(s.classIds) && s.classIds.length > 0);
+
+    const forClass = activeSubjects.filter(sub => {
+        const clsSubjectIds = Array.isArray(classRec?.subjectIds) ? classRec.subjectIds.map(String) : [];
+        if (clsSubjectIds.length > 0) {
+            if (clsSubjectIds.includes(String(sub.id)) || clsSubjectIds.some(s => String(s).toLowerCase() === String(sub.name || '').toLowerCase())) {
+                return true;
+            }
+        }
+
+        const ids = Array.isArray(sub.classIds) ? sub.classIds.map(String) : [];
+        if (!ids.length) {
+            return !hasConfiguredAssignments;
+        }
+
+        return ids.some(id => {
+            const sId = String(id).trim();
+            return sId === effectiveClassId || sId.toLowerCase() === effectiveClassLower;
+        });
+    });
+
+    return forClass;
 }
 
 async function bulkDownloadSelectedReports() {
@@ -4085,11 +4118,7 @@ async function bulkDownloadSelectedReports() {
             const tm = adminState.terms.find(t => String(t.id) === String(r.termId))?.name || '';
             const d = getAdminStudentReportDetails(student.id, student);
             const classRec = adminState.classes.find(c => String(c.id) === String(r.classId));
-            let classSubs = adminState.subjects;
-            if (classRec && Array.isArray(classRec.subjectIds) && classRec.subjectIds.length) {
-                classSubs = adminState.subjects.filter(s => classRec.subjectIds.includes(s.id));
-            }
-            if (!classSubs.length) classSubs = adminState.subjects;
+            let classSubs = getSubjectsForClass(r.classId || student.classId || student.class);
             const isJHS = isJHSDepartment(className, classRec?.department || '');
 
             let rowsHtml = '';
@@ -4401,11 +4430,7 @@ function viewReport(id) {
     const primaryDark = (typeof adjustColorBrightness === 'function') ? adjustColorBrightness(primaryColor, -15) : '#4338ca';
 
     const classRec = adminState.classes.find(c => String(c.id) === String(r.classId) || c.name === className);
-    let classSubs = adminState.subjects;
-    if (classRec && Array.isArray(classRec.subjectIds) && classRec.subjectIds.length) {
-        classSubs = adminState.subjects.filter(sub => classRec.subjectIds.includes(sub.id));
-    }
-    if (!classSubs.length) classSubs = adminState.subjects;
+    let classSubs = getSubjectsForClass(r.classId || student.classId || student.class);
 
     // Determine if JHS
     const isJHS = isJHSDepartment(className, classRec?.department || '');
@@ -4756,11 +4781,7 @@ async function executeAdminBulkDownload() {
             const tm = adminState.terms.find(t => String(t.id) === String(r.termId))?.name || '';
             const d = detailsBag[student.id] || detailsBag[String(student.id)] || {};
             const classRec = adminState.classes.find(c => String(c.id) === String(r.classId));
-            let classSubs = adminState.subjects;
-            if (classRec && Array.isArray(classRec.subjectIds) && classRec.subjectIds.length) {
-                classSubs = adminState.subjects.filter(s => classRec.subjectIds.includes(s.id));
-            }
-            if (!classSubs.length) classSubs = adminState.subjects;
+            let classSubs = getSubjectsForClass(r.classId || student.classId || student.class);
             const isJHS = isJHSDepartment(className, classRec?.department || '');
 
             let rowsHtml = '';
@@ -6774,6 +6795,68 @@ function renderAttendanceSection() {
     bindAdminAttendanceButtons();
 }
 
+function updateAdminAttendanceRowFast(id, nextStatus, date) {
+    const rowBtn = document.querySelector(`[data-att-id="${id}"]`);
+    if (!rowBtn) return false;
+    const tr = rowBtn.closest('tr');
+    if (!tr) return false;
+
+    // Update buttons active class
+    tr.querySelectorAll('[data-att-id]').forEach(btn => {
+        const bStatus = btn.getAttribute('data-att-status');
+        btn.classList.remove('on-present', 'on-late', 'on-absent');
+        if (nextStatus && bStatus === nextStatus) {
+            btn.classList.add('on-' + nextStatus);
+        }
+    });
+
+    // Update Status column (4th cell in table: col index 3)
+    const statusCell = tr.cells[3];
+    if (statusCell) {
+        if (nextStatus) {
+            const pillClass = nextStatus === 'absent' ? 'pending' : 'approved';
+            statusCell.innerHTML = `<span class="status-pill ${pillClass}">${escHtml(nextStatus)}</span>`;
+        } else {
+            statusCell.innerHTML = '—';
+        }
+    }
+
+    // Update daily summary
+    const list = attendanceStudents();
+    const sum = Attendance.summaryForClass(list, date);
+    const days = Attendance.schoolDaysInTerm();
+    const sumEl = document.getElementById('attDailySummary');
+    if (sumEl) {
+        sumEl.innerHTML = `
+            <span class="att-pill">${sum.present} present</span>
+            <span class="att-pill">${sum.late} late</span>
+            <span class="att-pill">${sum.absent} absent</span>
+            <span class="att-pill">${sum.unmarked} unmarked</span>
+            <span class="att-pill">${sum.total} students</span>
+            <span class="att-pill">On reports: present OUT OF ${days || '—'}</span>`;
+    }
+
+    // Update totals table if visible
+    const totalsTable = document.getElementById('attTotalsBody');
+    if (totalsTable) {
+        const rows = totalsTable.querySelectorAll('tr');
+        const sIdStr = String(id);
+        const student = adminState.students.find(s => String(s.id) === sIdStr);
+        rows.forEach(r => {
+            const nameCell = r.cells[0]?.textContent;
+            if (student && nameCell && nameCell.trim() === student.name.trim()) {
+                const present = Attendance.presentCount(id);
+                const absent = Attendance.absentCount(id);
+                if (r.cells[1]) r.cells[1].textContent = present;
+                if (r.cells[2]) r.cells[2].textContent = absent;
+                if (r.cells[5]) r.cells[5].innerHTML = `<strong>${escHtml(Attendance.label(id) || '—')}</strong>`;
+            }
+        });
+    }
+
+    return true;
+}
+
 function adminMarkStudent(id, status) {
     if (typeof Attendance === 'undefined') return;
     const date = adminAttDate();
@@ -6782,7 +6865,11 @@ function adminMarkStudent(id, status) {
     const student = adminState.students.find(s => String(s.id) === String(id));
     const res = Attendance.mark(id, date, next, { className: student?.class || '', by: 'admin' });
     if (!res.ok) { showToast(res.error, 'error'); return; }
-    renderAttendanceSection();
+    
+    const updated = updateAdminAttendanceRowFast(id, next, date);
+    if (!updated) {
+        renderAttendanceSection();
+    }
 }
 
 function adminMarkAll(status) {

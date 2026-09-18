@@ -529,17 +529,70 @@ function handleStudentLogout() {
     if (overlay) overlay.style.display = 'flex';
 }
 
+function getStudentAssignedSubjects(student) {
+    if (!student) return null;
+    const allSubjects = safeLocalGet('subjects', []);
+    const activeSubjects = allSubjects.filter(s => String(s.status || 'active').toLowerCase() !== 'inactive');
+    const hasConfiguredAssignments = activeSubjects.some(s => Array.isArray(s.classIds) && s.classIds.length > 0);
+    if (!hasConfiguredAssignments) return null;
+
+    const targetClassId = String(student.classId || '').trim();
+    const targetClassName = String(student.class || '').trim();
+    const targetClassLower = targetClassName.toLowerCase();
+
+    const allClasses = safeLocalGet('classes', []);
+    const clsRec = allClasses.find(c => String(c.id) === targetClassId || String(c.name || '').toLowerCase() === targetClassLower);
+    const clsSubjectIds = Array.isArray(clsRec?.subjectIds) ? clsRec.subjectIds.map(String) : [];
+
+    const assigned = activeSubjects.filter(sub => {
+        if (clsSubjectIds.length > 0) {
+            if (clsSubjectIds.includes(String(sub.id)) || clsSubjectIds.some(s => String(s).toLowerCase() === String(sub.name || '').toLowerCase())) {
+                return true;
+            }
+        }
+        const ids = Array.isArray(sub.classIds) ? sub.classIds.map(String) : [];
+        if (!ids.length) return false;
+        return ids.some(id => {
+            const sId = String(id).trim();
+            return (targetClassId && sId === targetClassId) || (clsRec && sId === String(clsRec.id)) || sId.toLowerCase() === targetClassLower;
+        });
+    });
+
+    return assigned;
+}
+
 function collectStudentResultRows(student) {
     const scores = safeLocalGet('scores', {});
     const results = safeLocalGet('results', []);
     const rowsMap = new Map();
+
+    const assignedSubjects = getStudentAssignedSubjects(student);
+    if (assignedSubjects && Array.isArray(assignedSubjects)) {
+        assignedSubjects.forEach(s => {
+            const key = String(s.name || s.id || '').toLowerCase().trim();
+            rowsMap.set(key, {
+                Subject: s.name || s.id,
+                'Class Score': '',
+                'Exam Score': '',
+                Total: '',
+                Grade: '',
+                Remark: 'No scores'
+            });
+        });
+    }
 
     // 1. Load from scores
     Object.keys(scores).forEach(sub => {
         const bag = scores[sub] || {};
         const entry = bag[student.id] || bag[String(student.id)] || (!isNaN(Number(student.id)) ? bag[Number(student.id)] : null);
         if (!entry || (entry.classScore === '' && entry.examScore === '' && (entry.totalScore == null || entry.totalScore === ''))) return;
-        rowsMap.set(sub.toLowerCase().trim(), {
+        const key = sub.toLowerCase().trim();
+        if (assignedSubjects && !rowsMap.has(key)) {
+            // Check if sub matches any assigned subject by id or name
+            const match = assignedSubjects.find(s => String(s.name).toLowerCase().trim() === key || String(s.id).toLowerCase().trim() === key);
+            if (!match) return; // Subject NOT assigned to this class!
+        }
+        rowsMap.set(key, {
             Subject: sub,
             'Class Score': entry.classScore50 != null && entry.classScore50 !== '' ? entry.classScore50 : (entry.classScore ?? ''),
             'Exam Score': entry.examScore50 != null && entry.examScore50 !== '' ? entry.examScore50 : (entry.examScore ?? ''),
@@ -553,7 +606,12 @@ function collectStudentResultRows(student) {
     results.filter(r => String(r.studentId) === String(student.id)).forEach(r => {
         const sub = r.subjectName || r.subjectId || 'Subject';
         if (r.classScore !== '' || r.examScore !== '' || (r.totalScore != null && r.totalScore !== '')) {
-            rowsMap.set(sub.toLowerCase().trim(), {
+            const key = sub.toLowerCase().trim();
+            if (assignedSubjects && !rowsMap.has(key)) {
+                const match = assignedSubjects.find(s => String(s.name).toLowerCase().trim() === key || String(s.id).toLowerCase().trim() === key);
+                if (!match) return; // Subject NOT assigned to this class!
+            }
+            rowsMap.set(key, {
                 Subject: sub,
                 'Class Score': r.classScore50 != null && r.classScore50 !== '' ? r.classScore50 : (r.classScore != null && r.classScore !== '' ? Math.round((Number(r.classScore)/100)*50*10)/10 : ''),
                 'Exam Score': r.examScore50 != null && r.examScore50 !== '' ? r.examScore50 : (r.examScore != null && r.examScore !== '' ? Math.round((Number(r.examScore)/100)*50*10)/10 : ''),

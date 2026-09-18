@@ -44,7 +44,6 @@ function refreshGradingSystem() {
     gradingSystem = DEFAULT_GRADING_SYSTEM;
 }
 
-// Initialize data
 function safeLocalGet(key, fallback) {
     try {
         const val = localStorage.getItem(key);
@@ -52,6 +51,29 @@ function safeLocalGet(key, fallback) {
     } catch (e) {
         return fallback;
     }
+}
+
+function getSubjectsForClass(targetClassName) {
+    const rawSubjects = safeLocalGet('subjects', []);
+    const activeSubs = Array.isArray(rawSubjects) ? rawSubjects.filter(s => String(s.status || 'active').toLowerCase() !== 'inactive') : [];
+    const hasConfiguredAssignments = activeSubs.some(s => Array.isArray(s.classIds) && s.classIds.length > 0);
+    if (!hasConfiguredAssignments) {
+        return activeSubs.length ? activeSubs.map(s => s.name || s) : subjects;
+    }
+    const cName = String(targetClassName || (typeof schoolInfo !== 'undefined' ? schoolInfo.numberOnRollClass : '') || '').trim().toLowerCase();
+    const allClasses = safeLocalGet('classes', []);
+    const clsRec = allClasses.find(c => String(c.name || '').trim().toLowerCase() === cName || String(c.id) === cName);
+    const clsId = clsRec?.id || '';
+
+    const forClass = activeSubs.filter(sub => {
+        const ids = Array.isArray(sub.classIds) ? sub.classIds.map(String) : [];
+        if (!ids.length) return false;
+        return ids.some(id => {
+            const sId = String(id).trim();
+            return (clsId && sId === clsId) || sId.toLowerCase() === cName;
+        });
+    });
+    return forClass.length ? forClass.map(s => s.name || s) : activeSubs.map(s => s.name || s);
 }
 
 let students = safeLocalGet('students', []);
@@ -1866,7 +1888,10 @@ function generateIndividualReport(studentId) {
     let hasScores = false;
     let completedSubjects = 0;
     
-    subjects.forEach(subject => {
+    const reportStudent = students.find(s => String(s.id) === String(studentId));
+    const reportSubs = getSubjectsForClass(reportStudent?.class || schoolInfo.numberOnRollClass);
+    
+    reportSubs.forEach(subject => {
         if (scores[subject] && scores[subject][studentId]) {
             const subjectData = scores[subject][studentId];
             
@@ -2232,8 +2257,9 @@ function generateReportPdfBlob(studentId) {
                 y = hY + headH;
             }
             drawTableHeader();
-            doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
-            subjects.forEach((subject, ri) => {
+            const pdfStudent = students.find(s => String(s.id) === String(studentId));
+            const pdfSubs = getSubjectsForClass(pdfStudent?.class || schoolInfo.numberOnRollClass);
+            pdfSubs.forEach((subject, ri) => {
                 const before = y;
                 const sd = scores[subject] && scores[subject][studentId];
                 let classS = '-', examS = '-', total = '-', grade = '-', remark = '-';
