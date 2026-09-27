@@ -971,23 +971,8 @@ async function getCollection(collectionName) {
             localStorage.setItem(collectionName, JSON.stringify(data));
             return data;
         } else {
-            const localData = JSON.parse(localStorage.getItem(collectionName) || '[]');
-            if (Array.isArray(localData) && localData.length > 0) {
-                try {
-                    const batch = db.batch();
-                    let count = 0;
-                    for (const item of localData) {
-                        if (item && (item.id || item.uid)) {
-                            const id = String(item.id || item.uid);
-                            batch.set(db.collection(collectionName).doc(id), { ...item, id }, { merge: true });
-                            count++;
-                            if (count >= 400) break;
-                        }
-                    }
-                    if (count > 0) batch.commit().catch(() => {});
-                } catch (e) {}
-                return localData;
-            }
+            // Firebase collection is empty, clear any stale local cache and return empty array
+            localStorage.setItem(collectionName, '[]');
             return [];
         }
     } catch (e) {
